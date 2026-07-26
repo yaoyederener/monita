@@ -2,10 +2,12 @@ import os
 import requests
 from web3 import Web3
 
+
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 RPC = "https://bsc-dataseed.binance.org"
+
 
 TOKEN = Web3.to_checksum_address(
     "0x255e746abb8d9acac00d6d023e5e63e3b8dfa7cd"
@@ -15,39 +17,20 @@ WALLET = Web3.to_checksum_address(
     "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b"
 )
 
+
 STATE = "last_block.txt"
 
 
 w3 = Web3(
     Web3.HTTPProvider(
         RPC,
-        request_kwargs={"timeout": 20}
+        request_kwargs={"timeout":30}
     )
 )
 
+
 if not w3.is_connected():
     raise Exception("RPC连接失败")
-
-
-latest = w3.eth.block_number
-
-
-# 读取上次区块
-if os.path.exists(STATE):
-    with open(STATE) as f:
-        last_block = int(f.read().strip())
-else:
-    last_block = latest - 2
-
-
-if last_block >= latest:
-    print("没有新区块")
-    exit()
-
-
-print(
-    f"扫描区块 {last_block+1} - {latest}"
-)
 
 
 TRANSFER_TOPIC = Web3.keccak(
@@ -55,136 +38,116 @@ TRANSFER_TOPIC = Web3.keccak(
 ).hex()
 
 
-wallet_topic = (
-    "0x000000000000000000000000"
-    + WALLET[2:].lower()
-)
-
-
-logs = []
-
-
-# 监听：
-# 1. 转入钱包
-# 2. 钱包转出
-
-filters = [
-
-    [
-        TRANSFER_TOPIC,
-        None,
-        wallet_topic
-    ],
-
-    [
-        TRANSFER_TOPIC,
-        wallet_topic,
-        None
-    ]
-
-]
-
-
-for topics in filters:
-
-    try:
-
-        result = w3.eth.get_logs(
-            {
-                "address": TOKEN,
-                "fromBlock": last_block + 1,
-                "toBlock": latest,
-                "topics": topics
-            }
-        )
-
-        logs.extend(result)
-
-    except Exception as e:
-
-        print(
-            "RPC错误:",
-            e
-        )
-
-
 ZERO = "0x0000000000000000000000000000000000000000"
 
 
-for log in logs:
-
-    tx_hash = log["transactionHash"].hex()
-
-    block = log["blockNumber"]
+latest = w3.eth.block_number
 
 
-    from_addr = Web3.to_checksum_address(
-        "0x" + log["topics"][1].hex()[-40:]
+if os.path.exists(STATE):
+
+    with open(STATE) as f:
+        last = int(f.read())
+
+else:
+
+    last = latest - 2
+
+
+print(
+    f"扫描区块 {last+1}-{latest}"
+)
+
+
+
+for block_num in range(last+1, latest+1):
+
+    block = w3.eth.get_block(
+        block_num,
+        full_transactions=True
     )
 
-    to_addr = Web3.to_checksum_address(
-        "0x" + log["topics"][2].hex()[-40:]
-    )
+
+    for tx in block.transactions:
 
 
-    amount = (
-        int(log["data"].hex(),16)
-        /
-        10**18
-    )
+        try:
+
+            receipt = w3.eth.get_transaction_receipt(
+                tx.hash
+            )
 
 
-    message = None
+        except:
+            continue
 
 
-    # Mint
-    if (
-        from_addr == ZERO
-        and
-        to_addr == WALLET
-    ):
 
-        message = f"""
-🚨 IBS 增发 Mint
+        for log in receipt.logs:
+
+
+            if (
+                log.address.lower()
+                != TOKEN.lower()
+            ):
+                continue
+
+
+            if (
+                log.topics[0].hex()
+                != TRANSFER_TOPIC
+            ):
+                continue
+
+
+
+            from_addr = Web3.to_checksum_address(
+                "0x"+log.topics[1].hex()[-40:]
+            )
+
+            to_addr = Web3.to_checksum_address(
+                "0x"+log.topics[2].hex()[-40:]
+            )
+
+
+            amount = (
+                int(log.data.hex(),16)
+                /
+                10**18
+            )
+
+
+            msg = None
+
+
+            if (
+                from_addr == ZERO
+                and
+                to_addr == WALLET
+            ):
+
+                msg=f"""
+🚨 IBS Mint 增发
 
 数量:
 {amount:,.6f} IBS
 
-接收钱包:
+接收:
 {WALLET}
 
 区块:
-{block}
+{block_num}
 
-交易:
-https://bscscan.com/tx/{tx_hash}
+Tx:
+https://bscscan.com/tx/{tx.hash.hex()}
 """
 
 
-    # 钱包收到
-    elif to_addr == WALLET:
 
-        message = f"""
-🟢 IBS 转入
-
-数量:
-{amount:,.6f} IBS
-
-来源:
-{from_addr}
-
-区块:
-{block}
-
-交易:
-https://bscscan.com/tx/{tx_hash}
-"""
+            elif from_addr == WALLET:
 
 
-    # 钱包转出
-    elif from_addr == WALLET:
-
-        message = f"""
+                msg=f"""
 🔴 IBS 转出
 
 数量:
@@ -194,35 +157,52 @@ https://bscscan.com/tx/{tx_hash}
 {to_addr}
 
 区块:
-{block}
+{block_num}
 
-交易:
-https://bscscan.com/tx/{tx_hash}
+Tx:
+https://bscscan.com/tx/{tx.hash.hex()}
 """
 
 
-    if message:
 
-        print(message)
-
-
-        r = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": message
-            },
-            timeout=20
-        )
+            elif to_addr == WALLET:
 
 
-        print(
-            "Telegram:",
-            r.text
-        )
+                msg=f"""
+🟢 IBS 转入
+
+数量:
+{amount:,.6f} IBS
+
+来源:
+{from_addr}
+
+区块:
+{block_num}
+
+Tx:
+https://bscscan.com/tx/{tx.hash.hex()}
+"""
 
 
-# 保存最新区块
+
+            if msg:
+
+                print(msg)
+
+
+                r=requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={
+                        "chat_id":CHAT_ID,
+                        "text":msg
+                    },
+                    timeout=20
+                )
+
+                print(r.text)
+
+
 
 with open(STATE,"w") as f:
     f.write(str(latest))
