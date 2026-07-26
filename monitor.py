@@ -7,6 +7,7 @@ from web3.middleware import geth_poa_middleware
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
+
 RPC = "https://bsc-dataseed1.binance.org"
 
 
@@ -29,6 +30,7 @@ w3 = Web3(
     )
 )
 
+
 w3.middleware_onion.inject(
     geth_poa_middleware,
     layer=0
@@ -36,56 +38,61 @@ w3.middleware_onion.inject(
 
 
 if not w3.is_connected():
-    raise Exception("RPC failed")
+    raise Exception("RPC连接失败")
 
 
 latest = w3.eth.block_number
 
 
+# 读取记录区块
+
 if os.path.exists(STATE):
 
     with open(STATE) as f:
-        last = int(f.read())
+        last = int(f.read().strip())
 
 else:
 
     last = latest - 1
 
 
-if last >= latest:
-    print("没有新区块")
-    exit()
+# 防止一次扫太多
+
+if latest - last > 3:
+    last = latest - 3
 
 
 print(
-    f"扫描 {last+1} - {latest}"
+    f"扫描区块 {last+1} - {latest}"
 )
 
 
-TRANSFER = Web3.keccak(
+TRANSFER_TOPIC = Web3.keccak(
     text="Transfer(address,address,uint256)"
 ).hex()
 
 
 wallet_topic = (
     "0x000000000000000000000000"
-    +
-    WALLET[2:].lower()
+    + WALLET[2:].lower()
 )
 
 
-topics_list = [
+ZERO = "0x0000000000000000000000000000000000000000"
+
+
+filters = [
 
     # 转入钱包
     [
-        TRANSFER,
+        TRANSFER_TOPIC,
         None,
         wallet_topic
     ],
 
     # 钱包转出
     [
-        TRANSFER,
+        TRANSFER_TOPIC,
         wallet_topic,
         None
     ]
@@ -93,7 +100,7 @@ topics_list = [
 ]
 
 
-for topics in topics_list:
+for topics in filters:
 
     try:
 
@@ -106,10 +113,13 @@ for topics in topics_list:
             }
         )
 
-
     except Exception as e:
 
-        print("RPC错误:", e)
+        print(
+            "RPC错误:",
+            e
+        )
+
         continue
 
 
@@ -136,20 +146,20 @@ for topics in topics_list:
         tx = log["transactionHash"].hex()
 
 
-        msg = None
+        message = None
+
 
 
         # Mint
 
         if (
-            from_addr ==
-            "0x0000000000000000000000000000000000000000"
+            from_addr.lower() == ZERO
             and
-            to_addr == WALLET
+            to_addr.lower() == WALLET.lower()
         ):
 
-            msg = f"""
-🚨 IBS Mint 增发
+            message = f"""
+🚨 IBS 增发 Mint
 
 数量:
 {amount:,.6f} IBS
@@ -157,14 +167,19 @@ for topics in topics_list:
 钱包:
 {WALLET}
 
+区块:
+{log['blockNumber']}
+
 交易:
 https://bscscan.com/tx/{tx}
 """
 
 
-        elif to_addr == WALLET:
+        # 转入
 
-            msg = f"""
+        elif to_addr.lower() == WALLET.lower():
+
+            message = f"""
 🟢 IBS 转入
 
 数量:
@@ -178,9 +193,11 @@ https://bscscan.com/tx/{tx}
 """
 
 
-        elif from_addr == WALLET:
+        # 转出
 
-            msg = f"""
+        elif from_addr.lower() == WALLET.lower():
+
+            message = f"""
 🔴 IBS 转出
 
 数量:
@@ -195,22 +212,30 @@ https://bscscan.com/tx/{tx}
 
 
 
-        if msg:
+        if message:
 
-            print(msg)
+
+            print(message)
+
 
             r = requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json={
                     "chat_id": CHAT_ID,
-                    "text": msg
+                    "text": message
                 },
                 timeout=20
             )
 
-            print(r.text)
+
+            print(
+                "Telegram:",
+                r.text
+            )
 
 
+
+# 保存最新区块
 
 with open(STATE,"w") as f:
     f.write(str(latest))
