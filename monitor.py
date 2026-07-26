@@ -8,7 +8,6 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 
-# 换RPC
 RPC = "https://bsc.publicnode.com"
 
 
@@ -28,7 +27,6 @@ DEAD = "0x000000000000000000000000000000000000dead"
 
 
 STATE = "last_block.txt"
-
 
 
 w3 = Web3(
@@ -68,9 +66,9 @@ def send(msg):
 
 
 
-# =====================
-# Pair token
-# =====================
+# ======================
+# 获取 Pair token
+# ======================
 
 PAIR_ABI = [
 {
@@ -125,7 +123,7 @@ else:
 
 
 
-# 最大5个区块
+# 防止RPC限制
 
 if latest - last > 5:
     last = latest - 5
@@ -149,9 +147,14 @@ SWAP = Web3.keccak(
 
 
 
+ZERO = "0x0000000000000000000000000000000000000000"
+
+
+
 ZERO_TOPIC = (
 "0x0000000000000000000000000000000000000000000000000000000000000000"
 )
+
 
 
 DEAD_TOPIC = (
@@ -160,9 +163,9 @@ DEAD_TOPIC = (
 
 
 
-# =====================
+# ======================
 # Mint
-# =====================
+# ======================
 
 try:
 
@@ -183,7 +186,7 @@ try:
 
 except Exception as e:
 
-    print("Mint查询失败:", e)
+    print("Mint错误:",e)
     mint_logs=[]
 
 
@@ -191,12 +194,12 @@ except Exception as e:
 for log in mint_logs:
 
 
-    to_addr = Web3.to_checksum_address(
+    to = Web3.to_checksum_address(
         "0x"+log["topics"][2].hex()[-40:]
     )
 
 
-    if to_addr.lower()!=TARGET.lower():
+    if to.lower()!=TARGET.lower():
         continue
 
 
@@ -206,24 +209,27 @@ for log in mint_logs:
     )/1e18
 
 
+    tx = log["transactionHash"].hex()
+
+
     send(f"""
-🚨 IBS Mint
+🚨 IBS MINT
 
 数量:
 {amount:,.6f} IBS
 
 接收:
-{to_addr}
+{to}
 
 TX:
-https://bscscan.com/tx/{log['transactionHash'].hex()}
+https://bscscan.com/tx/{tx}
 """)
 
 
 
-# =====================
+# ======================
 # Burn
-# =====================
+# ======================
 
 try:
 
@@ -245,7 +251,7 @@ try:
 
 except Exception as e:
 
-    print("Burn查询失败:", e)
+    print("Burn错误:",e)
     burn_logs=[]
 
 
@@ -259,84 +265,103 @@ for log in burn_logs:
     )/1e18
 
 
-    send(f"""
-🔥 IBS Burn
+    tx=log["transactionHash"].hex()
 
-数量:
+
+    send(f"""
+🔥 IBS BURN
+
+销毁:
 {amount:,.6f} IBS
 
 TX:
-https://bscscan.com/tx/{log['transactionHash'].hex()}
+https://bscscan.com/tx/{tx}
 """)
 
 
 
-# =====================
-# Swap
-# =====================
+# ======================
+# PancakeSwap Swap
+# ======================
 
 try:
 
     swap_logs = w3.eth.get_logs({
 
-        "address": PAIR,
+        "address":PAIR,
 
-        "fromBlock": last+1,
+        "fromBlock":last+1,
 
-        "toBlock": latest,
+        "toBlock":latest,
 
         "topics":[SWAP]
 
     })
 
+
 except Exception as e:
 
-    print("Swap查询失败:", e)
+    print("Swap错误:",e)
     swap_logs=[]
+
+
+
+MIN_IBS = 100 * 10**18
 
 
 
 for log in swap_logs:
 
 
-    data=log["data"].hex()[2:]
+    data = log["data"].hex()[2:]
 
 
-    nums=[]
+    values=[]
 
     for i in range(0,256,64):
 
-        nums.append(
+        values.append(
             int(data[i:i+64],16)
         )
 
 
-    a0in,a1in,a0out,a1out=nums[:4]
+    amount0in = values[0]
+    amount1in = values[1]
+    amount0out = values[2]
+    amount1out = values[3]
+
 
 
     if token0.lower()==IBS.lower():
 
-        ibs_in=a0in
-        ibs_out=a0out
+        ibs_in = amount0in
+        ibs_out = amount0out
 
-        usdt_in=a1in
-        usdt_out=a1out
+        usdt_in = amount1in
+        usdt_out = amount1out
 
     else:
 
-        ibs_in=a1in
-        ibs_out=a1out
+        ibs_in = amount1in
+        ibs_out = amount1out
 
-        usdt_in=a0in
-        usdt_out=a0out
-
-
-
-    tx=log["transactionHash"].hex()
+        usdt_in = amount0in
+        usdt_out = amount0out
 
 
 
-    if ibs_in>0 and usdt_out>0:
+    tx = log["transactionHash"].hex()
+
+
+
+    # IBS卖出
+
+    if (
+        ibs_in >= MIN_IBS
+        and
+        usdt_out > 0
+    ):
+
 
         send(f"""
 🔴 IBS SELL
@@ -352,7 +377,15 @@ https://bscscan.com/tx/{tx}
 """)
 
 
-    elif usdt_in>0 and ibs_out>0:
+
+    # 回购
+
+    elif (
+        ibs_out >= MIN_IBS
+        and
+        usdt_in > 0
+    ):
+
 
         send(f"""
 🟢 IBS BUYBACK
