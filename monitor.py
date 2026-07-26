@@ -27,6 +27,8 @@ USDT = Web3.to_checksum_address(
     "0x55d398326f99059fF775485246999027B3197955"
 )
 
+DEAD = "0x000000000000000000000000000000000000dead"
+
 
 STATE = "last_block.txt"
 
@@ -67,7 +69,9 @@ def send(msg):
 
 
 
-# 获取token顺序
+# ======================
+# Pair token 顺序
+# ======================
 
 PAIR_ABI = [
 {
@@ -102,28 +106,29 @@ token1 = Web3.to_checksum_address(
 )
 
 
-print("token0:",token0)
-print("token1:",token1)
+print("token0:", token0)
+print("token1:", token1)
 
 
 
 latest = w3.eth.block_number
 
 
-
 if os.path.exists(STATE):
 
     with open(STATE) as f:
-        last=int(f.read())
+        last = int(f.read())
 
 else:
 
-    last=latest-5
+    last = latest - 5
 
 
 
-if latest-last > 20:
-    last=latest-20
+# 防止RPC限制
+
+if latest - last > 20:
+    last = latest - 20
 
 
 
@@ -133,14 +138,10 @@ print(
 
 
 
-# Transfer事件
-
 TRANSFER = Web3.keccak(
     text="Transfer(address,address,uint256)"
 ).hex()
 
-
-# Swap事件
 
 SWAP = Web3.keccak(
     text="Swap(address,uint256,uint256,uint256,uint256,address)"
@@ -148,105 +149,141 @@ SWAP = Web3.keccak(
 
 
 
-ZERO="0x0000000000000000000000000000000000000000"
+# 地址topic格式
 
-DEAD="0x000000000000000000000000000000000000dead"
-
-
-
-# ===================
-# IBS Transfer
-# ===================
+target_topic = (
+    "0x000000000000000000000000"
+    + TARGET[2:].lower()
+)
 
 
-logs=w3.eth.get_logs({
+dead_topic = (
+    "0x000000000000000000000000"
+    + DEAD[2:].lower()
+)
 
-"address":IBS,
 
-"fromBlock":last+1,
+zero_topic = (
+    "0x0000000000000000000000000000000000000000000000000000000000000000"
+)
 
-"toBlock":latest,
 
-"topics":[TRANSFER]
+
+# =================================================
+# 1. Mint 到目标地址
+# =================================================
+
+
+mint_logs = w3.eth.get_logs({
+
+    "address": IBS,
+
+    "fromBlock": last+1,
+
+    "toBlock": latest,
+
+    "topics":[
+        TRANSFER,
+        zero_topic,
+        target_topic
+    ]
 
 })
 
 
-for log in logs:
+for log in mint_logs:
 
 
-    frm="0x"+log["topics"][1].hex()[-40:]
-
-    to="0x"+log["topics"][2].hex()[-40:]
-
-
-    amount=int(log["data"].hex(),16)/10**18
+    amount = int(
+        log["data"].hex(),
+        16
+    ) / 1e18
 
 
-    tx=log["transactionHash"].hex()
+    tx = log["transactionHash"].hex()
 
 
-
-    if frm.lower()==ZERO:
-
-        send(f"""
-🚨 IBS Mint
+    send(f"""
+🚨 IBS Mint 增发
 
 数量:
 {amount:,.6f} IBS
 
 接收:
-{to}
+{TARGET}
 
 TX:
 https://bscscan.com/tx/{tx}
 """)
 
 
-    elif to.lower()==DEAD:
-
-        send(f"""
-🔥 IBS Burn
-
-销毁:
-{amount:,.6f} IBS
-
-来源:
-{frm}
-
-TX:
-https://bscscan.com/tx/{tx}
-""")
+# =================================================
+# 2. Burn 黑洞
+# =================================================
 
 
+burn_logs = w3.eth.get_logs({
 
-# ===================
-# PancakeSwap Swap
-# ===================
+    "address": IBS,
 
+    "fromBlock": last+1,
 
-swap_logs=w3.eth.get_logs({
+    "toBlock": latest,
 
-"address":PAIR,
-
-"fromBlock":last+1,
-
-"toBlock":latest,
-
-"topics":[SWAP]
+    "topics":[
+        TRANSFER,
+        None,
+        dead_topic
+    ]
 
 })
 
+
+for log in burn_logs:
+
+
+    amount = int(
+        log["data"].hex(),
+        16
+    ) / 1e18
+
+
+    tx = log["transactionHash"].hex()
+
+
+    send(f"""
+🔥 IBS Burn 销毁
+
+数量:
+{amount:,.6f} IBS
+
+TX:
+https://bscscan.com/tx/{tx}
+""")
+
+
+# =================================================
+# 3. PancakeSwap Swap
+# =================================================
+
+
+swap_logs = w3.eth.get_logs({
+
+    "address": PAIR,
+
+    "fromBlock": last+1,
+
+    "toBlock": latest,
+
+    "topics":[SWAP]
+
+})
 
 
 for log in swap_logs:
 
 
-    data=log["data"].hex()
-
-
-    # 去掉0x
-    data=data[2:]
+    data = log["data"].hex()[2:]
 
 
     values=[]
@@ -258,38 +295,38 @@ for log in swap_logs:
         )
 
 
-    amount0in=values[0]
-    amount1in=values[1]
-    amount0out=values[2]
-    amount1out=values[3]
+    amount0in = values[0]
+    amount1in = values[1]
+    amount0out = values[2]
+    amount1out = values[3]
 
 
-    tx=log["transactionHash"].hex()
+    tx = log["transactionHash"].hex()
 
 
 
-    # IBS 是 token0
+    if token0.lower() == IBS.lower():
 
-    if token0.lower()==IBS.lower():
+        ibs_in = amount0in
+        ibs_out = amount0out
 
-        ibs_in=amount0in
-        ibs_out=amount0out
-
-        usdt_in=amount1in
-        usdt_out=amount1out
-
+        usdt_in = amount1in
+        usdt_out = amount1out
 
     else:
 
-        ibs_in=amount1in
-        ibs_out=amount1out
+        ibs_in = amount1in
+        ibs_out = amount1out
 
-        usdt_in=amount0in
-        usdt_out=amount0out
+        usdt_in = amount0in
+        usdt_out = amount0out
 
 
 
-    if ibs_in>0 and usdt_out>0:
+    # IBS卖出
+
+    if ibs_in > 0 and usdt_out > 0:
+
 
         send(f"""
 🔴 IBS SELL
@@ -305,7 +342,10 @@ https://bscscan.com/tx/{tx}
 """)
 
 
-    elif usdt_in>0 and ibs_out>0:
+    # 买回
+
+    elif usdt_in > 0 and ibs_out > 0:
+
 
         send(f"""
 🟢 IBS BUYBACK
@@ -320,6 +360,8 @@ TX:
 https://bscscan.com/tx/{tx}
 """)
 
+
+# 保存区块
 
 with open(STATE,"w") as f:
     f.write(str(latest))
