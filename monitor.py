@@ -17,7 +17,7 @@ TOKEN = Web3.to_checksum_address(
 
 
 WALLET = Web3.to_checksum_address(
-    "0xed8b85788E15305c59De904fCAAC0F2c9c4Bd41b"
+    "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b"
 )
 
 
@@ -27,7 +27,7 @@ STATE_FILE = "last_block.txt"
 w3 = Web3(
     Web3.HTTPProvider(
         RPC,
-        request_kwargs={"timeout":30}
+        request_kwargs={"timeout":20}
     )
 )
 
@@ -53,9 +53,7 @@ TRANSFER_TOPIC = Web3.keccak(
 ZERO = "0x0000000000000000000000000000000000000000"
 
 
-
 latest = w3.eth.block_number
-
 
 
 # 读取上次区块
@@ -67,21 +65,18 @@ if os.path.exists(STATE_FILE):
 
 else:
 
-    # 第一次运行，只看最近5个区块
     last_block = latest - 5
 
 
 
-# 防止一次跑太多
-
-if latest - last_block > 500:
-
-    last_block = latest - 500
+# 防止卡死
+if latest - last_block > 10:
+    last_block = latest - 10
 
 
 
 print(
-    f"扫描区块 {last_block+1} - {latest}"
+    f"扫描区块 {last_block+1}-{latest}"
 )
 
 
@@ -90,7 +85,6 @@ for block_number in range(
     last_block + 1,
     latest + 1
 ):
-
 
     try:
 
@@ -102,21 +96,18 @@ for block_number in range(
     except Exception as e:
 
         print(
-            "读取区块失败:",
+            "区块错误:",
             e
         )
-
         continue
 
 
-
     print(
-        "区块:",
+        "区块",
         block_number,
         "交易:",
         len(block.transactions)
     )
-
 
 
     for tx in block.transactions:
@@ -138,12 +129,10 @@ for block_number in range(
 
 
             if log.address.lower() != TOKEN.lower():
-
                 continue
 
 
             if log.topics[0].hex() != TRANSFER_TOPIC:
-
                 continue
 
 
@@ -168,7 +157,7 @@ for block_number in range(
             txhash = tx.hash.hex()
 
 
-            msg = None
+            message = None
 
 
 
@@ -180,8 +169,7 @@ for block_number in range(
                 to_addr.lower() == WALLET.lower()
             ):
 
-
-                msg = f"""
+                message = f"""
 🚨 IBS Mint 增发
 
 数量:
@@ -198,13 +186,11 @@ https://bscscan.com/tx/{txhash}
 """
 
 
-
-            # 钱包收到
+            # 转入
 
             elif to_addr.lower() == WALLET.lower():
 
-
-                msg = f"""
+                message = f"""
 🟢 IBS 转入
 
 数量:
@@ -213,21 +199,16 @@ https://bscscan.com/tx/{txhash}
 来源:
 {from_addr}
 
-区块:
-{block_number}
-
 交易:
 https://bscscan.com/tx/{txhash}
 """
 
 
-
-            # 钱包转出
+            # 转出
 
             elif from_addr.lower() == WALLET.lower():
 
-
-                msg = f"""
+                message = f"""
 🔴 IBS 转出
 
 数量:
@@ -236,34 +217,22 @@ https://bscscan.com/tx/{txhash}
 目标:
 {to_addr}
 
-区块:
-{block_number}
-
 交易:
 https://bscscan.com/tx/{txhash}
 """
 
 
+            if message:
 
-            if msg:
+                print(message)
 
-
-                print(msg)
-
-
-                r = requests.post(
+                requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                     json={
                         "chat_id": CHAT_ID,
-                        "text": msg
+                        "text": message
                     },
                     timeout=20
-                )
-
-
-                print(
-                    "Telegram:",
-                    r.text
                 )
 
 
