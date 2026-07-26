@@ -35,14 +35,13 @@ jobs:
           pip install web3==6.20.1 requests
 
 
-      - name: Run monitor
+      - name: Run IBS Monitor
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
 
         run: |
           python monitor.py
-
 
 
       - name: Save last block
@@ -52,6 +51,6 @@ jobs:
 
           git add last_block.txt
 
-          git commit -m "update block" || true
+          git commit -m "update last block" || true
 
           git push || true
