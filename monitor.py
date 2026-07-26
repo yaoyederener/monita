@@ -59,7 +59,7 @@ latest = w3.eth.block_number
 
 # 只看最新两个区块
 
-start_block = latest - 1
+start_block = latest - 500
 
 
 print(
