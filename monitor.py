@@ -11,17 +11,24 @@ CHAT_ID = os.environ["CHAT_ID"]
 RPC = "https://bsc-dataseed1.binance.org"
 
 
-TOKEN = Web3.to_checksum_address(
+IBS = Web3.to_checksum_address(
     "0x255e746abb8d9acac00d6d023e5e63e3b8dfa7cd"
 )
 
+PAIR = Web3.to_checksum_address(
+    "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
+)
 
-WALLET = Web3.to_checksum_address(
-    "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b"
+TARGET = Web3.to_checksum_address(
+    "0xed8b85788E15305c59De904fCAAC0F2c9c4Bd41b"
+)
+
+USDT = Web3.to_checksum_address(
+    "0x55d398326f99059fF775485246999027B3197955"
 )
 
 
-STATE_FILE = "last_block.txt"
+STATE = "last_block.txt"
 
 
 w3 = Web3(
@@ -45,205 +52,277 @@ if not w3.is_connected():
 print("BSC Connected")
 
 
-TRANSFER_TOPIC = Web3.keccak(
-    text="Transfer(address,address,uint256)"
-).hex()
+def send(msg):
+
+    print(msg)
+
+    requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        json={
+            "chat_id": CHAT_ID,
+            "text": msg
+        },
+        timeout=20
+    )
 
 
-ZERO = "0x0000000000000000000000000000000000000000"
+
+# 获取token顺序
+
+PAIR_ABI = [
+{
+"constant":True,
+"inputs":[],
+"name":"token0",
+"outputs":[{"name":"","type":"address"}],
+"type":"function"
+},
+{
+"constant":True,
+"inputs":[],
+"name":"token1",
+"outputs":[{"name":"","type":"address"}],
+"type":"function"
+}
+]
+
+
+pair = w3.eth.contract(
+    address=PAIR,
+    abi=PAIR_ABI
+)
+
+
+token0 = Web3.to_checksum_address(
+    pair.functions.token0().call()
+)
+
+token1 = Web3.to_checksum_address(
+    pair.functions.token1().call()
+)
+
+
+print("token0:",token0)
+print("token1:",token1)
+
 
 
 latest = w3.eth.block_number
 
 
-# 读取上次区块
 
-if os.path.exists(STATE_FILE):
+if os.path.exists(STATE):
 
-    with open(STATE_FILE) as f:
-        last_block = int(f.read().strip())
+    with open(STATE) as f:
+        last=int(f.read())
 
 else:
 
-    last_block = latest - 5
+    last=latest-5
 
 
 
-# 防止卡死
-if latest - last_block > 10:
-    last_block = latest - 10
+if latest-last > 20:
+    last=latest-20
 
 
 
 print(
-    f"扫描区块 {last_block+1}-{latest}"
+    f"扫描 {last+1}-{latest}"
 )
 
 
 
-for block_number in range(
-    last_block + 1,
-    latest + 1
-):
+# Transfer事件
 
-    try:
-
-        block = w3.eth.get_block(
-            block_number,
-            full_transactions=True
-        )
-
-    except Exception as e:
-
-        print(
-            "区块错误:",
-            e
-        )
-        continue
+TRANSFER = Web3.keccak(
+    text="Transfer(address,address,uint256)"
+).hex()
 
 
-    print(
-        "区块",
-        block_number,
-        "交易:",
-        len(block.transactions)
-    )
+# Swap事件
 
-
-    for tx in block.transactions:
-
-
-        try:
-
-            receipt = w3.eth.get_transaction_receipt(
-                tx.hash
-            )
-
-        except:
-
-            continue
+SWAP = Web3.keccak(
+    text="Swap(address,uint256,uint256,uint256,uint256,address)"
+).hex()
 
 
 
-        for log in receipt.logs:
+ZERO="0x0000000000000000000000000000000000000000"
 
-
-            if log.address.lower() != TOKEN.lower():
-                continue
-
-
-            if log.topics[0].hex() != TRANSFER_TOPIC:
-                continue
+DEAD="0x000000000000000000000000000000000000dead"
 
 
 
-            from_addr = Web3.to_checksum_address(
-                "0x" + log.topics[1].hex()[-40:]
-            )
+# ===================
+# IBS Transfer
+# ===================
 
 
-            to_addr = Web3.to_checksum_address(
-                "0x" + log.topics[2].hex()[-40:]
-            )
+logs=w3.eth.get_logs({
+
+"address":IBS,
+
+"fromBlock":last+1,
+
+"toBlock":latest,
+
+"topics":[TRANSFER]
+
+})
 
 
-            amount = (
-                int(log.data.hex(),16)
-                /
-                10**18
-            )
+for log in logs:
 
 
-            txhash = tx.hash.hex()
+    frm="0x"+log["topics"][1].hex()[-40:]
+
+    to="0x"+log["topics"][2].hex()[-40:]
 
 
-            message = None
+    amount=int(log["data"].hex(),16)/10**18
+
+
+    tx=log["transactionHash"].hex()
 
 
 
-            # Mint
+    if frm.lower()==ZERO:
 
-            if (
-                from_addr.lower() == ZERO
-                and
-                to_addr.lower() == WALLET.lower()
-            ):
-
-                message = f"""
-🚨 IBS Mint 增发
+        send(f"""
+🚨 IBS Mint
 
 数量:
 {amount:,.6f} IBS
 
 接收:
-{WALLET}
+{to}
 
-区块:
-{block_number}
-
-交易:
-https://bscscan.com/tx/{txhash}
-"""
+TX:
+https://bscscan.com/tx/{tx}
+""")
 
 
-            # 转入
+    elif to.lower()==DEAD:
 
-            elif to_addr.lower() == WALLET.lower():
+        send(f"""
+🔥 IBS Burn
 
-                message = f"""
-🟢 IBS 转入
-
-数量:
+销毁:
 {amount:,.6f} IBS
 
 来源:
-{from_addr}
+{frm}
 
-交易:
-https://bscscan.com/tx/{txhash}
-"""
-
-
-            # 转出
-
-            elif from_addr.lower() == WALLET.lower():
-
-                message = f"""
-🔴 IBS 转出
-
-数量:
-{amount:,.6f} IBS
-
-目标:
-{to_addr}
-
-交易:
-https://bscscan.com/tx/{txhash}
-"""
-
-
-            if message:
-
-                print(message)
-
-                requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": CHAT_ID,
-                        "text": message
-                    },
-                    timeout=20
-                )
+TX:
+https://bscscan.com/tx/{tx}
+""")
 
 
 
-# 保存最新区块
+# ===================
+# PancakeSwap Swap
+# ===================
 
-with open(STATE_FILE,"w") as f:
 
-    f.write(
-        str(latest)
-    )
+swap_logs=w3.eth.get_logs({
+
+"address":PAIR,
+
+"fromBlock":last+1,
+
+"toBlock":latest,
+
+"topics":[SWAP]
+
+})
+
+
+
+for log in swap_logs:
+
+
+    data=log["data"].hex()
+
+
+    # 去掉0x
+    data=data[2:]
+
+
+    values=[]
+
+    for i in range(0,256,64):
+
+        values.append(
+            int(data[i:i+64],16)
+        )
+
+
+    amount0in=values[0]
+    amount1in=values[1]
+    amount0out=values[2]
+    amount1out=values[3]
+
+
+    tx=log["transactionHash"].hex()
+
+
+
+    # IBS 是 token0
+
+    if token0.lower()==IBS.lower():
+
+        ibs_in=amount0in
+        ibs_out=amount0out
+
+        usdt_in=amount1in
+        usdt_out=amount1out
+
+
+    else:
+
+        ibs_in=amount1in
+        ibs_out=amount1out
+
+        usdt_in=amount0in
+        usdt_out=amount0out
+
+
+
+    if ibs_in>0 and usdt_out>0:
+
+        send(f"""
+🔴 IBS SELL
+
+卖出:
+{ibs_in/1e18:,.6f} IBS
+
+收到:
+{usdt_out/1e18:,.6f} USDT
+
+TX:
+https://bscscan.com/tx/{tx}
+""")
+
+
+    elif usdt_in>0 and ibs_out>0:
+
+        send(f"""
+🟢 IBS BUYBACK
+
+花费:
+{usdt_in/1e18:,.6f} USDT
+
+买入:
+{ibs_out/1e18:,.6f} IBS
+
+TX:
+https://bscscan.com/tx/{tx}
+""")
+
+
+with open(STATE,"w") as f:
+    f.write(str(latest))
 
 
 print("完成")
