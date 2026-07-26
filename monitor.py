@@ -20,15 +20,10 @@ WALLET = Web3.to_checksum_address(
 )
 
 
-STATE = "last_block.txt"
-
-
 w3 = Web3(
     Web3.HTTPProvider(
         RPC,
-        request_kwargs={
-            "timeout":30
-        }
+        request_kwargs={"timeout":30}
     )
 )
 
@@ -57,9 +52,8 @@ ZERO = "0x0000000000000000000000000000000000000000"
 latest = w3.eth.block_number
 
 
-# 只看最新两个区块
-
-start_block = latest - 500
+# 只监控最新两个区块
+start_block = latest - 1
 
 
 print(
@@ -67,12 +61,7 @@ print(
 )
 
 
-
-for block_number in range(
-    start_block,
-    latest + 1
-):
-
+for block_number in range(start_block, latest + 1):
 
     try:
 
@@ -81,20 +70,19 @@ for block_number in range(
             full_transactions=True
         )
 
-
     except Exception as e:
 
-        print(
-            "区块错误:",
-            e
-        )
-
+        print("读取区块失败:", e)
         continue
 
 
+    print(
+        "交易数量:",
+        len(block.transactions)
+    )
+
 
     for tx in block.transactions:
-
 
         try:
 
@@ -107,17 +95,21 @@ for block_number in range(
             continue
 
 
-
         for log in receipt.logs:
 
 
-            # 只看 IBS
+            # 调试：发现 IBS 日志
+            if log.address.lower() == TOKEN.lower():
+
+                print(
+                    "发现IBS日志:",
+                    tx.hash.hex()
+                )
+
 
             if log.address.lower() != TOKEN.lower():
                 continue
 
-
-            # 只看 Transfer
 
             if log.topics[0].hex() != TRANSFER_TOPIC:
                 continue
@@ -127,7 +119,6 @@ for block_number in range(
             from_addr = Web3.to_checksum_address(
                 "0x" + log.topics[1].hex()[-40:]
             )
-
 
             to_addr = Web3.to_checksum_address(
                 "0x" + log.topics[2].hex()[-40:]
@@ -173,7 +164,6 @@ https://bscscan.com/tx/{txhash}
 """
 
 
-
             # 转入
 
             elif to_addr.lower() == WALLET.lower():
@@ -190,7 +180,6 @@ https://bscscan.com/tx/{txhash}
 交易:
 https://bscscan.com/tx/{txhash}
 """
-
 
 
             # 转出
@@ -211,22 +200,18 @@ https://bscscan.com/tx/{txhash}
 """
 
 
-
             if msg:
 
-
                 print(msg)
-
 
                 r = requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                     json={
-                        "chat_id":CHAT_ID,
-                        "text":msg
+                        "chat_id": CHAT_ID,
+                        "text": msg
                     },
                     timeout=20
                 )
-
 
                 print(
                     "Telegram:",
