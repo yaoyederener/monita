@@ -1,41 +1,42 @@
-name: BSC Balance Monitor
+name: IBS Monitor
 
 on:
-  workflow_dispatch:
-
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/2 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  run:
+
+  monitor:
+
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
 
-      - name: Run monitor
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python monitor.py
+    - run:
+        pip install -r requirements.txt
 
-      - name: Save state
-        run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add last_balance.txt
-          git diff --cached --quiet || (git commit -m "update balance" && git push)
+    - name: Run
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run:
+        python monitor.py
+
+    - name: Save
+      run:
+        |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git add last_block.txt
+        git commit -m update || true
+        git push || true
