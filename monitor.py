@@ -15,9 +15,13 @@ TOKEN = Web3.to_checksum_address(
     "0x255e746abb8d9acac00d6d023e5e63e3b8dfa7cd"
 )
 
+
 WALLET = Web3.to_checksum_address(
-    "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b"
+    "0xed8b85788E15305c59De904fCAAC0F2c9c4Bd41b"
 )
+
+
+STATE_FILE = "last_block.txt"
 
 
 w3 = Web3(
@@ -49,19 +53,44 @@ TRANSFER_TOPIC = Web3.keccak(
 ZERO = "0x0000000000000000000000000000000000000000"
 
 
+
 latest = w3.eth.block_number
 
 
-# 只监控最新两个区块
-start_block = latest - 1
+
+# 读取上次区块
+
+if os.path.exists(STATE_FILE):
+
+    with open(STATE_FILE) as f:
+        last_block = int(f.read().strip())
+
+else:
+
+    # 第一次运行，只看最近5个区块
+    last_block = latest - 5
+
+
+
+# 防止一次跑太多
+
+if latest - last_block > 500:
+
+    last_block = latest - 500
+
 
 
 print(
-    f"扫描区块 {start_block}-{latest}"
+    f"扫描区块 {last_block+1} - {latest}"
 )
 
 
-for block_number in range(start_block, latest + 1):
+
+for block_number in range(
+    last_block + 1,
+    latest + 1
+):
+
 
     try:
 
@@ -72,17 +101,26 @@ for block_number in range(start_block, latest + 1):
 
     except Exception as e:
 
-        print("读取区块失败:", e)
+        print(
+            "读取区块失败:",
+            e
+        )
+
         continue
 
 
+
     print(
-        "交易数量:",
+        "区块:",
+        block_number,
+        "交易:",
         len(block.transactions)
     )
 
 
+
     for tx in block.transactions:
+
 
         try:
 
@@ -95,23 +133,17 @@ for block_number in range(start_block, latest + 1):
             continue
 
 
+
         for log in receipt.logs:
 
 
-            # 调试：发现 IBS 日志
-            if log.address.lower() == TOKEN.lower():
-
-                print(
-                    "发现IBS日志:",
-                    tx.hash.hex()
-                )
-
-
             if log.address.lower() != TOKEN.lower():
+
                 continue
 
 
             if log.topics[0].hex() != TRANSFER_TOPIC:
+
                 continue
 
 
@@ -119,6 +151,7 @@ for block_number in range(start_block, latest + 1):
             from_addr = Web3.to_checksum_address(
                 "0x" + log.topics[1].hex()[-40:]
             )
+
 
             to_addr = Web3.to_checksum_address(
                 "0x" + log.topics[2].hex()[-40:]
@@ -147,8 +180,9 @@ for block_number in range(start_block, latest + 1):
                 to_addr.lower() == WALLET.lower()
             ):
 
+
                 msg = f"""
-🚨 IBS 增发 Mint
+🚨 IBS Mint 增发
 
 数量:
 {amount:,.6f} IBS
@@ -164,9 +198,11 @@ https://bscscan.com/tx/{txhash}
 """
 
 
-            # 转入
+
+            # 钱包收到
 
             elif to_addr.lower() == WALLET.lower():
+
 
                 msg = f"""
 🟢 IBS 转入
@@ -177,14 +213,19 @@ https://bscscan.com/tx/{txhash}
 来源:
 {from_addr}
 
+区块:
+{block_number}
+
 交易:
 https://bscscan.com/tx/{txhash}
 """
 
 
-            # 转出
+
+            # 钱包转出
 
             elif from_addr.lower() == WALLET.lower():
+
 
                 msg = f"""
 🔴 IBS 转出
@@ -195,14 +236,20 @@ https://bscscan.com/tx/{txhash}
 目标:
 {to_addr}
 
+区块:
+{block_number}
+
 交易:
 https://bscscan.com/tx/{txhash}
 """
 
 
+
             if msg:
 
+
                 print(msg)
+
 
                 r = requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -213,10 +260,21 @@ https://bscscan.com/tx/{txhash}
                     timeout=20
                 )
 
+
                 print(
                     "Telegram:",
                     r.text
                 )
+
+
+
+# 保存最新区块
+
+with open(STATE_FILE,"w") as f:
+
+    f.write(
+        str(latest)
+    )
 
 
 print("完成")
