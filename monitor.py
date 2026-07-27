@@ -1,156 +1,122 @@
 import os
 import requests
+from web3 import Web3
+from web3.middleware import geth_poa_middleware
 
-
-API_KEY = os.environ["BSCSCAN_KEY"]
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 
-PAIR = "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
+RPC = "https://bsc-dataseed.binance.org"
 
 
-SWAP_TOPIC = (
-    "0xd78ad95fa46c994b6551d0da85fc275fe613ce3766c1e7c0f8f8b7e6b6a6e5e"
+PAIR = Web3.to_checksum_address(
+    "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
 )
 
 
-API_URL = "https://api.bscscan.com/api"
+IBS = "0x255e746abb8d9acac00d6d023e5e63e3b8dfa7cd"
+
+
+w3 = Web3(
+    Web3.HTTPProvider(
+        RPC,
+        request_kwargs={"timeout":30}
+    )
+)
+
+
+w3.middleware_onion.inject(
+    geth_poa_middleware,
+    layer=0
+)
+
+
+if not w3.is_connected():
+    raise Exception("BSC连接失败")
+
+
+print("BSC Connected")
+
+
+SWAP_TOPIC = Web3.keccak(
+    text="Swap(address,uint256,uint256,uint256,uint256,address)"
+).hex()
 
 
 
-def send_telegram(msg):
+latest = w3.eth.block_number
+
+
+start = latest - 100
+
+
+print(
+    f"扫描 {start}-{latest}"
+)
+
+
+
+for block in range(start, latest+1):
 
     try:
 
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": msg
-            },
-            timeout=20
-        )
+        logs = w3.eth.get_logs({
+
+            "fromBlock": block,
+
+            "toBlock": block,
+
+            "address": PAIR,
+
+            "topics":[
+                SWAP_TOPIC
+            ]
+
+        })
+
 
     except Exception as e:
 
         print(
-            "Telegram错误:",
+            "错误:",
+            block,
             e
         )
 
-
-
-def get_logs():
-
-    params = {
-
-        "module": "logs",
-
-        "action": "getLogs",
-
-        "address": PAIR,
-
-        "topic0": SWAP_TOPIC,
-
-        "fromBlock": "latest-100",
-
-        "toBlock": "latest",
-
-        "apikey": API_KEY
-
-    }
-
-
-    r = requests.get(
-        API_URL,
-        params=params,
-        timeout=30
-    )
-
-
-    data = r.json()
-
-
-    print(data)
-
-
-    if data.get("status") != "1":
-
-        return []
-
-
-    return data["result"]
+        continue
 
 
 
+    for log in logs:
 
-print("BscScan Connected")
-
-
-
-logs = get_logs()
+        data = log.data.hex()[2:]
 
 
-print(
-    "发现Swap:",
-    len(logs)
-)
+        amount0In = int(data[0:64],16)
+        amount1In = int(data[64:128],16)
+        amount0Out = int(data[128:192],16)
+        amount1Out = int(data[192:256],16)
 
 
-
-for log in logs:
-
-
-    data = log["data"][2:]
+        tx = log.transactionHash.hex()
 
 
-    amount0In = int(
-        data[0:64],
-        16
-    )
-
-    amount1In = int(
-        data[64:128],
-        16
-    )
-
-    amount0Out = int(
-        data[128:192],
-        16
-    )
-
-    amount1Out = int(
-        data[192:256],
-        16
-    )
+        msg = None
 
 
-    tx = log["transactionHash"]
+        # IBS卖出
+
+        if amount0In > 0 and amount1Out > 0:
+
+            ibs = amount0In / 10**18
+            usdt = amount1Out / 10**18
 
 
-    msg = None
+            if ibs >= 100:
 
-
-
-    # token0 = IBS
-    # token1 = USDT
-
-
-    # IBS卖出
-
-    if amount0In > 0 and amount1Out > 0:
-
-
-        ibs = amount0In / 10**18
-
-        usdt = amount1Out / 10**18
-
-
-        if ibs >= 100:
-
-            msg = f"""
+                msg=f"""
 🔴 IBS SELL
 
 卖出:
@@ -159,28 +125,23 @@ for log in logs:
 收到:
 {usdt:,.4f} USDT
 
-区块:
-{log['blockNumber']}
-
 TX:
 https://bscscan.com/tx/{tx}
 """
 
 
 
-    # 买入IBS
+        # IBS买入
 
-    elif amount1In > 0 and amount0Out > 0:
+        elif amount1In > 0 and amount0Out > 0:
 
-
-        usdt = amount1In / 10**18
-
-        ibs = amount0Out / 10**18
+            usdt = amount1In / 10**18
+            ibs = amount0Out / 10**18
 
 
-        if ibs >= 100:
+            if ibs >= 100:
 
-            msg = f"""
+                msg=f"""
 🟢 IBS BUY
 
 支付:
@@ -189,21 +150,23 @@ https://bscscan.com/tx/{tx}
 买入:
 {ibs:,.4f} IBS
 
-区块:
-{log['blockNumber']}
-
 TX:
 https://bscscan.com/tx/{tx}
 """
 
 
 
-    if msg:
+        if msg:
 
-        print(msg)
+            print(msg)
 
-        send_telegram(msg)
-
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id":CHAT_ID,
+                    "text":msg
+                }
+            )
 
 
 print("完成")
