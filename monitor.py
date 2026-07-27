@@ -2,29 +2,19 @@ import os
 import requests
 
 
-API_KEY = os.environ["ETHERSCAN_KEY"]
+API_KEY = os.environ["BSCSCAN_KEY"]
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 
-# BSC
 CHAIN_ID = 56
 
 
-# IBS-USDT PancakeSwap V2 Pair
 PAIR = "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
 
 
-IBS = "0x255e746abb8d9acac00d6d023e5e63e3b8dfa7cd"
-
-
-USDT = "0x55d398326f99059fF775485246999027B3197955"
-
-
-
-# PancakeSwap V2 Swap(address,uint256,uint256,uint256,uint256,address)
-
+# PancakeSwap V2 Swap event
 SWAP_TOPIC = (
     "0xd78ad95fa46c994b6551d0da85fc275fe613ce3766c1e7c0f8f8b7e6b6a6e5e"
 )
@@ -34,20 +24,30 @@ API_URL = "https://api.etherscan.io/v2/api"
 
 
 
-def send_telegram(text):
+def send_telegram(msg):
 
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={
-            "chat_id": CHAT_ID,
-            "text": text
-        },
-        timeout=20
-    )
+    try:
+
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": CHAT_ID,
+                "text": msg
+            },
+            timeout=20
+        )
+
+    except Exception as e:
+
+        print(
+            "Telegram错误:",
+            e
+        )
 
 
 
-def get_logs():
+def get_swap_logs():
+
 
     params = {
 
@@ -61,11 +61,12 @@ def get_logs():
 
         "topic0": SWAP_TOPIC,
 
-        "fromBlock": "latest-50",
+        "fromBlock": "latest-100",
 
         "toBlock": "latest",
 
         "apikey": API_KEY
+
     }
 
 
@@ -81,7 +82,10 @@ def get_logs():
 
     if data.get("status") != "1":
 
-        print(data)
+        print(
+            "API返回:",
+            data
+        )
 
         return []
 
@@ -94,7 +98,8 @@ print("Etherscan V2 BSC Connected")
 
 
 
-logs = get_logs()
+logs = get_swap_logs()
+
 
 
 print(
@@ -137,14 +142,11 @@ for log in logs:
     tx = log["transactionHash"]
 
 
-
     msg = None
 
 
 
-    # token0 = IBS
-    # token1 = USDT
-
+    # token0=IBS token1=USDT
 
     # IBS卖出
 
@@ -158,8 +160,7 @@ for log in logs:
 
         if ibs >= 100:
 
-
-            msg=f"""
+            msg = f"""
 🔴 IBS SELL
 
 卖出:
@@ -189,8 +190,7 @@ https://bscscan.com/tx/{tx}
 
         if ibs >= 100:
 
-
-            msg=f"""
+            msg = f"""
 🟢 IBS BUY
 
 支付:
