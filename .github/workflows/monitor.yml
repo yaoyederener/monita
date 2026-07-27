@@ -1,8 +1,9 @@
 name: IBS Monitor
 
-on:
+"on":
+
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "* * * * *"
 
   workflow_dispatch:
 
@@ -20,7 +21,7 @@ jobs:
 
     steps:
 
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
 
@@ -30,7 +31,7 @@ jobs:
           python-version: "3.11"
 
 
-      - name: Install packages
+      - name: Install dependencies
         run: |
           pip install web3==6.20.1 requests
 
@@ -44,7 +45,7 @@ jobs:
           python monitor.py
 
 
-      - name: Update last block
+      - name: Save last block
         if: always()
         run: |
           git config user.name "github-actions[bot]"
