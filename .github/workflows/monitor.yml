@@ -1,14 +1,11 @@
 name: IBS Monitor
 
 on:
+
   schedule:
     - cron: "*/5 * * * *"
 
   workflow_dispatch:
-
-
-permissions:
-  contents: read
 
 
 jobs:
@@ -17,26 +14,35 @@ jobs:
 
     runs-on: ubuntu-latest
 
+
     steps:
 
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
 
-      - run: |
-          pip install web3==6.20.1 requests
+      - name: Install
+        run: |
+          pip install requests
 
 
-      - name: Run monitor
+      - name: Run Monitor
 
         env:
+
+          BSCSCAN_KEY: ${{ secrets.BSCSCAN_KEY }}
+
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+
           CHAT_ID: ${{ secrets.CHAT_ID }}
 
-        run:
+
+        run: |
 
           python monitor.py
