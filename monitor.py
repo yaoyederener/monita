@@ -27,9 +27,7 @@ ZERO = "0x0000000000000000000000000000000000000000"
 w3 = Web3(
     Web3.HTTPProvider(
         RPC,
-        request_kwargs={
-            "timeout":30
-        }
+        request_kwargs={"timeout":30}
     )
 )
 
@@ -52,175 +50,140 @@ TRANSFER_TOPIC = Web3.keccak(
 ).hex()
 
 
+def topic_address(addr):
+
+    return Web3.to_hex(
+        Web3.to_bytes(
+            hexstr=addr
+        ).rjust(32,b'\x00')
+    )
+
+
+wallet_topic = topic_address(WALLET)
+
+zero_topic = topic_address(ZERO)
+
+
+
 latest = w3.eth.block_number
 
 
-# 最近200区块
-start_block = latest - 200
+# 回扫200区块
+start = latest - 200
 
 
 print(
-    f"扫描区块 {start_block}-{latest}"
+    f"扫描 {start}-{latest}"
 )
 
 
+queries = [
 
-def addr_topic(address):
-
-    return (
-        "0x"
-        +
-        "0"*24
-        +
-        address.lower()[2:]
-    )
-
-
-
-wallet_topic = addr_topic(WALLET)
-
+    # 钱包收到
+    {
+        "fromBlock": start,
+        "toBlock": latest,
+        "address": TOKEN,
+        "topics":[
+            TRANSFER_TOPIC,
+            None,
+            wallet_topic
+        ]
+    },
 
 
-processed = set()
+    # 钱包转出
+    {
+        "fromBlock": start,
+        "toBlock": latest,
+        "address": TOKEN,
+        "topics":[
+            TRANSFER_TOPIC,
+            wallet_topic,
+            None
+        ]
+    },
 
 
+    # Mint
+    {
+        "fromBlock": start,
+        "toBlock": latest,
+        "address": TOKEN,
+        "topics":[
+            TRANSFER_TOPIC,
+            zero_topic,
+            wallet_topic
+        ]
+    }
 
-for start in range(
-    start_block,
-    latest + 1,
-    5
-):
-
-    end = min(
-        start + 4,
-        latest
-    )
-
-
-    # 查钱包收到的币
-
-    queries = [
-
-        {
-            "fromBlock": start,
-            "toBlock": end,
-            "address": TOKEN,
-            "topics":[
-                TRANSFER_TOPIC,
-                None,
-                wallet_topic
-            ]
-        },
+]
 
 
-        # 查钱包转出的币
-
-        {
-            "fromBlock": start,
-            "toBlock": end,
-            "address": TOKEN,
-            "topics":[
-                TRANSFER_TOPIC,
-                wallet_topic,
-                None
-            ]
-        },
+seen=set()
 
 
-        # 查Mint
+for q in queries:
 
-        {
-            "fromBlock": start,
-            "toBlock": end,
-            "address": TOKEN,
-            "topics":[
-                TRANSFER_TOPIC,
-                addr_topic(ZERO),
-                wallet_topic
-            ]
-        }
 
-    ]
+    try:
+
+        logs=w3.eth.get_logs(q)
+
+
+    except Exception as e:
+
+        print("RPC错误:",e)
+        continue
 
 
 
-    for q in queries:
+    for log in logs:
 
 
-        try:
-
-            logs = w3.eth.get_logs(q)
+        tx=log.transactionHash.hex()
 
 
-        except Exception as e:
+        if tx in seen:
+            continue
 
-            print(
-                "RPC错误:",
-                e
-            )
+        seen.add(tx)
 
+
+
+        amount=int(
+            log.data.hex(),
+            16
+        ) / 10**18
+
+
+
+        if amount < 100:
             continue
 
 
 
-        for log in logs:
+        frm=Web3.to_checksum_address(
+            "0x"+log.topics[1].hex()[-40:]
+        )
 
-
-            tx = log.transactionHash.hex()
-
-
-            if tx in processed:
-                continue
-
-
-            processed.add(tx)
+        to=Web3.to_checksum_address(
+            "0x"+log.topics[2].hex()[-40:]
+        )
 
 
 
-            from_addr = Web3.to_checksum_address(
-                "0x" + log.topics[1].hex()[-40:]
-            )
-
-
-            to_addr = Web3.to_checksum_address(
-                "0x" + log.topics[2].hex()[-40:]
-            )
-
-
-            amount = (
-
-                int(
-                    log.data.hex(),
-                    16
-                )
-
-                /
-
-                10**18
-
-            )
-
-
-            if amount < 100:
-                continue
-
-
-
-            msg = None
-
-
-
-            if from_addr.lower() == ZERO.lower():
-
-
-                msg=f"""
-🚨 IBS 增发 Mint
+        msg=f"""
+🚨 IBS 动作
 
 数量:
 {amount:,.4f} IBS
 
-接收:
-{to_addr}
+From:
+{frm}
+
+To:
+{to}
 
 区块:
 {log.blockNumber}
@@ -229,82 +192,17 @@ TX:
 https://bscscan.com/tx/{tx}
 """
 
+        print(msg)
 
 
-            elif to_addr.lower() == WALLET.lower():
-
-
-                msg=f"""
-🟢 IBS 买入/收到
-
-数量:
-{amount:,.4f} IBS
-
-来源:
-{from_addr}
-
-区块:
-{log.blockNumber}
-
-TX:
-https://bscscan.com/tx/{tx}
-"""
-
-
-
-            elif from_addr.lower() == WALLET.lower():
-
-
-                msg=f"""
-🔴 IBS 卖出/转出
-
-数量:
-{amount:,.4f} IBS
-
-目标:
-{to_addr}
-
-区块:
-{log.blockNumber}
-
-TX:
-https://bscscan.com/tx/{tx}
-"""
-
-
-
-            if msg:
-
-
-                print(msg)
-
-
-                try:
-
-                    requests.post(
-
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-
-                        json={
-
-                            "chat_id":CHAT_ID,
-
-                            "text":msg
-
-                        },
-
-                        timeout=20
-
-                    )
-
-
-                except Exception as e:
-
-                    print(
-                        "Telegram错误:",
-                        e
-                    )
-
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id":CHAT_ID,
+                "text":msg
+            },
+            timeout=20
+        )
 
 
 print("完成")
