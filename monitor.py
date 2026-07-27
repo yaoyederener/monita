@@ -8,19 +8,15 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 
-CHAIN_ID = 56
-
-
 PAIR = "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
 
 
-# PancakeSwap V2 Swap event
 SWAP_TOPIC = (
     "0xd78ad95fa46c994b6551d0da85fc275fe613ce3766c1e7c0f8f8b7e6b6a6e5e"
 )
 
 
-API_URL = "https://api.etherscan.io/v2/api"
+API_URL = "https://api.bscscan.com/api"
 
 
 
@@ -46,12 +42,9 @@ def send_telegram(msg):
 
 
 
-def get_swap_logs():
-
+def get_logs():
 
     params = {
-
-        "chainid": CHAIN_ID,
 
         "module": "logs",
 
@@ -80,12 +73,10 @@ def get_swap_logs():
     data = r.json()
 
 
-    if data.get("status") != "1":
+    print(data)
 
-        print(
-            "API返回:",
-            data
-        )
+
+    if data.get("status") != "1":
 
         return []
 
@@ -94,12 +85,12 @@ def get_swap_logs():
 
 
 
-print("Etherscan V2 BSC Connected")
+
+print("BscScan Connected")
 
 
 
-logs = get_swap_logs()
-
+logs = get_logs()
 
 
 print(
@@ -120,18 +111,15 @@ for log in logs:
         16
     )
 
-
     amount1In = int(
         data[64:128],
         16
     )
 
-
     amount0Out = int(
         data[128:192],
         16
     )
-
 
     amount1Out = int(
         data[192:256],
@@ -146,7 +134,9 @@ for log in logs:
 
 
 
-    # token0=IBS token1=USDT
+    # token0 = IBS
+    # token1 = USDT
+
 
     # IBS卖出
 
