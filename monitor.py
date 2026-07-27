@@ -11,8 +11,9 @@ CHAT_ID = os.environ["CHAT_ID"]
 RPC = "https://bsc-dataseed.bnbchain.org"
 
 
+# PancakeSwap IBS-USDT池
 PAIR = Web3.to_checksum_address(
-    "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53"
+    "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
 )
 
 
@@ -24,6 +25,7 @@ IBS = Web3.to_checksum_address(
 USDT = Web3.to_checksum_address(
     "0x55d398326f99059fF775485246999027B3197955"
 )
+
 
 
 w3 = Web3(
@@ -42,14 +44,44 @@ w3.middleware_onion.inject(
 )
 
 
+
 if not w3.is_connected():
-    raise Exception("BSC连接失败")
+
+    raise Exception(
+        "BSC连接失败"
+    )
 
 
 print("BSC Connected")
 
 
-# PancakeSwap V2 Swap事件
+
+# 获取池子token顺序
+
+token0 = Web3.to_checksum_address(
+    w3.eth.call(
+        {
+            "to": PAIR,
+            "data": "0x0dfe1681"
+        }
+    )[-20:].hex()
+)
+
+
+token1 = Web3.to_checksum_address(
+    w3.eth.call(
+        {
+            "to": PAIR,
+            "data": "0xd21220a7"
+        }
+    )[-20:].hex()
+)
+
+
+print("token0:", token0)
+print("token1:", token1)
+
+
 
 SWAP_TOPIC = Web3.keccak(
     text="Swap(address,uint256,uint256,uint256,uint256,address)"
@@ -72,19 +104,22 @@ print(
 
 try:
 
-    logs = w3.eth.get_logs({
+    logs = w3.eth.get_logs(
 
-        "fromBlock": start,
+        {
+            "fromBlock": start,
 
-        "toBlock": latest,
+            "toBlock": latest,
 
-        "address": PAIR,
+            "address": PAIR,
 
-        "topics":[
-            SWAP_TOPIC
-        ]
+            "topics":[
+                SWAP_TOPIC
+            ]
 
-    })
+        }
+
+    )
 
 
 except Exception as e:
@@ -137,19 +172,34 @@ for log in logs:
 
 
 
-    # 假设 token0 = IBS token1 = USDT
+    # 判断token0是不是IBS
+
+    ibs_is_token0 = (
+        token0.lower()
+        ==
+        IBS.lower()
+    )
+
+
 
     # IBS卖出
-    if amount0In > 0 and amount1Out > 0:
 
-        ibs_amount = amount0In / 10**18
-
-        usdt_amount = amount1Out / 10**18
+    if ibs_is_token0:
 
 
-        if ibs_amount >= 100:
+        if amount0In > 0 and amount1Out > 0:
 
-            msg=f"""
+
+            ibs_amount = amount0In / 10**18
+
+            usdt_amount = amount1Out / 10**18
+
+
+
+            if ibs_amount >= 100:
+
+
+                msg=f"""
 🔴 IBS SELL
 
 卖出:
@@ -167,19 +217,19 @@ https://bscscan.com/tx/{tx}
 
 
 
-    # 买入IBS
-
-    elif amount1In > 0 and amount0Out > 0:
+        elif amount1In > 0 and amount0Out > 0:
 
 
-        usdt_amount = amount1In / 10**18
+            usdt_amount = amount1In / 10**18
 
-        ibs_amount = amount0Out / 10**18
+            ibs_amount = amount0Out / 10**18
 
 
-        if ibs_amount >= 100:
 
-            msg=f"""
+            if ibs_amount >= 100:
+
+
+                msg=f"""
 🟢 IBS BUY
 
 花费:
@@ -197,6 +247,15 @@ https://bscscan.com/tx/{tx}
 
 
 
+    else:
+
+
+        print(
+            "注意: IBS不是token0，请检查池子"
+        )
+
+
+
     if msg:
 
 
@@ -209,9 +268,9 @@ https://bscscan.com/tx/{tx}
 
             json={
 
-                "chat_id":CHAT_ID,
+                "chat_id": CHAT_ID,
 
-                "text":msg
+                "text": msg
 
             },
 
