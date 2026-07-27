@@ -3,7 +3,7 @@ name: IBS Monitor
 "on":
 
   schedule:
-    - cron: "* * * * *"
+    - cron: "*/5 * * * *"
 
   workflow_dispatch:
 
@@ -48,6 +48,7 @@ jobs:
       - name: Save last block
         if: always()
         run: |
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
