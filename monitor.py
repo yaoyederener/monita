@@ -8,9 +8,9 @@ import requests
 from web3 import Web3
 
 
-# =========================================================
+# ============================================================
 # 配置
-# =========================================================
+# ============================================================
 
 PAIR_ADDRESS = Web3.to_checksum_address(
     "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
@@ -22,44 +22,46 @@ IBS_ADDRESS = Web3.to_checksum_address(
 
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 DEAD_ADDRESS = "0x000000000000000000000000000000000000dead"
-BURN_ADDRESSES = {ZERO_ADDRESS.lower(), DEAD_ADDRESS.lower()}
+
+BURN_ADDRESSES = {
+    ZERO_ADDRESS.lower(),
+    DEAD_ADDRESS.lower(),
+}
 
 MIN_IBS_AMOUNT = Decimal("50")
 LAST_BLOCK_FILE = "last_block.txt"
 
-# 第一次运行，只检查最近500个区块
+# 第一次运行检查最近500个区块
 FIRST_RUN_BLOCKS = 500
 
-# 每次先按100个区块查询；遇到限制会自动拆小
-BLOCK_CHUNK_SIZE = 100
+# 每次查询50个区块，减少免费RPC压力
+BLOCK_CHUNK_SIZE = 50
 
-# 等待3个确认区块，减少区块重组影响
+# 等待3个确认区块
 CONFIRMATION_BLOCKS = 3
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("CHAT_ID", "").strip()
-
-# 可通过 GitHub Secret BSC_RPC 自定义节点。
-# 没设置时使用下面的免费公共节点。
 CUSTOM_RPC = os.environ.get("BSC_RPC", "").strip()
 
+# 免费RPC可能随时限流，因此准备多个备用节点
 RPC_LIST = [
     CUSTOM_RPC,
-    "https://bsc-rpc.publicnode.com",
+    "https://bsc.drpc.org",
     "https://1rpc.io/bnb",
+    "https://bsc-mainnet.public.blastapi.io",
 ]
 
-RPC_LIST = [rpc for rpc in RPC_LIST if rpc]
+RPC_LIST = list(dict.fromkeys(rpc for rpc in RPC_LIST if rpc))
 
-# ERC-20 Transfer事件主题
 TRANSFER_TOPIC = Web3.keccak(
     text="Transfer(address,address,uint256)"
-).hex()
+).hex().lower()
 
 
-# =========================================================
+# ============================================================
 # 最小ABI
-# =========================================================
+# ============================================================
 
 PAIR_ABI = [
     {
@@ -139,26 +141,43 @@ TOKEN_ABI = [
 ]
 
 
-# =========================================================
-# RPC
-# =========================================================
+# ============================================================
+# RPC连接
+# ============================================================
 
-def connect_web3() -> Web3:
-    """自动尝试所有RPC节点。"""
+def create_web3(rpc_url: str) -> Web3:
+    return Web3(
+        Web3.HTTPProvider(
+            rpc_url,
+            request_kwargs={"timeout": 12},
+        )
+    )
+
+
+def connect_web3(
+    excluded_urls: set[str] | None = None,
+) -> tuple[Web3, str]:
+    """
+    寻找能正常使用eth_getLogs的BSC RPC。
+
+    不只是测试最新区块，还会实际执行一次日志查询，
+    避免出现“能连接但查询日志403”的情况。
+    """
+
+    excluded_urls = excluded_urls or set()
+    last_error: Exception | None = None
 
     for rpc_url in RPC_LIST:
-        print(f"正在连接RPC：{rpc_url}", flush=True)
+        if rpc_url in excluded_urls:
+            continue
+
+        print(f"正在测试RPC：{rpc_url}", flush=True)
 
         try:
-            web3 = Web3(
-                Web3.HTTPProvider(
-                    rpc_url,
-                    request_kwargs={"timeout": 12},
-                )
-            )
+            web3 = create_web3(rpc_url)
 
             if not web3.is_connected():
-                print("连接失败", flush=True)
+                print("RPC无法连接", flush=True)
                 continue
 
             chain_id = web3.eth.chain_id
@@ -170,37 +189,59 @@ def connect_web3() -> Web3:
                 )
                 continue
 
-            latest = web3.eth.block_number
+            latest_block = web3.eth.block_number
+
+            # 关键：实际测试eth_getLogs
+            web3.eth.get_logs(
+                {
+                    "fromBlock": latest_block,
+                    "toBlock": latest_block,
+                    "address": PAIR_ADDRESS,
+                }
+            )
 
             print(
-                f"RPC连接成功，最新区块：{latest}",
+                f"RPC可用：{rpc_url}",
                 flush=True,
             )
-            return web3
+            print(
+                f"BSC最新区块：{latest_block}",
+                flush=True,
+            )
+
+            return web3, rpc_url
 
         except Exception as error:
+            last_error = error
+
             print(
-                f"RPC连接异常：{error}",
+                f"RPC不可用：{error}",
                 flush=True,
             )
 
-    raise RuntimeError("所有免费BSC RPC均无法连接")
+    raise RuntimeError(
+        "所有RPC均不可用或不支持eth_getLogs。"
+        f"最后错误：{last_error}"
+    )
 
 
-# =========================================================
+# ============================================================
 # 区块进度
-# =========================================================
+# ============================================================
 
 def read_last_block(latest_block: int) -> int:
-    """读取上次成功扫描的区块号。"""
-
     if not os.path.exists(LAST_BLOCK_FILE):
-        start = max(1, latest_block - FIRST_RUN_BLOCKS)
+        start_block = max(
+            1,
+            latest_block - FIRST_RUN_BLOCKS,
+        )
+
         print(
-            f"没有last_block.txt，从{start}开始",
+            f"没有last_block.txt，从{start_block}开始",
             flush=True,
         )
-        return start - 1
+
+        return start_block - 1
 
     try:
         with open(
@@ -213,38 +254,46 @@ def read_last_block(latest_block: int) -> int:
         last_block = int(text)
 
         if last_block <= 0:
-            start = max(
+            start_block = max(
                 1,
                 latest_block - FIRST_RUN_BLOCKS,
             )
+
             print(
-                f"首次运行，从{start}开始",
+                f"首次运行，从{start_block}开始",
                 flush=True,
             )
-            return start - 1
+
+            return start_block - 1
 
         if last_block > latest_block:
-            raise ValueError("保存的区块高于当前区块")
+            raise ValueError(
+                "last_block高于当前BSC区块"
+            )
+
+        print(
+            f"上次扫描到区块：{last_block}",
+            flush=True,
+        )
 
         return last_block
 
     except Exception as error:
         print(
-            f"读取last_block失败：{error}",
+            f"读取last_block.txt失败：{error}",
             flush=True,
         )
 
-        start = max(
+        start_block = max(
             1,
             latest_block - FIRST_RUN_BLOCKS,
         )
-        return start - 1
+
+        return start_block - 1
 
 
 def save_last_block(block_number: int) -> None:
-    """安全保存扫描进度。"""
-
-    temporary_file = LAST_BLOCK_FILE + ".tmp"
+    temporary_file = f"{LAST_BLOCK_FILE}.tmp"
 
     with open(
         temporary_file,
@@ -264,9 +313,9 @@ def save_last_block(block_number: int) -> None:
     )
 
 
-# =========================================================
+# ============================================================
 # Telegram
-# =========================================================
+# ============================================================
 
 def send_telegram(message: str) -> None:
     if not BOT_TOKEN:
@@ -304,29 +353,27 @@ def send_telegram(message: str) -> None:
     print("Telegram发送成功", flush=True)
 
 
-# =========================================================
+# ============================================================
 # 工具函数
-# =========================================================
+# ============================================================
 
 def normalize_address(address: Any) -> str:
     return str(address).lower()
 
 
 def topic_to_address(topic: Any) -> str:
-    """从日志topic中提取地址。"""
-
     topic_hex = Web3.to_hex(topic)
     return "0x" + topic_hex[-40:]
 
 
 def data_to_int(data: Any) -> int:
-    """把日志data转换成整数。"""
-
     if isinstance(data, bytes):
-        return int.from_bytes(data, byteorder="big")
+        return int.from_bytes(
+            data,
+            byteorder="big",
+        )
 
-    data_hex = Web3.to_hex(data)
-    return int(data_hex, 16)
+    return int(Web3.to_hex(data), 16)
 
 
 def format_amount(amount: Decimal) -> str:
@@ -335,25 +382,32 @@ def format_amount(amount: Decimal) -> str:
 
 
 def short_address(address: str) -> str:
-    if not address or address == "未知":
+    if not address:
         return "未知"
 
     return f"{address[:8]}...{address[-6:]}"
 
 
-# =========================================================
+# ============================================================
 # 解析IBS Transfer
-# =========================================================
+# ============================================================
 
-def parse_ibs_transfers(receipt: Any) -> list[dict[str, Any]]:
-    """只解析当前交易回执中的IBS Transfer日志。"""
+def parse_ibs_transfers(
+    receipt: Any,
+) -> list[dict[str, Any]]:
+    """
+    只解析当前交易回执中的IBS Transfer事件。
 
-    transfers = []
+    不扫描全链Transfer，所以RPC请求量很小。
+    """
+
+    transfers: list[dict[str, Any]] = []
 
     for log in receipt["logs"]:
-        log_address = normalize_address(log["address"])
-
-        if log_address != IBS_ADDRESS.lower():
+        if (
+            normalize_address(log["address"])
+            != IBS_ADDRESS.lower()
+        ):
             continue
 
         topics = log["topics"]
@@ -361,18 +415,24 @@ def parse_ibs_transfers(receipt: Any) -> list[dict[str, Any]]:
         if len(topics) < 3:
             continue
 
-        if Web3.to_hex(topics[0]).lower() != TRANSFER_TOPIC.lower():
-            continue
+        first_topic = Web3.to_hex(
+            topics[0]
+        ).lower()
 
-        from_address = topic_to_address(topics[1]).lower()
-        to_address = topic_to_address(topics[2]).lower()
-        amount = data_to_int(log["data"])
+        if first_topic != TRANSFER_TOPIC:
+            continue
 
         transfers.append(
             {
-                "from": from_address,
-                "to": to_address,
-                "amount": amount,
+                "from": topic_to_address(
+                    topics[1]
+                ).lower(),
+                "to": topic_to_address(
+                    topics[2]
+                ).lower(),
+                "amount": data_to_int(
+                    log["data"]
+                ),
             }
         )
 
@@ -384,27 +444,27 @@ def find_trade_wallet(
     trade_type: str,
     fallback_address: str,
 ) -> str:
-    """从IBS Transfer中确定实际交易钱包。"""
-
-    pair = PAIR_ADDRESS.lower()
+    pair_address = PAIR_ADDRESS.lower()
 
     if trade_type == "BUY":
-        # 买入：Pair -> 钱包
+        # 买入：Pair -> 用户
         for transfer in transfers:
             if (
-                transfer["from"] == pair
-                and transfer["to"] not in BURN_ADDRESSES
+                transfer["from"] == pair_address
+                and transfer["to"]
+                not in BURN_ADDRESSES
             ):
                 return Web3.to_checksum_address(
                     transfer["to"]
                 )
 
     if trade_type == "SELL":
-        # 卖出：钱包 -> Pair
+        # 卖出：用户 -> Pair
         for transfer in transfers:
             if (
-                transfer["to"] == pair
-                and transfer["from"] not in BURN_ADDRESSES
+                transfer["to"] == pair_address
+                and transfer["from"]
+                not in BURN_ADDRESSES
             ):
                 return Web3.to_checksum_address(
                     transfer["from"]
@@ -418,32 +478,78 @@ def get_special_label(
     wallet: str,
     trade_type: str,
 ) -> str:
-    """判断买入后销毁或增发后卖出。"""
-
-    wallet_lower = normalize_address(wallet)
+    wallet_lower = wallet.lower()
 
     if trade_type == "BUY":
+        # 用户买入后，同一笔交易把IBS转入黑洞
         for transfer in transfers:
             if (
                 transfer["from"] == wallet_lower
-                and transfer["to"] in BURN_ADDRESSES
+                and transfer["to"]
+                in BURN_ADDRESSES
             ):
                 return "（买入后已销毁）"
 
     if trade_type == "SELL":
+        # 同一笔交易中，零地址先增发IBS给用户
         for transfer in transfers:
             if (
-                transfer["from"] == ZERO_ADDRESS.lower()
-                and transfer["to"] == wallet_lower
+                transfer["from"]
+                == ZERO_ADDRESS.lower()
+                and transfer["to"]
+                == wallet_lower
             ):
                 return "（来自增发）"
 
     return ""
 
 
-# =========================================================
-# Swap查询
-# =========================================================
+# ============================================================
+# 查询Swap日志
+# ============================================================
+
+def is_rpc_rejection(error: Exception) -> bool:
+    error_text = str(error).lower()
+
+    rejection_words = [
+        "403",
+        "forbidden",
+        "401",
+        "unauthorized",
+        "429",
+        "too many requests",
+        "rate limit",
+        "method disabled",
+        "method not allowed",
+        "not supported",
+        "access denied",
+    ]
+
+    return any(
+        word in error_text
+        for word in rejection_words
+    )
+
+
+def is_range_error(error: Exception) -> bool:
+    error_text = str(error).lower()
+
+    range_words = [
+        "limit exceeded",
+        "-32005",
+        "query returned more",
+        "response size exceeded",
+        "block range",
+        "too many results",
+        "range is too wide",
+        "please limit",
+    ]
+
+    return any(
+        word in error_text
+        for word in range_words
+    )
+
 
 def get_logs_with_split(
     pair_contract: Any,
@@ -451,8 +557,10 @@ def get_logs_with_split(
     to_block: int,
 ) -> list[Any]:
     """
-    查询Swap日志。
-    如果RPC限制区块范围，自动拆成两半继续查询。
+    获取Swap日志。
+
+    403、429等错误直接交给主程序切换RPC。
+    只有区块范围过大时才拆分查询。
     """
 
     try:
@@ -464,16 +572,28 @@ def get_logs_with_split(
         )
 
     except Exception as error:
-        if from_block >= to_block:
+        if is_rpc_rejection(error):
             raise RuntimeError(
-                f"区块{from_block}查询失败：{error}"
+                f"RPC拒绝日志查询：{error}"
             ) from error
 
-        middle = (from_block + to_block) // 2
+        if not is_range_error(error):
+            raise RuntimeError(
+                f"日志查询失败：{error}"
+            ) from error
+
+        if from_block >= to_block:
+            raise RuntimeError(
+                f"单区块{from_block}查询失败：{error}"
+            ) from error
+
+        middle = (
+            from_block + to_block
+        ) // 2
 
         print(
-            f"查询范围受限，自动拆分："
-            f"{from_block}-{middle}、"
+            "区块范围过大，拆分为："
+            f"{from_block}-{middle} 和 "
             f"{middle + 1}-{to_block}",
             flush=True,
         )
@@ -493,33 +613,46 @@ def get_logs_with_split(
         return left_logs + right_logs
 
 
-# =========================================================
+# ============================================================
 # 处理Swap
-# =========================================================
+# ============================================================
 
 def process_swap(
     web3: Web3,
     event: Any,
     ibs_is_token0: bool,
     ibs_decimals: int,
+    notified_hashes: set[str],
 ) -> None:
     args = event["args"]
 
     if ibs_is_token0:
-        raw_ibs_in = int(args["amount0In"])
-        raw_ibs_out = int(args["amount0Out"])
+        raw_ibs_in = int(
+            args["amount0In"]
+        )
+        raw_ibs_out = int(
+            args["amount0Out"]
+        )
     else:
-        raw_ibs_in = int(args["amount1In"])
-        raw_ibs_out = int(args["amount1Out"])
+        raw_ibs_in = int(
+            args["amount1In"]
+        )
+        raw_ibs_out = int(
+            args["amount1Out"]
+        )
 
-    divisor = Decimal(10) ** ibs_decimals
+    divisor = (
+        Decimal(10) ** ibs_decimals
+    )
 
+    # IBS进入池子 = 卖出
     if raw_ibs_in > 0:
         trade_type = "SELL"
         raw_amount = raw_ibs_in
         icon = "🔴"
         title = "IBS 大额卖出"
 
+    # IBS离开池子 = 买入
     elif raw_ibs_out > 0:
         trade_type = "BUY"
         raw_amount = raw_ibs_out
@@ -529,37 +662,63 @@ def process_swap(
     else:
         return
 
-    ibs_amount = Decimal(raw_amount) / divisor
+    ibs_amount = (
+        Decimal(raw_amount) / divisor
+    )
 
     if ibs_amount < MIN_IBS_AMOUNT:
         print(
-            f"忽略：{trade_type} "
+            f"忽略小额交易："
+            f"{trade_type} "
             f"{format_amount(ibs_amount)} IBS",
             flush=True,
         )
         return
 
-    tx_hash = event["transactionHash"].hex()
-    block_number = int(event["blockNumber"])
+    tx_hash = Web3.to_hex(
+        event["transactionHash"]
+    )
+
+    # 防止同一运行中重复通知
+    if tx_hash in notified_hashes:
+        return
+
+    block_number = int(
+        event["blockNumber"]
+    )
 
     print(
-        f"发现大额交易：{trade_type} "
+        f"发现大额交易："
+        f"{trade_type} "
         f"{format_amount(ibs_amount)} IBS",
         flush=True,
     )
 
-    transaction = web3.eth.get_transaction(tx_hash)
-    receipt = web3.eth.get_transaction_receipt(tx_hash)
+    transaction = web3.eth.get_transaction(
+        tx_hash
+    )
 
-    transfers = parse_ibs_transfers(receipt)
+    receipt = (
+        web3.eth.get_transaction_receipt(
+            tx_hash
+        )
+    )
+
+    transfers = parse_ibs_transfers(
+        receipt
+    )
 
     if trade_type == "BUY":
-        fallback_wallet = Web3.to_checksum_address(
-            args["to"]
+        fallback_wallet = (
+            Web3.to_checksum_address(
+                args["to"]
+            )
         )
     else:
-        fallback_wallet = Web3.to_checksum_address(
-            transaction["from"]
+        fallback_wallet = (
+            Web3.to_checksum_address(
+                transaction["from"]
+            )
         )
 
     wallet = find_trade_wallet(
@@ -583,18 +742,19 @@ def process_swap(
     )
 
     print(message, flush=True)
+
     send_telegram(message)
 
+    notified_hashes.add(tx_hash)
 
-# =========================================================
-# 主程序
-# =========================================================
 
-def main() -> None:
-    print("IBS监控程序启动", flush=True)
+# ============================================================
+# 创建合约
+# ============================================================
 
-    web3 = connect_web3()
-
+def create_contracts(
+    web3: Web3,
+) -> tuple[Any, Any]:
     pair_contract = web3.eth.contract(
         address=PAIR_ADDRESS,
         abi=PAIR_ABI,
@@ -605,7 +765,43 @@ def main() -> None:
         abi=TOKEN_ABI,
     )
 
-    print("正在读取Pair信息……", flush=True)
+    return pair_contract, ibs_contract
+
+
+# ============================================================
+# 主程序
+# ============================================================
+
+def main() -> None:
+    print(
+        "IBS监控程序启动",
+        flush=True,
+    )
+
+    if not BOT_TOKEN:
+        raise RuntimeError(
+            "缺少GitHub Secret：BOT_TOKEN"
+        )
+
+    if not CHAT_ID:
+        raise RuntimeError(
+            "缺少GitHub Secret：CHAT_ID"
+        )
+
+    failed_rpcs: set[str] = set()
+
+    web3, current_rpc = connect_web3(
+        failed_rpcs
+    )
+
+    pair_contract, ibs_contract = (
+        create_contracts(web3)
+    )
+
+    print(
+        "正在读取Pair信息……",
+        flush=True,
+    )
 
     token0 = Web3.to_checksum_address(
         pair_contract.functions.token0().call()
@@ -615,8 +811,15 @@ def main() -> None:
         pair_contract.functions.token1().call()
     )
 
-    print(f"token0：{token0}", flush=True)
-    print(f"token1：{token1}", flush=True)
+    print(
+        f"token0：{token0}",
+        flush=True,
+    )
+
+    print(
+        f"token1：{token1}",
+        flush=True,
+    )
 
     if IBS_ADDRESS == token0:
         ibs_is_token0 = True
@@ -624,7 +827,7 @@ def main() -> None:
         ibs_is_token0 = False
     else:
         raise RuntimeError(
-            "Pair中没有找到IBS合约地址，"
+            "Pair中没有找到IBS代币，"
             "请检查PAIR_ADDRESS"
         )
 
@@ -633,42 +836,59 @@ def main() -> None:
     )
 
     try:
-        symbol = ibs_contract.functions.symbol().call()
+        symbol = (
+            ibs_contract.functions.symbol().call()
+        )
     except Exception:
         symbol = "IBS"
 
     print(
         f"代币：{symbol}，"
         f"decimals：{ibs_decimals}，"
-        f"IBS为token{'0' if ibs_is_token0 else '1'}",
+        f"IBS为token"
+        f"{'0' if ibs_is_token0 else '1'}",
         flush=True,
     )
 
     latest_block = web3.eth.block_number
-    safe_latest = latest_block - CONFIRMATION_BLOCKS
 
-    last_block = read_last_block(safe_latest)
-    start_block = last_block + 1
+    safe_latest = max(
+        1,
+        latest_block - CONFIRMATION_BLOCKS,
+    )
 
-    if start_block > safe_latest:
-        print("没有新区块需要扫描", flush=True)
+    last_block = read_last_block(
+        safe_latest
+    )
+
+    current_block = last_block + 1
+
+    if current_block > safe_latest:
+        print(
+            "目前没有新区块需要扫描",
+            flush=True,
+        )
         return
 
     print(
-        f"扫描范围：{start_block}-{safe_latest}",
+        f"扫描范围："
+        f"{current_block}-{safe_latest}",
         flush=True,
     )
 
-    current_block = start_block
+    notified_hashes: set[str] = set()
 
     while current_block <= safe_latest:
         end_block = min(
-            current_block + BLOCK_CHUNK_SIZE - 1,
+            current_block
+            + BLOCK_CHUNK_SIZE
+            - 1,
             safe_latest,
         )
 
         print(
-            f"正在扫描：{current_block}-{end_block}",
+            f"正在扫描："
+            f"{current_block}-{end_block}",
             flush=True,
         )
 
@@ -690,32 +910,54 @@ def main() -> None:
                     event=event,
                     ibs_is_token0=ibs_is_token0,
                     ibs_decimals=ibs_decimals,
+                    notified_hashes=notified_hashes,
                 )
 
-            # 该范围全部成功后，才更新进度
+            # 只有整个区间处理完成才保存进度
             save_last_block(end_block)
-            current_block = end_block + 1
+
+            current_block = (
+                end_block + 1
+            )
 
         except Exception as error:
             print(
-                f"扫描失败：{error}",
+                f"当前RPC扫描失败：{error}",
                 flush=True,
             )
+
+            failed_rpcs.add(current_rpc)
+
+            if len(failed_rpcs) >= len(
+                RPC_LIST
+            ):
+                raise RuntimeError(
+                    "所有RPC均已失败，"
+                    "请稍后重试或设置BSC_RPC Secret"
+                ) from error
 
             print(
-                "等待3秒并切换RPC重试……",
+                "切换下一个RPC……",
                 flush=True,
             )
 
-            time.sleep(3)
-            web3 = connect_web3()
+            time.sleep(2)
 
-            pair_contract = web3.eth.contract(
-                address=PAIR_ADDRESS,
-                abi=PAIR_ABI,
+            web3, current_rpc = (
+                connect_web3(failed_rpcs)
             )
 
-    print("本次监控完成", flush=True)
+            pair_contract, _ = (
+                create_contracts(web3)
+            )
+
+            # 不增加current_block，
+            # 使用新RPC重新扫描当前区间
+
+    print(
+        "本次监控完成",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
@@ -727,4 +969,5 @@ if __name__ == "__main__":
             f"程序运行失败：{error}",
             flush=True,
         )
+
         sys.exit(1)
