@@ -41,7 +41,8 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           BSC_RPC: ${{ secrets.BSC_RPC }}
           PYTHONUNBUFFERED: "1"
-        run: python -u monitor.py
+        run: |
+          python -u monitor.py
 
       - name: Save last scanned block
         if: success()
