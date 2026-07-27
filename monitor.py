@@ -8,7 +8,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 
-RPC = "https://bsc-dataseed.binance.org"
+RPC = "https://bsc-dataseed1.binance.org"
 
 
 TOKEN = Web3.to_checksum_address(
@@ -24,7 +24,9 @@ WALLET = Web3.to_checksum_address(
 w3 = Web3(
     Web3.HTTPProvider(
         RPC,
-        request_kwargs={"timeout":30}
+        request_kwargs={
+            "timeout":30
+        }
     )
 )
 
@@ -53,8 +55,8 @@ ZERO = "0x0000000000000000000000000000000000000000"
 latest = w3.eth.block_number
 
 
-# 每次回扫100个区块
-start_block = latest - 100
+# 回扫约25分钟
+start_block = latest - 500
 
 
 print(
@@ -62,22 +64,35 @@ print(
 )
 
 
-sent = set()
+STEP = 5
 
 
-for block_number in range(
+processed = set()
+
+
+for start in range(
     start_block,
-    latest + 1
+    latest + 1,
+    STEP
 ):
+
+    end = min(
+        start + STEP - 1,
+        latest
+    )
+
 
     try:
 
         logs = w3.eth.get_logs({
 
-            "fromBlock": block_number,
-            "toBlock": block_number,
+            "fromBlock": start,
+
+            "toBlock": end,
+
             "address": TOKEN,
-            "topics": [
+
+            "topics":[
                 TRANSFER_TOPIC
             ]
 
@@ -101,22 +116,30 @@ for block_number in range(
         txhash = log.transactionHash.hex()
 
 
-        if txhash in sent:
+        if txhash in processed:
             continue
 
 
-        sent.add(txhash)
+        processed.add(txhash)
 
 
 
-        from_addr = Web3.to_checksum_address(
-            "0x" + log.topics[1].hex()[-40:]
-        )
+        try:
+
+            from_addr = Web3.to_checksum_address(
+                "0x" + log.topics[1].hex()[-40:]
+            )
 
 
-        to_addr = Web3.to_checksum_address(
-            "0x" + log.topics[2].hex()[-40:]
-        )
+            to_addr = Web3.to_checksum_address(
+                "0x" + log.topics[2].hex()[-40:]
+            )
+
+
+        except:
+
+            continue
+
 
 
         amount = (
@@ -126,6 +149,11 @@ for block_number in range(
         )
 
 
+        if amount < 100:
+            continue
+
+
+
         msg = None
 
 
@@ -133,14 +161,19 @@ for block_number in range(
         # Mint
 
         if (
+
             from_addr.lower()
             ==
             ZERO.lower()
+
             and
+
             to_addr.lower()
             ==
             WALLET.lower()
+
         ):
+
 
             msg=f"""
 🚨 IBS Mint
@@ -152,7 +185,7 @@ for block_number in range(
 {to_addr}
 
 区块:
-{block_number}
+{log.blockNumber}
 
 TX:
 https://bscscan.com/tx/{txhash}
@@ -160,15 +193,16 @@ https://bscscan.com/tx/{txhash}
 
 
 
-        # 转入
+        # 钱包收到
 
         elif (
+
             to_addr.lower()
             ==
             WALLET.lower()
-            and
-            amount >= 100
+
         ):
+
 
             msg=f"""
 🟢 IBS 收入
@@ -179,21 +213,25 @@ https://bscscan.com/tx/{txhash}
 来源:
 {from_addr}
 
+区块:
+{log.blockNumber}
+
 TX:
 https://bscscan.com/tx/{txhash}
 """
 
 
 
-        # 转出
+        # 钱包转出
 
         elif (
+
             from_addr.lower()
             ==
             WALLET.lower()
-            and
-            amount >= 100
+
         ):
+
 
             msg=f"""
 🔴 IBS 转出
@@ -204,6 +242,9 @@ https://bscscan.com/tx/{txhash}
 目标:
 {to_addr}
 
+区块:
+{log.blockNumber}
+
 TX:
 https://bscscan.com/tx/{txhash}
 """
@@ -212,20 +253,35 @@ https://bscscan.com/tx/{txhash}
 
         if msg:
 
+
             print(msg)
 
 
-            requests.post(
+            try:
 
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                requests.post(
 
-                json={
-                    "chat_id":CHAT_ID,
-                    "text":msg
-                },
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
 
-                timeout=20
-            )
+                    json={
+
+                        "chat_id":CHAT_ID,
+
+                        "text":msg
+
+                    },
+
+                    timeout=20
+
+                )
+
+
+            except Exception as e:
+
+                print(
+                    "Telegram错误:",
+                    e
+                )
 
 
 
