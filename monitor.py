@@ -43,7 +43,6 @@ w3.middleware_onion.inject(
 )
 
 
-
 if not w3.is_connected():
     raise Exception("BSC连接失败")
 
@@ -52,28 +51,27 @@ print("BSC Connected")
 
 
 
-# 获取token0/token1
+# 获取池子 token0 / token1
 
 token0 = Web3.to_checksum_address(
-    "0x" +
     w3.eth.call(
         {
-            "to":PAIR,
-            "data":"0x0dfe1681"
+            "to": PAIR,
+            "data": "0x0dfe1681"
         }
     )[-20:].hex()
 )
 
 
 token1 = Web3.to_checksum_address(
-    "0x" +
     w3.eth.call(
         {
-            "to":PAIR,
-            "data":"0xd21220a7"
+            "to": PAIR,
+            "data": "0xd21220a7"
         }
     )[-20:].hex()
 )
+
 
 
 print("token0:", token0)
@@ -90,7 +88,7 @@ SWAP_TOPIC = Web3.keccak(
 latest = w3.eth.block_number
 
 
-# 最近50个区块
+# 最近50区块
 
 start = latest - 50
 
@@ -104,48 +102,40 @@ print(
 logs = []
 
 
+# 每5个区块请求一次
 
-# 每5个区块查询
-
-for b in range(
+for block in range(
     start,
     latest + 1,
     5
 ):
 
-
     end = min(
-        b + 4,
+        block + 4,
         latest
     )
 
 
     try:
 
-        part = w3.eth.get_logs(
-
+        result = w3.eth.get_logs(
             {
-                "fromBlock":b,
-
-                "toBlock":end,
-
-                "address":PAIR,
-
-                "topics":[
+                "fromBlock": block,
+                "toBlock": end,
+                "address": PAIR,
+                "topics": [
                     SWAP_TOPIC
                 ]
             }
-
         )
 
-
-        logs.extend(part)
+        logs.extend(result)
 
 
     except Exception as e:
 
         print(
-            f"RPC错误 {b}-{end}:",
+            f"RPC错误 {block}-{end}:",
             e
         )
 
@@ -169,18 +159,15 @@ for log in logs:
         16
     )
 
-
     amount1In = int(
         data[64:128],
         16
     )
 
-
     amount0Out = int(
         data[128:192],
         16
     )
-
 
     amount1Out = int(
         data[192:256],
@@ -196,7 +183,7 @@ for log in logs:
 
 
 
-    # token0=IBS token1=USDT
+    # token0 = IBS
 
     if token0.lower() == IBS.lower():
 
@@ -205,23 +192,20 @@ for log in logs:
 
         if amount0In > 0 and amount1Out > 0:
 
-
-            ibs = amount0In / 10**18
-
-            usdt = amount1Out / 10**18
+            ibs_amount = amount0In / 10**18
+            usdt_amount = amount1Out / 10**18
 
 
-            if ibs >= 100:
-
+            if ibs_amount >= 100:
 
                 msg=f"""
 🔴 IBS SELL
 
 卖出:
-{ibs:,.4f} IBS
+{ibs_amount:,.4f} IBS
 
 收到:
-{usdt:,.4f} USDT
+{usdt_amount:,.4f} USDT
 
 区块:
 {log.blockNumber}
@@ -236,23 +220,20 @@ https://bscscan.com/tx/{tx}
 
         elif amount1In > 0 and amount0Out > 0:
 
-
-            usdt = amount1In / 10**18
-
-            ibs = amount0Out / 10**18
+            usdt_amount = amount1In / 10**18
+            ibs_amount = amount0Out / 10**18
 
 
-            if ibs >= 100:
-
+            if ibs_amount >= 100:
 
                 msg=f"""
 🟢 IBS BUY
 
 支付:
-{usdt:,.4f} USDT
+{usdt_amount:,.4f} USDT
 
 买入:
-{ibs:,.4f} IBS
+{ibs_amount:,.4f} IBS
 
 区块:
 {log.blockNumber}
@@ -265,31 +246,17 @@ https://bscscan.com/tx/{tx}
 
     if msg:
 
-
         print(msg)
 
 
-        try:
-
-            requests.post(
-
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-
-                json={
-                    "chat_id":CHAT_ID,
-                    "text":msg
-                },
-
-                timeout=20
-
-            )
-
-        except Exception as e:
-
-            print(
-                "Telegram错误:",
-                e
-            )
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": CHAT_ID,
+                "text": msg
+            },
+            timeout=20
+        )
 
 
 
