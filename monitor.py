@@ -28,19 +28,30 @@ BURN_ADDRESSES = {
     DEAD_ADDRESS.lower(),
 }
 
-# 只有达到50 IBS才通知
+# 达到50 IBS才发送Telegram通知
 MIN_IBS_AMOUNT = Decimal("50")
 
+# 区块进度文件
 LAST_BLOCK_FILE = "last_block.txt"
 
 # 等待3个确认区块，降低区块重组影响
 CONFIRMATION_BLOCKS = 3
 
-# 每次查询最多200个区块
-BLOCK_CHUNK_SIZE = 200
+# 每次RPC查询最多25个区块
+BLOCK_CHUNK_SIZE = 25
+
+# 每次GitHub运行最多追赶500个区块
+MAX_BLOCKS_PER_RUN = 500
+
+# 单次程序最多运行约6分钟
+# GitHub workflow设置为8分钟，预留提交进度的时间
+MAX_RUNTIME_SECONDS = 360
 
 # RPC和Telegram重试次数
 MAX_RETRIES = 3
+
+# RPC失败重试等待时间
+RPC_RETRY_SECONDS = 3
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("CHAT_ID", "").strip()
@@ -163,16 +174,14 @@ TOKEN_ABI = [
 
 def connect_web3() -> Web3:
     if not BSC_RPC:
-        raise RuntimeError(
-            "没有设置GitHub Secret：BSC_RPC"
-        )
+        raise RuntimeError("没有设置GitHub Secret：BSC_RPC")
 
     print("正在连接Alchemy BSC RPC……", flush=True)
 
     web3 = Web3(
         Web3.HTTPProvider(
             BSC_RPC,
-            request_kwargs={"timeout": 20},
+            request_kwargs={"timeout": 30},
         )
     )
 
@@ -191,7 +200,7 @@ def connect_web3() -> Web3:
 
     latest_block = web3.eth.block_number
 
-    # 实际测试Pair日志查询功能
+    # 测试Pair日志查询功能
     web3.eth.get_logs(
         {
             "fromBlock": latest_block,
@@ -212,9 +221,10 @@ def connect_web3() -> Web3:
 
 def read_last_block(safe_latest: int) -> int:
     """
-    last_block.txt为0时，从当前区块开始。
+    读取上次成功扫描到的区块。
 
-    第一次运行不会补发大量历史交易。
+    文件不存在或内容为0时，从当前安全区块开始，
+    不补发大量历史交易。
     """
 
     if not os.path.exists(LAST_BLOCK_FILE):
@@ -342,7 +352,7 @@ def send_telegram(message: str) -> None:
             )
 
             if attempt < MAX_RETRIES:
-                time.sleep(2)
+                time.sleep(2 * attempt)
 
     raise RuntimeError(
         f"Telegram连续发送失败：{last_error}"
@@ -397,12 +407,6 @@ def short_address(address: str) -> str:
 def parse_ibs_transfers(
     receipt: Any,
 ) -> list[dict[str, Any]]:
-    """
-    只解析当前交易回执中的IBS Transfer事件。
-
-    不扫描全链Transfer，因此RPC请求量很小。
-    """
-
     transfers: list[dict[str, Any]] = []
 
     for log in receipt["logs"]:
@@ -449,24 +453,20 @@ def find_trade_wallet(
     pair_lower = PAIR_ADDRESS.lower()
 
     if trade_type == "BUY":
-        # 买入：Pair -> 用户
         for transfer in transfers:
             if (
                 transfer["from"] == pair_lower
-                and transfer["to"]
-                not in BURN_ADDRESSES
+                and transfer["to"] not in BURN_ADDRESSES
             ):
                 return Web3.to_checksum_address(
                     transfer["to"]
                 )
 
     if trade_type == "SELL":
-        # 卖出：用户 -> Pair
         for transfer in transfers:
             if (
                 transfer["to"] == pair_lower
-                and transfer["from"]
-                not in BURN_ADDRESSES
+                and transfer["from"] not in BURN_ADDRESSES
             ):
                 return Web3.to_checksum_address(
                     transfer["from"]
@@ -480,16 +480,6 @@ def get_special_label(
     wallet: str,
     trade_type: str,
 ) -> str:
-    """
-    检查同一笔交易里的特殊动作。
-
-    买入：
-    Pair -> 用户 -> 黑洞
-
-    卖出：
-    零地址 -> 用户 -> Pair
-    """
-
     wallet_lower = wallet.lower()
 
     if trade_type == "BUY":
@@ -515,55 +505,94 @@ def get_special_label(
 # 查询Swap事件
 # ============================================================
 
+def query_swap_events_once(
+    pair_contract: Any,
+    from_block: int,
+    to_block: int,
+) -> list[Any]:
+    return list(
+        pair_contract.events.Swap.get_logs(
+            from_block=from_block,
+            to_block=to_block,
+        )
+    )
+
+
 def get_swap_events(
     pair_contract: Any,
     from_block: int,
     to_block: int,
 ) -> list[Any]:
     """
-    查询Pair的Swap事件。
+    查询Swap日志。
 
-    如果较大的区块范围失败，会自动拆分。
+    当前范围先重试3次。
+    连续失败后才拆分范围。
     """
 
-    try:
-        return list(
-            pair_contract.events.Swap.get_logs(
-                from_block=from_block,
-                to_block=to_block,
+    last_error: Exception | None = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return query_swap_events_once(
+                pair_contract,
+                from_block,
+                to_block,
             )
+
+        except Exception as error:
+            last_error = error
+
+            print(
+                f"日志查询失败 "
+                f"{from_block}-{to_block} "
+                f"（{attempt}/{MAX_RETRIES}）："
+                f"{type(error).__name__}：{error}",
+                flush=True,
+            )
+
+            if attempt < MAX_RETRIES:
+                wait_seconds = (
+                    RPC_RETRY_SECONDS * attempt
+                )
+
+                print(
+                    f"等待{wait_seconds}秒后重试……",
+                    flush=True,
+                )
+
+                time.sleep(wait_seconds)
+
+    if from_block >= to_block:
+        raise RuntimeError(
+            f"单区块{from_block}连续查询失败："
+            f"{last_error}"
         )
 
-    except Exception as error:
-        if from_block >= to_block:
-            raise RuntimeError(
-                f"单区块{from_block}日志查询失败：{error}"
-            ) from error
+    middle = (
+        from_block + to_block
+    ) // 2
 
-        middle = (
-            from_block + to_block
-        ) // 2
+    print(
+        "连续重试失败，自动拆分："
+        f"{from_block}-{middle}，"
+        f"{middle + 1}-{to_block}",
+        flush=True,
+    )
 
-        print(
-            "日志查询失败，自动拆分："
-            f"{from_block}-{middle}，"
-            f"{middle + 1}-{to_block}",
-            flush=True,
-        )
+    left_events = get_swap_events(
+        pair_contract,
+        from_block,
+        middle,
+    )
 
-        left_events = get_swap_events(
-            pair_contract,
-            from_block,
-            middle,
-        )
+    right_events = get_swap_events(
+        pair_contract,
+        middle + 1,
+        to_block,
+    )
 
-        right_events = get_swap_events(
-            pair_contract,
-            middle + 1,
-            to_block,
-        )
-
-        return left_events + right_events
+    return left_events + right_events
 
 
 # ============================================================
@@ -596,14 +625,12 @@ def process_swap(
 
     divisor = Decimal(10) ** ibs_decimals
 
-    # IBS进入池子 = 卖出
     if raw_ibs_in > 0:
         trade_type = "SELL"
         raw_amount = raw_ibs_in
         icon = "🔴"
         title = "IBS 大额卖出"
 
-    # IBS离开池子 = 买入
     elif raw_ibs_out > 0:
         trade_type = "BUY"
         raw_amount = raw_ibs_out
@@ -630,7 +657,6 @@ def process_swap(
         event["transactionHash"]
     )
 
-    # 同一笔交易只通知一次
     if tx_hash in notified_hashes:
         print(
             f"忽略同交易重复Swap：{tx_hash}",
@@ -653,10 +679,8 @@ def process_swap(
         tx_hash
     )
 
-    receipt = (
-        web3.eth.get_transaction_receipt(
-            tx_hash
-        )
+    receipt = web3.eth.get_transaction_receipt(
+        tx_hash
     )
 
     transfers = parse_ibs_transfers(
@@ -704,6 +728,8 @@ def process_swap(
 # ============================================================
 
 def main() -> None:
+    start_time = time.monotonic()
+
     print("IBS监控程序启动", flush=True)
 
     if not BOT_TOKEN:
@@ -748,8 +774,10 @@ def main() -> None:
 
     if IBS_ADDRESS == token0:
         ibs_is_token0 = True
+
     elif IBS_ADDRESS == token1:
         ibs_is_token0 = False
+
     else:
         raise RuntimeError(
             "Pair中没有找到IBS代币，"
@@ -777,38 +805,74 @@ def main() -> None:
 
     latest_block = web3.eth.block_number
 
-    safe_latest = max(
+    network_safe_latest = max(
         1,
         latest_block - CONFIRMATION_BLOCKS,
     )
 
     last_block = read_last_block(
-        safe_latest
+        network_safe_latest
     )
 
     current_block = last_block + 1
 
-    if current_block > safe_latest:
+    if current_block > network_safe_latest:
         print(
             "目前没有新区块需要扫描",
             flush=True,
         )
         return
 
+    # 限制本次最多追赶500个区块
+    run_target_block = min(
+        network_safe_latest,
+        last_block + MAX_BLOCKS_PER_RUN,
+    )
+
+    remaining_before_run = (
+        network_safe_latest - last_block
+    )
+
     print(
-        f"扫描范围："
-        f"{current_block}-{safe_latest}",
+        f"当前待扫描区块数量："
+        f"{remaining_before_run}",
         flush=True,
     )
 
+    print(
+        f"本次扫描范围："
+        f"{current_block}-{run_target_block}",
+        flush=True,
+    )
+
+    if run_target_block < network_safe_latest:
+        print(
+            f"为防止运行超时，"
+            f"本次最多处理{MAX_BLOCKS_PER_RUN}个区块",
+            flush=True,
+        )
+
     notified_hashes: set[str] = set()
 
-    while current_block <= safe_latest:
+    while current_block <= run_target_block:
+        elapsed_seconds = (
+            time.monotonic() - start_time
+        )
+
+        if elapsed_seconds >= MAX_RUNTIME_SECONDS:
+            print(
+                f"运行时间已达到"
+                f"{MAX_RUNTIME_SECONDS}秒，"
+                "主动结束并保存当前进度",
+                flush=True,
+            )
+            break
+
         end_block = min(
             current_block
             + BLOCK_CHUNK_SIZE
             - 1,
-            safe_latest,
+            run_target_block,
         )
 
         print(
@@ -817,40 +881,11 @@ def main() -> None:
             flush=True,
         )
 
-        events: list[Any] | None = None
-        last_error: Exception | None = None
-
-        for attempt in range(
-            1,
-            MAX_RETRIES + 1,
-        ):
-            try:
-                events = get_swap_events(
-                    pair_contract,
-                    current_block,
-                    end_block,
-                )
-
-                break
-
-            except Exception as error:
-                last_error = error
-
-                print(
-                    f"Swap日志查询失败"
-                    f"（{attempt}/{MAX_RETRIES}）："
-                    f"{error}",
-                    flush=True,
-                )
-
-                if attempt < MAX_RETRIES:
-                    time.sleep(3)
-
-        if events is None:
-            raise RuntimeError(
-                f"区块{current_block}-{end_block}"
-                f"连续查询失败：{last_error}"
-            )
+        events = get_swap_events(
+            pair_contract,
+            current_block,
+            end_block,
+        )
 
         print(
             f"发现Swap：{len(events)}",
@@ -866,10 +901,31 @@ def main() -> None:
                 notified_hashes=notified_hashes,
             )
 
-        # 整个范围成功完成后才保存进度
+        # 当前范围全部处理成功后才保存
         save_last_block(end_block)
 
         current_block = end_block + 1
+
+    completed_block = current_block - 1
+
+    if completed_block >= network_safe_latest:
+        print(
+            "已追赶到当前安全区块",
+            flush=True,
+        )
+
+    else:
+        remaining_blocks = (
+            network_safe_latest
+            - completed_block
+        )
+
+        print(
+            f"本次结束后仍有"
+            f"{remaining_blocks}个区块待扫描，"
+            "下一次运行会继续",
+            flush=True,
+        )
 
     print("本次监控完成", flush=True)
 
@@ -880,7 +936,8 @@ if __name__ == "__main__":
 
     except Exception as error:
         print(
-            f"程序运行失败：{error}",
+            f"程序运行失败："
+            f"{type(error).__name__}：{error}",
             flush=True,
         )
 
