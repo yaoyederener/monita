@@ -28,30 +28,26 @@ BURN_ADDRESSES = {
     DEAD_ADDRESS.lower(),
 }
 
-# 达到50 IBS才发送Telegram通知
+# 达到50 IBS才通知
 MIN_IBS_AMOUNT = Decimal("50")
 
 # 区块进度文件
 LAST_BLOCK_FILE = "last_block.txt"
 
-# 等待3个确认区块，降低区块重组影响
+# 等待3个确认区块
 CONFIRMATION_BLOCKS = 3
 
-# 每次RPC查询最多25个区块
-BLOCK_CHUNK_SIZE = 25
+# Alchemy BSC单次查询最多10个区块
+BLOCK_CHUNK_SIZE = 10
 
-# 每次GitHub运行最多追赶500个区块
+# 每次最多扫描500个区块
 MAX_BLOCKS_PER_RUN = 500
 
-# 单次程序最多运行约6分钟
-# GitHub workflow设置为8分钟，预留提交进度的时间
+# 最长运行6分钟，给GitHub保存进度预留时间
 MAX_RUNTIME_SECONDS = 360
 
 # RPC和Telegram重试次数
 MAX_RETRIES = 3
-
-# RPC失败重试等待时间
-RPC_RETRY_SECONDS = 3
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("CHAT_ID", "").strip()
@@ -200,7 +196,6 @@ def connect_web3() -> Web3:
 
     latest_block = web3.eth.block_number
 
-    # 测试Pair日志查询功能
     web3.eth.get_logs(
         {
             "fromBlock": latest_block,
@@ -220,13 +215,6 @@ def connect_web3() -> Web3:
 # ============================================================
 
 def read_last_block(safe_latest: int) -> int:
-    """
-    读取上次成功扫描到的区块。
-
-    文件不存在或内容为0时，从当前安全区块开始，
-    不补发大量历史交易。
-    """
-
     if not os.path.exists(LAST_BLOCK_FILE):
         print(
             "没有last_block.txt，从当前区块开始",
@@ -271,7 +259,6 @@ def read_last_block(safe_latest: int) -> int:
             f"读取last_block.txt失败：{error}",
             flush=True,
         )
-
         return safe_latest - 1
 
 
@@ -505,17 +492,22 @@ def get_special_label(
 # 查询Swap事件
 # ============================================================
 
-def query_swap_events_once(
-    pair_contract: Any,
-    from_block: int,
-    to_block: int,
-) -> list[Any]:
-    return list(
-        pair_contract.events.Swap.get_logs(
-            from_block=from_block,
-            to_block=to_block,
-        )
-    )
+def get_http_error_details(
+    error: requests.exceptions.HTTPError,
+) -> tuple[int | None, str]:
+    response = getattr(error, "response", None)
+
+    if response is None:
+        return None, ""
+
+    status_code = response.status_code
+
+    try:
+        response_text = response.text
+    except Exception:
+        response_text = ""
+
+    return status_code, response_text[:500]
 
 
 def get_swap_events(
@@ -524,21 +516,54 @@ def get_swap_events(
     to_block: int,
 ) -> list[Any]:
     """
-    查询Swap日志。
+    查询Pair的Swap事件。
 
-    当前范围先重试3次。
-    连续失败后才拆分范围。
+    400错误直接拆分。
+    超时、429、5xx错误等待后重试。
     """
 
     last_error: Exception | None = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            return query_swap_events_once(
-                pair_contract,
-                from_block,
-                to_block,
+            return list(
+                pair_contract.events.Swap.get_logs(
+                    from_block=from_block,
+                    to_block=to_block,
+                )
             )
+
+        except requests.exceptions.HTTPError as error:
+            last_error = error
+
+            status_code, response_text = (
+                get_http_error_details(error)
+            )
+
+            print(
+                f"日志查询失败 "
+                f"{from_block}-{to_block} "
+                f"（{attempt}/{MAX_RETRIES}）："
+                f"HTTP {status_code}："
+                f"{response_text}",
+                flush=True,
+            )
+
+            # 400是参数或区块范围错误
+            # 不等待，直接拆分
+            if status_code == 400:
+                break
+
+            # 429限流或5xx服务器错误，等待重试
+            if attempt < MAX_RETRIES:
+                wait_seconds = 3 * attempt
+
+                print(
+                    f"等待{wait_seconds}秒后重试……",
+                    flush=True,
+                )
+
+                time.sleep(wait_seconds)
 
         except Exception as error:
             last_error = error
@@ -552,9 +577,7 @@ def get_swap_events(
             )
 
             if attempt < MAX_RETRIES:
-                wait_seconds = (
-                    RPC_RETRY_SECONDS * attempt
-                )
+                wait_seconds = 3 * attempt
 
                 print(
                     f"等待{wait_seconds}秒后重试……",
@@ -565,7 +588,7 @@ def get_swap_events(
 
     if from_block >= to_block:
         raise RuntimeError(
-            f"单区块{from_block}连续查询失败："
+            f"单区块{from_block}日志查询失败："
             f"{last_error}"
         )
 
@@ -574,7 +597,7 @@ def get_swap_events(
     ) // 2
 
     print(
-        "连续重试失败，自动拆分："
+        "查询失败，自动拆分："
         f"{from_block}-{middle}，"
         f"{middle + 1}-{to_block}",
         flush=True,
@@ -640,9 +663,7 @@ def process_swap(
     else:
         return
 
-    ibs_amount = (
-        Decimal(raw_amount) / divisor
-    )
+    ibs_amount = Decimal(raw_amount) / divisor
 
     if ibs_amount < MIN_IBS_AMOUNT:
         print(
@@ -823,19 +844,17 @@ def main() -> None:
         )
         return
 
-    # 限制本次最多追赶500个区块
     run_target_block = min(
         network_safe_latest,
         last_block + MAX_BLOCKS_PER_RUN,
     )
 
-    remaining_before_run = (
+    pending_blocks = (
         network_safe_latest - last_block
     )
 
     print(
-        f"当前待扫描区块数量："
-        f"{remaining_before_run}",
+        f"当前待扫描区块数量：{pending_blocks}",
         flush=True,
     )
 
@@ -844,13 +863,6 @@ def main() -> None:
         f"{current_block}-{run_target_block}",
         flush=True,
     )
-
-    if run_target_block < network_safe_latest:
-        print(
-            f"为防止运行超时，"
-            f"本次最多处理{MAX_BLOCKS_PER_RUN}个区块",
-            flush=True,
-        )
 
     notified_hashes: set[str] = set()
 
@@ -861,9 +873,8 @@ def main() -> None:
 
         if elapsed_seconds >= MAX_RUNTIME_SECONDS:
             print(
-                f"运行时间已达到"
-                f"{MAX_RUNTIME_SECONDS}秒，"
-                "主动结束并保存当前进度",
+                "接近运行时间上限，"
+                "主动结束并保留当前进度",
                 flush=True,
             )
             break
@@ -901,7 +912,6 @@ def main() -> None:
                 notified_hashes=notified_hashes,
             )
 
-        # 当前范围全部处理成功后才保存
         save_last_block(end_block)
 
         current_block = end_block + 1
@@ -913,17 +923,14 @@ def main() -> None:
             "已追赶到当前安全区块",
             flush=True,
         )
-
     else:
         remaining_blocks = (
-            network_safe_latest
-            - completed_block
+            network_safe_latest - completed_block
         )
 
         print(
-            f"本次结束后仍有"
-            f"{remaining_blocks}个区块待扫描，"
-            "下一次运行会继续",
+            f"仍有{remaining_blocks}个区块待扫描，"
+            "下一次运行继续",
             flush=True,
         )
 
