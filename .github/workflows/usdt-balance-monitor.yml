@@ -4,20 +4,20 @@ on:
   workflow_dispatch:
 
   schedule:
-    # GitHub Actions cron uses UTC. This runs every 5 minutes.
     - cron: "*/5 * * * *"
 
 permissions:
   contents: write
 
+# 必须与IBS工作流使用完全相同的并发组名称
 concurrency:
-  group: bsc-usdt-balance-monitor
+  group: monita-repository-writer
   cancel-in-progress: false
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
       - name: Checkout repository
@@ -45,17 +45,42 @@ jobs:
         run: |
           python -u usdt_balance_monitor.py
 
-      - name: Save updated balance
+      - name: Save updated USDT balance
+        shell: bash
         run: |
-          if git diff --quiet -- data/usdt_balance.json; then
-            echo "余额状态未变化，无需提交"
-            exit 0
-          fi
+          set -e
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # 这里只提交USDT余额状态文件
           git add data/usdt_balance.json
+
+          if git diff --cached --quiet; then
+            echo "USDT余额没有变化，无需提交"
+            exit 0
+          fi
+
           git commit -m "Update monitored USDT balance [skip ci]"
-          git pull --rebase
-          git push
+
+          for attempt in 1 2 3 4 5; do
+            echo "第 ${attempt} 次尝试同步并推送"
+
+            git fetch origin main
+
+            if git rebase origin/main; then
+              if git push origin HEAD:main; then
+                echo "USDT余额状态保存成功"
+                exit 0
+              fi
+            else
+              echo "Rebase发生冲突，取消本次Rebase"
+              git rebase --abort || true
+            fi
+
+            echo "推送失败，稍后重试"
+            sleep $((attempt * 5))
+          done
+
+          echo "连续5次推送失败"
+          exit 1
