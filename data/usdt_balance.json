@@ -2,9 +2,9 @@
   "chain": "BNB Smart Chain",
   "wallet": "0xCBA922f6aff0EC8CB0703D44249456Ef779A394C",
   "token_contract": "0x55d398326f99059fF775485246999027B3197955",
-  "raw_balance": "490837808191725783617520",
+  "raw_balance": "484501032435567798915056",
   "decimals": 18,
-  "block_number": 112807619,
-  "updated_at_utc": "2026-07-29T11:10:55.935211+00:00",
+  "block_number": 112808910,
+  "updated_at_utc": "2026-07-29T11:20:37.270386+00:00",
   "program_version": "2026-07-27-fix2"
 }
