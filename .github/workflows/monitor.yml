@@ -9,9 +9,8 @@ on:
 permissions:
   contents: write
 
-# 两个监控统一使用同一个并发组，避免同时推送 main 分支
 concurrency:
-  group: monita-repository-writer
+  group: ibs-pool-monitor
   cancel-in-progress: false
 
 jobs:
@@ -45,45 +44,17 @@ jobs:
         run: |
           python -u monitor.py
 
-      - name: Save last scanned block
-        shell: bash
+      - name: Save monitor state
         run: |
-          set -e
-
-          echo "检查是否有状态文件变化"
+          if [ -z "$(git status --porcelain -- last_block.txt mint_origin_addresses.json)" ]; then
+            echo "监控状态没有变化，无需提交"
+            exit 0
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 添加 monitor.py 运行后产生的所有状态变化
-          git add -A
-
-          if git diff --cached --quiet; then
-            echo "没有状态变化，无需提交"
-            exit 0
-          fi
-
-          git commit -m "Update last scanned block [skip ci]"
-
-          # 即使运行期间远程仓库发生变化，也会自动同步和重试
-          for attempt in 1 2 3 4 5; do
-            echo "第 ${attempt} 次尝试同步并推送"
-
-            git fetch origin main
-
-            if git rebase origin/main; then
-              if git push origin HEAD:main; then
-                echo "IBS扫描状态保存成功"
-                exit 0
-              fi
-            else
-              echo "Rebase发生冲突，取消本次Rebase"
-              git rebase --abort || true
-            fi
-
-            echo "推送失败，稍后重试"
-            sleep $((attempt * 5))
-          done
-
-          echo "连续5次推送失败"
-          exit 1
+          git add last_block.txt mint_origin_addresses.json
+          git commit -m "Update IBS monitor state [skip ci]"
+          git pull --rebase
+          git push
