@@ -1,5 +1,20 @@
 {
-  "addresses": {},
+  "addresses": {
+    "0xcba922f6aff0ec8cb0703d44249456ef779a394c": {
+      "count": 1,
+      "event_ids": [
+        "0xe1a725e2e68acc5fbf7e0111eb2c648bdc1cd8387d8c4d2dc6279b7b63d8e0a4:659"
+      ],
+      "first_block": 112969847,
+      "first_tx": "0xe1a725e2e68acc5fbf7e0111eb2c648bdc1cd8387d8c4d2dc6279b7b63d8e0a4",
+      "last_block": 112969847,
+      "last_tx": "0xe1a725e2e68acc5fbf7e0111eb2c648bdc1cd8387d8c4d2dc6279b7b63d8e0a4",
+      "sources": [
+        "0x0000000000000000000000000000000000000000"
+      ],
+      "total_raw": 474897938816455147520
+    }
+  },
   "token": "0x255e746aBb8D9Acac00d6d023e5E63E3b8DFA7cd",
   "version": 1
 }
