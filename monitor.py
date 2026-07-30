@@ -180,12 +180,7 @@ def connect_web3() -> Web3:
     if not BSC_RPC:
         raise RuntimeError("没有设置GitHub Secret：BSC_RPC")
 
-    # 不在日志中暴露完整Alchemy API Key，只显示域名和末4位。
-    rpc_tail = BSC_RPC[-4:] if len(BSC_RPC) >= 4 else "****"
-    print(
-        f"正在连接你的Alchemy BSC RPC（Key末4位：{rpc_tail}）……",
-        flush=True,
-    )
+    print("正在连接Alchemy BSC RPC……", flush=True)
 
     web3 = Web3(
         Web3.HTTPProvider(
