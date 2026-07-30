@@ -61,9 +61,10 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("CHAT_ID", "").strip()
 BSC_RPC = os.environ.get("BSC_RPC", "").strip()
 
-TRANSFER_TOPIC = Web3.keccak(
-    text="Transfer(address,address,uint256)"
-).hex().lower()
+TRANSFER_TOPIC = (
+    "0xddf252ad1be2c89b69c2b068fc378daa"
+    "952ba7f163c4a11628f55a4df523b3ef"
+)
 
 
 # ============================================================
