@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import time
@@ -22,6 +23,10 @@ IBS_ADDRESS = Web3.to_checksum_address(
 
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 DEAD_ADDRESS = "0x000000000000000000000000000000000000dead"
+
+# 识别为零地址/黑洞地址的来源。
+# 注意：ZERO -> 用户是标准ERC-20增发日志形式；
+# DEAD -> 用户并非标准增发，只标记为“黑洞地址来源”。
 BURN_ADDRESSES = {
     ZERO_ADDRESS.lower(),
     DEAD_ADDRESS.lower(),
@@ -33,22 +38,23 @@ MIN_IBS_AMOUNT = Decimal("50")
 # 区块进度文件
 LAST_BLOCK_FILE = "last_block.txt"
 
-# 等待20个确认区块，避免RPC最新区块与日志索引短暂不同步
+# 保存“曾直接收到零地址/黑洞地址转入IBS”的地址
+MINT_ORIGIN_FILE = "mint_origin_addresses.json"
+
+# 等待20个确认区块
 CONFIRMATION_BLOCKS = 20
 
-# Alchemy BSC日志查询每次保持10个区块
+# Alchemy BSC单次查询10个区块
 BLOCK_CHUNK_SIZE = 10
 
 # 每次运行最多扫描1000个区块
 MAX_BLOCKS_PER_RUN = 1000
 
-# 最长运行330秒，给GitHub Actions提交进度预留时间
+# 最长运行330秒
 MAX_RUNTIME_SECONDS = 330
 
-# RPC和Telegram重试次数
+# RPC和Telegram重试
 MAX_RETRIES = 5
-
-# 重试基础等待时间
 RETRY_BASE_SECONDS = 3
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -170,12 +176,16 @@ TOKEN_ABI = [
 # RPC连接
 # ============================================================
 
-
 def connect_web3() -> Web3:
     if not BSC_RPC:
         raise RuntimeError("没有设置GitHub Secret：BSC_RPC")
 
-    print("正在连接Alchemy BSC RPC……", flush=True)
+    # 不在日志中暴露完整Alchemy API Key，只显示域名和末4位。
+    rpc_tail = BSC_RPC[-4:] if len(BSC_RPC) >= 4 else "****"
+    print(
+        f"正在连接你的Alchemy BSC RPC（Key末4位：{rpc_tail}）……",
+        flush=True,
+    )
 
     web3 = Web3(
         Web3.HTTPProvider(
@@ -194,10 +204,6 @@ def connect_web3() -> Web3:
         )
 
     latest_block = int(web3.eth.block_number)
-
-    # 这里不再用最新区块执行eth_getLogs测试。
-    # RPC的区块高度可能已经更新，但日志索引可能短暂落后，
-    # 直接查询最新区块会触发 invalid block range params。
     print("Alchemy RPC连接成功", flush=True)
     print(f"BSC最新区块：{latest_block}", flush=True)
 
@@ -208,18 +214,13 @@ def connect_web3() -> Web3:
 # 区块进度
 # ============================================================
 
-
 def read_last_block(safe_latest: int) -> int:
     if not os.path.exists(LAST_BLOCK_FILE):
         print("没有last_block.txt，从当前区块开始", flush=True)
         return safe_latest - 1
 
     try:
-        with open(
-            LAST_BLOCK_FILE,
-            "r",
-            encoding="utf-8",
-        ) as file:
+        with open(LAST_BLOCK_FILE, "r", encoding="utf-8") as file:
             content = file.read().strip()
 
         if not content:
@@ -253,11 +254,7 @@ def read_last_block(safe_latest: int) -> int:
 def save_last_block(block_number: int) -> None:
     temporary_file = f"{LAST_BLOCK_FILE}.tmp"
 
-    with open(
-        temporary_file,
-        "w",
-        encoding="utf-8",
-    ) as file:
+    with open(temporary_file, "w", encoding="utf-8") as file:
         file.write(str(block_number))
 
     os.replace(temporary_file, LAST_BLOCK_FILE)
@@ -265,9 +262,60 @@ def save_last_block(block_number: int) -> None:
 
 
 # ============================================================
-# Telegram
+# 增发来源地址状态
 # ============================================================
 
+def load_mint_origin_registry() -> dict[str, dict[str, Any]]:
+    if not os.path.exists(MINT_ORIGIN_FILE):
+        print("没有增发来源地址记录，将从本次扫描开始建立", flush=True)
+        return {}
+
+    try:
+        with open(MINT_ORIGIN_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        addresses = data.get("addresses", {})
+        if not isinstance(addresses, dict):
+            raise ValueError("addresses字段格式不正确")
+
+        print(f"已读取增发来源地址：{len(addresses)}个", flush=True)
+        return addresses
+
+    except Exception as error:
+        print(
+            f"读取{MINT_ORIGIN_FILE}失败：{error}，使用空记录",
+            flush=True,
+        )
+        return {}
+
+
+def save_mint_origin_registry(
+    registry: dict[str, dict[str, Any]],
+) -> None:
+    temporary_file = f"{MINT_ORIGIN_FILE}.tmp"
+
+    data = {
+        "version": 1,
+        "token": IBS_ADDRESS,
+        "addresses": registry,
+    }
+
+    with open(temporary_file, "w", encoding="utf-8") as file:
+        json.dump(
+            data,
+            file,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+
+    os.replace(temporary_file, MINT_ORIGIN_FILE)
+    print(f"已保存增发来源地址：{len(registry)}个", flush=True)
+
+
+# ============================================================
+# Telegram
+# ============================================================
 
 def send_telegram(message: str) -> None:
     if not BOT_TOKEN:
@@ -318,7 +366,6 @@ def send_telegram(message: str) -> None:
 # 工具函数
 # ============================================================
 
-
 def normalize_address(address: Any) -> str:
     return str(address).lower()
 
@@ -326,6 +373,11 @@ def normalize_address(address: Any) -> str:
 def topic_to_address(topic: Any) -> str:
     topic_hex = Web3.to_hex(topic)
     return "0x" + topic_hex[-40:]
+
+
+def address_to_topic(address: str) -> str:
+    clean = address.lower().replace("0x", "")
+    return "0x" + clean.rjust(64, "0")
 
 
 def data_to_int(data: Any) -> int:
@@ -345,6 +397,14 @@ def short_address(address: str) -> str:
         return "未知"
 
     return f"{address[:8]}...{address[-6:]}"
+
+
+def event_position(event: Any) -> tuple[int, int, int]:
+    return (
+        int(event["blockNumber"]),
+        int(event.get("transactionIndex", 0)),
+        int(event.get("logIndex", 0)),
+    )
 
 
 def error_text(error: Exception) -> str:
@@ -379,7 +439,6 @@ def is_range_error(error: Exception) -> bool:
 # ============================================================
 # 解析IBS Transfer
 # ============================================================
-
 
 def parse_ibs_transfers(receipt: Any) -> list[dict[str, Any]]:
     transfers: list[dict[str, Any]] = []
@@ -433,12 +492,21 @@ def find_trade_wallet(
     return fallback_address
 
 
-def get_special_label(
+def get_trade_mark(
     transfers: list[dict[str, Any]],
     wallet: str,
     trade_type: str,
-) -> str:
+    mint_registry: dict[str, dict[str, Any]],
+    ibs_decimals: int,
+) -> tuple[str, list[str]]:
+    """
+    返回：
+    1. 标题后缀
+    2. Telegram附加说明行
+    """
+
     wallet_lower = wallet.lower()
+    divisor = Decimal(10) ** ibs_decimals
 
     if trade_type == "BUY":
         for transfer in transfers:
@@ -446,37 +514,72 @@ def get_special_label(
                 transfer["from"] == wallet_lower
                 and transfer["to"] in BURN_ADDRESSES
             ):
-                return "（买入后销毁）"
+                return "（买入后销毁）", []
 
-    if trade_type == "SELL":
-        for transfer in transfers:
-            if (
-                transfer["from"] == ZERO_ADDRESS.lower()
-                and transfer["to"] == wallet_lower
-            ):
-                return "（增发后卖出）"
+        return "", []
 
-    return ""
+    # 卖出：优先检查本笔交易是否直接从零/黑洞地址获得IBS
+    direct_origin_raw = sum(
+        int(transfer["amount"])
+        for transfer in transfers
+        if (
+            transfer["from"] in BURN_ADDRESSES
+            and transfer["to"] == wallet_lower
+        )
+    )
+
+    if direct_origin_raw > 0:
+        direct_amount = Decimal(direct_origin_raw) / divisor
+        return (
+            "（增发后卖出）",
+            [
+                "地址标记：⚠️ 增发关联地址（疑似项目方）",
+                (
+                    "检测依据：本笔交易从零/黑洞地址收到 "
+                    f"{format_amount(direct_amount)} IBS 后卖出"
+                ),
+            ],
+        )
+
+    # 检查此前扫描过程中保存的直接增发来源记录
+    record = mint_registry.get(wallet_lower)
+    if record:
+        total_raw = int(record.get("total_raw", 0))
+        total_amount = Decimal(total_raw) / divisor
+        count = int(record.get("count", 0))
+        last_block = int(record.get("last_block", 0))
+        source_labels = record.get("sources", [])
+        source_text = "、".join(
+            short_address(source)
+            for source in source_labels
+            if isinstance(source, str)
+        ) or "零/黑洞地址"
+
+        return (
+            "（增发关联地址卖出）",
+            [
+                "地址标记：⚠️ 增发关联地址（疑似项目方）",
+                (
+                    f"历史记录：曾直接收到 {format_amount(total_amount)} IBS"
+                    f"（{count}笔）"
+                ),
+                f"来源地址：{source_text}",
+                f"最近记录区块：{last_block}",
+            ],
+        )
+
+    return "", []
 
 
 # ============================================================
-# 查询Swap事件
+# 查询日志
 # ============================================================
-
 
 def get_swap_events(
     pair_contract: Any,
     from_block: int,
     to_block: int,
 ) -> list[Any]:
-    """
-    查询Pair的Swap事件。
-
-    - 429和RPC限流：等待后重试
-    - 区块范围错误：自动拆分区间
-    - 临时网络错误：等待后重试
-    """
-
     if from_block > to_block:
         return []
 
@@ -494,26 +597,14 @@ def get_swap_events(
             last_error = error
 
             print(
-                f"日志查询失败 {from_block}-{to_block} "
+                f"Swap日志查询失败 {from_block}-{to_block} "
                 f"（{attempt}/{MAX_RETRIES}）："
                 f"{type(error).__name__}：{error}",
                 flush=True,
             )
 
-            # 多区块范围错误直接拆分，避免无意义等待
             if is_range_error(error) and from_block < to_block:
                 break
-
-            # 单区块的invalid block range通常是RPC日志索引暂时落后
-            if is_range_error(error) and from_block == to_block:
-                if attempt < MAX_RETRIES:
-                    wait_seconds = RETRY_BASE_SECONDS * attempt
-                    print(
-                        f"单区块日志索引可能延迟，等待{wait_seconds}秒……",
-                        flush=True,
-                    )
-                    time.sleep(wait_seconds)
-                    continue
 
             if attempt < MAX_RETRIES:
                 if is_rate_limit_error(error):
@@ -521,44 +612,177 @@ def get_swap_events(
                 else:
                     wait_seconds = RETRY_BASE_SECONDS * attempt
 
-                print(
-                    f"等待{wait_seconds}秒后重试……",
-                    flush=True,
-                )
+                print(f"等待{wait_seconds}秒后重试……", flush=True)
                 time.sleep(wait_seconds)
 
     if from_block >= to_block:
         raise RuntimeError(
-            f"单区块{from_block}日志查询失败：{last_error}"
+            f"单区块{from_block} Swap日志查询失败：{last_error}"
         )
 
     middle = (from_block + to_block) // 2
 
+    return (
+        get_swap_events(pair_contract, from_block, middle)
+        + get_swap_events(pair_contract, middle + 1, to_block)
+    )
+
+
+def get_mint_origin_logs(
+    web3: Web3,
+    from_block: int,
+    to_block: int,
+) -> list[Any]:
+    """
+    查询IBS Transfer日志中：
+    ZERO/DEAD -> 任意地址
+
+    与Swap使用同样的10区块范围和自动拆分策略。
+    """
+
+    if from_block > to_block:
+        return []
+
+    from_topics = [
+        address_to_topic(ZERO_ADDRESS),
+        address_to_topic(DEAD_ADDRESS),
+    ]
+
+    last_error: Exception | None = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            logs = web3.eth.get_logs(
+                {
+                    "fromBlock": from_block,
+                    "toBlock": to_block,
+                    "address": IBS_ADDRESS,
+                    "topics": [
+                        TRANSFER_TOPIC,
+                        from_topics,
+                    ],
+                }
+            )
+            return list(logs)
+
+        except Exception as error:
+            last_error = error
+
+            print(
+                f"增发来源日志查询失败 {from_block}-{to_block} "
+                f"（{attempt}/{MAX_RETRIES}）："
+                f"{type(error).__name__}：{error}",
+                flush=True,
+            )
+
+            if is_range_error(error) and from_block < to_block:
+                break
+
+            if attempt < MAX_RETRIES:
+                if is_rate_limit_error(error):
+                    wait_seconds = RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+                else:
+                    wait_seconds = RETRY_BASE_SECONDS * attempt
+
+                print(f"等待{wait_seconds}秒后重试……", flush=True)
+                time.sleep(wait_seconds)
+
+    if from_block >= to_block:
+        raise RuntimeError(
+            f"单区块{from_block} 增发来源日志查询失败：{last_error}"
+        )
+
+    middle = (from_block + to_block) // 2
+
+    return (
+        get_mint_origin_logs(web3, from_block, middle)
+        + get_mint_origin_logs(web3, middle + 1, to_block)
+    )
+
+
+# ============================================================
+# 记录增发来源地址
+# ============================================================
+
+def register_mint_origin(
+    log: Any,
+    registry: dict[str, dict[str, Any]],
+) -> None:
+    topics = log["topics"]
+    if len(topics) < 3:
+        return
+
+    source = topic_to_address(topics[1]).lower()
+    recipient = topic_to_address(topics[2]).lower()
+
+    if source not in BURN_ADDRESSES:
+        return
+
+    # 不记录转回零/黑洞地址的事件
+    if recipient in BURN_ADDRESSES:
+        return
+
+    amount = data_to_int(log["data"])
+    if amount <= 0:
+        return
+
+    tx_hash = Web3.to_hex(log["transactionHash"])
+    log_index = int(log.get("logIndex", 0))
+    event_id = f"{tx_hash}:{log_index}"
+    block_number = int(log["blockNumber"])
+
+    record = registry.setdefault(
+        recipient,
+        {
+            "count": 0,
+            "total_raw": 0,
+            "first_block": block_number,
+            "last_block": block_number,
+            "first_tx": tx_hash,
+            "last_tx": tx_hash,
+            "sources": [],
+            "event_ids": [],
+        },
+    )
+
+    event_ids = record.setdefault("event_ids", [])
+    if event_id in event_ids:
+        return
+
+    record["count"] = int(record.get("count", 0)) + 1
+    record["total_raw"] = int(record.get("total_raw", 0)) + amount
+    record["first_block"] = min(
+        int(record.get("first_block", block_number)),
+        block_number,
+    )
+    record["last_block"] = max(
+        int(record.get("last_block", block_number)),
+        block_number,
+    )
+
+    if block_number <= int(record.get("first_block", block_number)):
+        record["first_tx"] = tx_hash
+
+    if block_number >= int(record.get("last_block", block_number)):
+        record["last_tx"] = tx_hash
+
+    sources = record.setdefault("sources", [])
+    if source not in sources:
+        sources.append(source)
+
+    event_ids.append(event_id)
+
     print(
-        "查询失败，自动拆分："
-        f"{from_block}-{middle}，"
-        f"{middle + 1}-{to_block}",
+        "发现零/黑洞地址来源："
+        f"{short_address(source)} -> {short_address(recipient)}，"
+        f"区块{block_number}",
         flush=True,
     )
-
-    left_events = get_swap_events(
-        pair_contract,
-        from_block,
-        middle,
-    )
-    right_events = get_swap_events(
-        pair_contract,
-        middle + 1,
-        to_block,
-    )
-
-    return left_events + right_events
 
 
 # ============================================================
 # 处理Swap
 # ============================================================
-
 
 def process_swap(
     web3: Web3,
@@ -566,6 +790,7 @@ def process_swap(
     ibs_is_token0: bool,
     ibs_decimals: int,
     notified_hashes: set[str],
+    mint_registry: dict[str, dict[str, Any]],
 ) -> None:
     args = event["args"]
 
@@ -630,18 +855,28 @@ def process_swap(
         fallback_address=fallback_wallet,
     )
 
-    special_label = get_special_label(
+    title_suffix, mark_lines = get_trade_mark(
         transfers=transfers,
         wallet=wallet,
         trade_type=trade_type,
+        mint_registry=mint_registry,
+        ibs_decimals=ibs_decimals,
     )
 
+    detail_lines = [
+        f"数量：{format_amount(ibs_amount)} IBS",
+        f"钱包：{wallet}",
+    ]
+
+    detail_lines.extend(mark_lines)
+    detail_lines.append(f"区块：{block_number}")
+
     message = (
-        f"{icon} {title}{special_label}\n\n"
-        f"数量：{format_amount(ibs_amount)} IBS\n"
-        f"钱包：{short_address(wallet)}\n"
-        f"区块：{block_number}\n\n"
-        f"https://bscscan.com/tx/{tx_hash}"
+        f"{icon} {title}{title_suffix}\n\n"
+        + "\n".join(detail_lines)
+        + "\n\n"
+        + f"地址：https://bscscan.com/address/{wallet}\n"
+        + f"交易：https://bscscan.com/tx/{tx_hash}"
     )
 
     print(message, flush=True)
@@ -652,7 +887,6 @@ def process_swap(
 # ============================================================
 # 主程序
 # ============================================================
-
 
 def main() -> None:
     start_time = time.monotonic()
@@ -741,15 +975,13 @@ def main() -> None:
 
     pending_blocks = network_safe_latest - last_block
 
-    print(
-        f"当前待扫描区块数量：{pending_blocks}",
-        flush=True,
-    )
+    print(f"当前待扫描区块数量：{pending_blocks}", flush=True)
     print(
         f"本次扫描范围：{current_block}-{run_target_block}",
         flush=True,
     )
 
+    mint_registry = load_mint_origin_registry()
     notified_hashes: set[str] = set()
 
     while current_block <= run_target_block:
@@ -772,25 +1004,54 @@ def main() -> None:
             flush=True,
         )
 
-        events = get_swap_events(
+        swap_events = get_swap_events(
             pair_contract,
             current_block,
             end_block,
         )
 
-        print(f"发现Swap：{len(events)}", flush=True)
+        mint_logs = get_mint_origin_logs(
+            web3,
+            current_block,
+            end_block,
+        )
 
-        for event in events:
-            process_swap(
-                web3=web3,
-                event=event,
-                ibs_is_token0=ibs_is_token0,
-                ibs_decimals=ibs_decimals,
-                notified_hashes=notified_hashes,
-            )
+        print(f"发现Swap：{len(swap_events)}", flush=True)
+        print(f"发现零/黑洞来源Transfer：{len(mint_logs)}", flush=True)
 
-        # 这一批全部处理成功后，才保存进度
+        # 按区块、交易顺序、日志顺序处理。
+        # 这样同一区块中“先增发、后卖出”也能正确标记，
+        # 不会把卖出之后才发生的增发错误算到前面的卖出上。
+        timeline: list[tuple[tuple[int, int, int], str, Any]] = []
+
+        for log in mint_logs:
+            timeline.append((event_position(log), "MINT", log))
+
+        for event in swap_events:
+            timeline.append((event_position(event), "SWAP", event))
+
+        timeline.sort(key=lambda item: item[0])
+
+        for _, event_type, item in timeline:
+            if event_type == "MINT":
+                register_mint_origin(
+                    log=item,
+                    registry=mint_registry,
+                )
+            else:
+                process_swap(
+                    web3=web3,
+                    event=item,
+                    ibs_is_token0=ibs_is_token0,
+                    ibs_decimals=ibs_decimals,
+                    notified_hashes=notified_hashes,
+                    mint_registry=mint_registry,
+                )
+
+        # 这一批全部处理成功后保存两个状态文件
+        save_mint_origin_registry(mint_registry)
         save_last_block(end_block)
+
         current_block = end_block + 1
 
     completed_block = current_block - 1
