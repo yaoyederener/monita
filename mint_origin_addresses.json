@@ -1,21 +1,22 @@
 {
   "addresses": {
     "0x49591efee9c64f1bf07c6124c39a6bb469d05e80": {
-      "count": 1,
+      "count": 2,
       "event_ids": [
-        "0x052f4d3c569044894d05420508ccf8017fc2a62506cc57344d4033db10de7c09:1119"
+        "0x052f4d3c569044894d05420508ccf8017fc2a62506cc57344d4033db10de7c09:1119",
+        "0xe223bde6953a2a5480a4e59c33f6c13fe631d0286f72386ac8c3b40b9d290864:811"
       ],
       "first_block": 113038078,
       "first_tx": "0x052f4d3c569044894d05420508ccf8017fc2a62506cc57344d4033db10de7c09",
-      "last_block": 113038078,
-      "last_tx": "0x052f4d3c569044894d05420508ccf8017fc2a62506cc57344d4033db10de7c09",
+      "last_block": 113230039,
+      "last_tx": "0xe223bde6953a2a5480a4e59c33f6c13fe631d0286f72386ac8c3b40b9d290864",
       "sources": [
         "0x0000000000000000000000000000000000000000"
       ],
-      "total_raw": 1441488800000000000000
+      "total_raw": 2895029300000000000000
     },
     "0xcba922f6aff0ec8cb0703d44249456ef779a394c": {
-      "count": 42,
+      "count": 43,
       "event_ids": [
         "0xe1a725e2e68acc5fbf7e0111eb2c648bdc1cd8387d8c4d2dc6279b7b63d8e0a4:659",
         "0x8fafab888a2f8fefa508597db0987d16f922ef6c97048daeb6282b05c2df739b:960",
@@ -58,16 +59,17 @@
         "0x9253af5c144408bb45583b1a252412a83f2c27682768d052518f53046fe5fd57:617",
         "0xd411d2c646960e04a30fa9ee0a7697ee3d9c7546f6dfa7528019cc9ece8ae5ea:413",
         "0xe0cbe7bbe15c829b14544e9fd8fc27c7f86f887d94274ac94e5ab938836bd1a2:324",
-        "0x7a52754f0c3b46d3b201203f093cf58b01c7ca623a6b405d7113ec8a6bbc7f6d:468"
+        "0x7a52754f0c3b46d3b201203f093cf58b01c7ca623a6b405d7113ec8a6bbc7f6d:468",
+        "0x4097b82a72f90be7d7a8a6abd0befda00d45f5f397fc7a460afd56e7da276168:396"
       ],
       "first_block": 112969847,
       "first_tx": "0xe1a725e2e68acc5fbf7e0111eb2c648bdc1cd8387d8c4d2dc6279b7b63d8e0a4",
-      "last_block": 113220440,
-      "last_tx": "0x7a52754f0c3b46d3b201203f093cf58b01c7ca623a6b405d7113ec8a6bbc7f6d",
+      "last_block": 113229770,
+      "last_tx": "0x4097b82a72f90be7d7a8a6abd0befda00d45f5f397fc7a460afd56e7da276168",
       "sources": [
         "0x0000000000000000000000000000000000000000"
       ],
-      "total_raw": 9456527111483285307392
+      "total_raw": 9708683912575964938240
     }
   },
   "token": "0x255e746aBb8D9Acac00d6d023e5E63E3b8DFA7cd",
