@@ -16,7 +16,7 @@
       "total_raw": 2895029300000000000000
     },
     "0xcba922f6aff0ec8cb0703d44249456ef779a394c": {
-      "count": 48,
+      "count": 49,
       "event_ids": [
         "0xe1a725e2e68acc5fbf7e0111eb2c648bdc1cd8387d8c4d2dc6279b7b63d8e0a4:659",
         "0x8fafab888a2f8fefa508597db0987d16f922ef6c97048daeb6282b05c2df739b:960",
@@ -65,16 +65,17 @@
         "0xa9a9cb383f6b35e4632e2908ecd64712af5fc67146bc5955740c904397d07f62:346",
         "0xc36b5fb1a524fa7c874c148b1478ce22c105208cbb939dc15fe69562ec614151:1407",
         "0x05369415359df836de3fd3dfb647a47e9b8b0cdf4caa223ef910740e1305507e:469",
-        "0x84bebf9fef1e098dfaaed1eceb008e3dbc6cc231e32ab6171146ee1ceff2c5d0:307"
+        "0x84bebf9fef1e098dfaaed1eceb008e3dbc6cc231e32ab6171146ee1ceff2c5d0:307",
+        "0x944954259a4d56f886496dfa10fbd234c4fc0534c220ca1d0bbef3a84b65b539:476"
       ],
       "first_block": 112969847,
       "first_tx": "0xe1a725e2e68acc5fbf7e0111eb2c648bdc1cd8387d8c4d2dc6279b7b63d8e0a4",
-      "last_block": 113308390,
-      "last_tx": "0x84bebf9fef1e098dfaaed1eceb008e3dbc6cc231e32ab6171146ee1ceff2c5d0",
+      "last_block": 113320390,
+      "last_tx": "0x944954259a4d56f886496dfa10fbd234c4fc0534c220ca1d0bbef3a84b65b539",
       "sources": [
         "0x0000000000000000000000000000000000000000"
       ],
-      "total_raw": 10461466008469630877696
+      "total_raw": 10610199402970192281600
     }
   },
   "token": "0x255e746aBb8D9Acac00d6d023e5E63E3b8DFA7cd",
