@@ -1,33 +1,35 @@
 {
   "addresses": {
     "0x49591efee9c64f1bf07c6124c39a6bb469d05e80": {
-      "count": 2,
+      "count": 3,
       "event_ids": [
         "0x052f4d3c569044894d05420508ccf8017fc2a62506cc57344d4033db10de7c09:1119",
-        "0xe223bde6953a2a5480a4e59c33f6c13fe631d0286f72386ac8c3b40b9d290864:811"
+        "0xe223bde6953a2a5480a4e59c33f6c13fe631d0286f72386ac8c3b40b9d290864:811",
+        "0x3296088ce78ba80daea2fd14fa0cd4ff1eb9b15842048af7e8a2c7020a2da984:974"
       ],
       "first_block": 113038078,
       "first_tx": "0x052f4d3c569044894d05420508ccf8017fc2a62506cc57344d4033db10de7c09",
-      "last_block": 113230039,
-      "last_tx": "0xe223bde6953a2a5480a4e59c33f6c13fe631d0286f72386ac8c3b40b9d290864",
+      "last_block": 113805881,
+      "last_tx": "0x3296088ce78ba80daea2fd14fa0cd4ff1eb9b15842048af7e8a2c7020a2da984",
       "sources": [
         "0x0000000000000000000000000000000000000000"
       ],
-      "total_raw": 2895029300000000000000
+      "total_raw": 3651743000000000000000
     },
     "0xc274041bf5d9487bab196e63e6609b6161ffcd7d": {
-      "count": 1,
+      "count": 2,
       "event_ids": [
-        "0xe535d9165fb4c607afb774dd8b298b8739d02923b0425c345f5ad52cd1c4e642:218"
+        "0xe535d9165fb4c607afb774dd8b298b8739d02923b0425c345f5ad52cd1c4e642:218",
+        "0x58dbf50c5276aac50836a48d7e9f44a4ee40c8b578f1a9208a475a6ee3a6f8ee:633"
       ],
       "first_block": 113427417,
       "first_tx": "0xe535d9165fb4c607afb774dd8b298b8739d02923b0425c345f5ad52cd1c4e642",
-      "last_block": 113427417,
-      "last_tx": "0xe535d9165fb4c607afb774dd8b298b8739d02923b0425c345f5ad52cd1c4e642",
+      "last_block": 113805878,
+      "last_tx": "0x58dbf50c5276aac50836a48d7e9f44a4ee40c8b578f1a9208a475a6ee3a6f8ee",
       "sources": [
         "0x0000000000000000000000000000000000000000"
       ],
-      "total_raw": 10203560000000000000000
+      "total_raw": 30952720000000000000000
     },
     "0xcba922f6aff0ec8cb0703d44249456ef779a394c": {
       "count": 96,
