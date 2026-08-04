@@ -32,8 +32,8 @@ BURN_ADDRESSES = {
     DEAD_ADDRESS.lower(),
 }
 
-# 达到50 IBS才发送Telegram通知
-MIN_IBS_AMOUNT = Decimal("50")
+# 达到100 IBS才发送Telegram通知
+MIN_IBS_AMOUNT = Decimal("100")
 
 # 区块进度文件
 LAST_BLOCK_FILE = "last_block.txt"
