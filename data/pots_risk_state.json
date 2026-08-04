@@ -1,0 +1,113 @@
+{
+  "contract_fingerprints": {
+    "0x004202d0b1759bcdbd939bc5a2bfbceed9dd34b1": {
+      "code_hash": "a3a2589a4aedf3644800aba19ce291d234da0a816ba117fb9ebc766e7ee431c3",
+      "code_size": 1059,
+      "implementation": "0xaDF10A038B1Cb7dB7C69897c4912070cdF4AE3Ee",
+      "label": "Release Turbine",
+      "owner": null
+    },
+    "0x5bb0d5cb2276a054d933b14d023a2063cf8f28ce": {
+      "code_hash": "a8a0fbd3cdf49e751346664e01b529a58322a814cf8df8d85deb20e63bd6415e",
+      "code_size": 171,
+      "implementation": null,
+      "label": "Safety Treasury",
+      "owner": null
+    },
+    "0x6025fc9840cc4e282125a74f4b00dc5038a8058f": {
+      "code_hash": "f19bd0bc470ec29abb00d203cb272b4ecfa20a2edd21c00da224f143106255f5",
+      "code_size": 1059,
+      "implementation": "0x83006Da3EcDC620183E60C94D91F2D8aFcd54996",
+      "label": "Staking",
+      "owner": null
+    },
+    "0x7266256440a32f5da2691b1ef98fffb5b655658a": {
+      "code_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "code_size": 0,
+      "implementation": null,
+      "label": "Worldpool Treasury",
+      "owner": null
+    },
+    "0x89e6efd26af347fd7f1eb9846a21e4e85311cc30": {
+      "code_hash": "60400328ee2a78726d31d268d31e1fc45071a881589a00724ad191822ef5e4be",
+      "code_size": 1059,
+      "implementation": "0x8DBdC538fb56beB0e9017abAcb42c15537cF53E1",
+      "label": "Bonding",
+      "owner": null
+    },
+    "0xb83d56a4de0f080d9a0ccb7b67e747af68bbc655": {
+      "code_hash": "59cf8ccb6515897cf280777cfae38c01c50ea63467336f0f44b5f82ef10b62e0",
+      "code_size": 1059,
+      "implementation": "0x2E0aF18418E82B871112a296027458615aE1b4fa",
+      "label": "Operator Bond",
+      "owner": null
+    },
+    "0xc274041bf5d9487bab196e63e6609b6161ffcd7d": {
+      "code_hash": "210cf92b7eb71d454d892d56004802367387c070386b678de0ed5bc48381d2aa",
+      "code_size": 62,
+      "implementation": null,
+      "label": "Rebase Pool",
+      "owner": null
+    },
+    "0xcba922f6aff0ec8cb0703d44249456ef779a394c": {
+      "code_hash": "00f436a882fc8768f70a97f96768da3103b42bf73a2b203521da6a5075b866ac",
+      "code_size": 1059,
+      "implementation": "0x4eAd3166417A599D38b4416F2769E8a9bAF68239",
+      "label": "RBS Stabilizer",
+      "owner": null
+    },
+    "0xe72a413864b8f795f2a1c2de4176e4be9bf56f34": {
+      "code_hash": "2e3eb84e9d3b8c33ed63ca12f8444e17e6496502e5e1fa8d9855e46080036eed",
+      "code_size": 1059,
+      "implementation": "0x58FbFDA8434BF5cad1269d243253025521375f40",
+      "label": "IBS AEM",
+      "owner": null
+    },
+    "0xe9a7c7bb2d4264940296d5d6c414d09dd37627f0": {
+      "code_hash": "a8a0fbd3cdf49e751346664e01b529a58322a814cf8df8d85deb20e63bd6415e",
+      "code_size": 171,
+      "implementation": null,
+      "label": "BTCB Treasury",
+      "owner": null
+    },
+    "0xf3fc289abbff1f847649bc738a4e39d2ed365711": {
+      "code_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "code_size": 0,
+      "implementation": null,
+      "label": "RBS Executor",
+      "owner": null
+    }
+  },
+  "created_at": "2026-08-04T23:00:13.031802+00:00",
+  "daily": {},
+  "fingerprint_checked_at": "2026-08-04T23:00:14.960597+00:00",
+  "last_block": 114053839,
+  "last_daily_report_date": null,
+  "last_risk_alert": {
+    "level": "YELLOW",
+    "sent_at": "2026-08-04T23:00:15.668216+00:00",
+    "signature": "494b3d2f419c08375936bc3ce9de94d3e4c659dc1950d46c47333c0d468ef333"
+  },
+  "seen_critical_events": [],
+  "snapshots": [
+    {
+      "block": 114053839,
+      "bonding_usdt": "0",
+      "ibs_price_usdt": "25.08834393676366233972766808",
+      "ibs_total_supply": "949188.647527978449051253",
+      "lower_band_proxy": "21.57390403181182382793888094",
+      "lp_backing_proxy": "22.70937266506507771361987467",
+      "pair_ibs_reserve": "429591.502342553004630425",
+      "pair_usdt_reserve": "10777739.363080982320284341",
+      "price_to_backing": "1.104757243046095710554725356",
+      "rbs_ibs": "0",
+      "rbs_to_lp_usdt": "0.1660910391204119512877166047",
+      "rbs_usdt": "1790085.93018308722189567",
+      "safety_usdt": "199991.190326",
+      "timestamp": "2026-08-04T23:00:13.745860+00:00",
+      "turbine_usdt": "0"
+    }
+  ],
+  "updated_at": "2026-08-04T23:00:15.668243+00:00",
+  "version": 1
+}
