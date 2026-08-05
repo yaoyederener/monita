@@ -83,26 +83,26 @@
     "2026-08-04": {
       "bonding_usdt_in": "0",
       "bonding_usdt_out": "0",
-      "burn_ibs": "355.853798397592442764",
-      "buy_count": "255",
-      "buy_ibs": "1129.039039173436069542",
-      "buy_usdt": "28414.805551619289912910",
+      "burn_ibs": "650.472681992921696047",
+      "buy_count": "291",
+      "buy_ibs": "1503.108814541607912580",
+      "buy_usdt": "37827.688337643724137000",
       "mint_ibs": "0",
-      "protocol_buy_usdt": "21742.983710557881656161",
+      "protocol_buy_usdt": "30110.097916582315880251",
       "rbs_usdt_in": "0",
-      "rbs_usdt_out": "8594.566013816206786560",
+      "rbs_usdt_out": "16007.869025377560035328",
       "safety_usdt_in": "0",
       "safety_usdt_out": "0",
-      "sell_count": "289",
-      "sell_ibs": "1253.42704002555",
-      "sell_usdt": "31387.858241520413342397",
-      "turbine_usdt_in": "17768.157947039132369357",
-      "turbine_usdt_out": "17768.157947039132369357"
+      "sell_count": "326",
+      "sell_ibs": "1606.38808898295",
+      "sell_usdt": "40225.258833027788063863",
+      "turbine_usdt_in": "20757.637175464461936001",
+      "turbine_usdt_out": "20757.637175464461936001"
     }
   },
   "daily_tracking_started_at": "2026-08-05T04:49:10.573621+00:00",
   "fingerprint_checked_at": "2026-08-05T05:14:26.453022+00:00",
-  "last_block": 114109200,
+  "last_block": 114110223,
   "last_daily_report_date": "2026-08-04",
   "last_realtime_report_at": "2026-08-05T05:47:34.991960+00:00",
   "last_resync": {
@@ -117,27 +117,34 @@
     "signature": "124efecac6fc7866dd98388f9f4de3b4eb6ffc32048151839b38abffaed0203d"
   },
   "latest_snapshot": {
-    "block": 114109200,
+    "block": 114110223,
     "bonding_usdt": "0",
-    "fully_diluted_value": "23728905.52956290041147977944",
-    "ibs_circulating_supply_proxy": "942817.329450289704349308",
+    "fully_diluted_value": "23747097.94654403904892751179",
+    "ibs_circulating_supply_proxy": "942522.710566694375096025",
     "ibs_dead_balance": "3141.161280382810310804",
-    "ibs_price_usdt": "25.08451032691121380167327925",
-    "ibs_total_supply": "945958.490730672514660112",
-    "lower_band_proxy": "21.64673676442247670964344459",
-    "lp_backing_proxy": "22.78603869939208074699309957",
-    "lp_total_value": "21554646.777807628817011104",
-    "market_cap_proxy": "23650111.03698664415549355070",
-    "pair_ibs_reserve": "429640.57294519578849837",
-    "pair_usdt_reserve": "10777323.388903814408505552",
-    "price_to_backing": "1.100871926789997729665214772",
+    "ibs_price_usdt": "25.11156305481041994390900069",
+    "ibs_total_supply": "945663.871847077185406829",
+    "lower_band_proxy": "21.66520251199388660770579795",
+    "lp_backing_proxy": "22.80547632841461748179557679",
+    "lp_total_value": "21566315.044045433160954596",
+    "market_cap_proxy": "23668218.47698637707480137884",
+    "pair_ibs_reserve": "429410.049007565616932649",
+    "pair_usdt_reserve": "10783157.522022716580477298",
+    "price_to_backing": "1.101119866701600971604231502",
     "rbs_ibs": "0",
-    "rbs_to_lp_usdt": "0.1585879422269095266105832393",
-    "rbs_total_value": "1709153.538960198911300174000",
-    "rbs_usdt": "1709153.538960198911300174",
+    "rbs_to_lp_usdt": "0.1578146505300632247262225573",
+    "rbs_total_value": "1701740.235948637558051406000",
+    "rbs_usdt": "1701740.235948637558051406",
     "safety_usdt": "199991.190326",
-    "timestamp": "2026-08-05T05:57:32.459859+00:00",
+    "timestamp": "2026-08-05T06:06:12.508705+00:00",
     "turbine_usdt": "0"
+  },
+  "risk_confirmation": {
+    "candidate_count": 1,
+    "candidate_level": "RED",
+    "confirmed_level": "BLACK",
+    "confirmed_score": 85,
+    "updated_at": "2026-08-05T06:06:12.509024+00:00"
   },
   "seen_critical_events": [],
   "snapshots": [
@@ -245,6 +252,6 @@
       "turbine_usdt": "0"
     }
   ],
-  "updated_at": "2026-08-05T05:57:32.460239+00:00",
-  "version": 2
+  "updated_at": "2026-08-05T06:06:12.509091+00:00",
+  "version": 3
 }
