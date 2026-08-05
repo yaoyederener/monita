@@ -5,6 +5,7 @@ Designed for GitHub Actions + Telegram. It complements the user's existing
 large-trade monitor rather than replacing it.
 
 The script monitors:
+- a fresh on-chain supply / market-cap / LP / RBS snapshot on every run
 - IBS/USDT pool reserves, price, and an LP-backing proxy
 - RBS and Safety Treasury USDT balances and depletion rate
 - IBS mint / burn volume
@@ -113,8 +114,14 @@ BLOCK_CHUNK_SIZE = min(
     max(1, int(os.getenv("BLOCK_CHUNK_SIZE", "10"))),
 )
 MAX_BLOCKS_PER_RUN = int(os.getenv("MAX_BLOCKS_PER_RUN", "1200"))
+MAX_INCREMENTAL_BACKLOG_BLOCKS = int(
+    os.getenv("MAX_INCREMENTAL_BACKLOG_BLOCKS", "3000")
+)
 MAX_RUNTIME_SECONDS = int(os.getenv("MAX_RUNTIME_SECONDS", "330"))
 SNAPSHOT_INTERVAL_MINUTES = int(os.getenv("SNAPSHOT_INTERVAL_MINUTES", "30"))
+REALTIME_REPORT_INTERVAL_MINUTES = int(
+    os.getenv("REALTIME_REPORT_INTERVAL_MINUTES", "30")
+)
 FINGERPRINT_INTERVAL_MINUTES = int(os.getenv("FINGERPRINT_INTERVAL_MINUTES", "60"))
 DAILY_REPORT_HOUR = int(os.getenv("DAILY_REPORT_HOUR", "20"))
 
@@ -123,7 +130,7 @@ TELEGRAM_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_TIMEOUT_SECONDS", "20"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
 RETRY_BASE_SECONDS = int(os.getenv("RETRY_BASE_SECONDS", "3"))
 RPC_LOG_REQUEST_DELAY_SECONDS = float(
-    os.getenv("RPC_LOG_REQUEST_DELAY_SECONDS", "1.0")
+    os.getenv("RPC_LOG_REQUEST_DELAY_SECONDS", "0.4")
 )
 RPC_MAX_BACKOFF_SECONDS = float(os.getenv("RPC_MAX_BACKOFF_SECONDS", "60"))
 
@@ -300,6 +307,8 @@ def fmt_number(value: Decimal | float | int | None, digits: int = 2) -> str:
         return f"{amount / Decimal('1000000'):.2f}M"
     if abs(amount) >= Decimal("1000"):
         return f"{amount / Decimal('1000'):.2f}K"
+    if digits == 0:
+        return f"{amount:.0f}"
     text = f"{amount:.{digits}f}"
     return text.rstrip("0").rstrip(".")
 
@@ -460,6 +469,8 @@ def empty_daily_bucket() -> dict[str, str]:
         "sell_usdt",
         "buy_ibs",
         "sell_ibs",
+        "buy_count",
+        "sell_count",
         "protocol_buy_usdt",
         "mint_ibs",
         "burn_ibs",
@@ -477,15 +488,19 @@ def empty_daily_bucket() -> dict[str, str]:
 
 def default_state() -> dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "last_block": 0,
         "created_at": iso_now(),
         "updated_at": iso_now(),
         "daily": {},
+        "daily_tracking_started_at": None,
+        "last_resync": None,
+        "latest_snapshot": None,
         "snapshots": [],
         "contract_fingerprints": {},
         "fingerprint_checked_at": None,
         "last_risk_alert": {},
+        "last_realtime_report_at": None,
         "last_daily_report_date": None,
         "seen_critical_events": [],
     }
@@ -502,6 +517,7 @@ def load_state() -> dict[str, Any]:
         raise RuntimeError("状态文件格式错误：根节点不是对象")
     merged = default_state()
     merged.update(state)
+    merged["version"] = 2
     return merged
 
 
@@ -537,6 +553,37 @@ def add_daily(state: dict[str, Any], date: str, field: str, amount: Decimal) -> 
 
 def daily_value(state: dict[str, Any], date: str, field: str) -> Decimal:
     return decimal_from(state.get("daily", {}).get(date, {}).get(field, "0"))
+
+
+def reset_realtime_baseline(
+    state: dict[str, Any],
+    safe_latest: int,
+    skipped_blocks: int,
+    reason: str,
+) -> None:
+    started_at = iso_now()
+    state["version"] = 2
+    state["last_block"] = safe_latest
+    state["daily"] = {}
+    state["daily_tracking_started_at"] = started_at
+    state["last_resync"] = {
+        "timestamp": started_at,
+        "block": safe_latest,
+        "skipped_blocks": skipped_blocks,
+        "reason": reason,
+    }
+
+
+def daily_coverage(state: dict[str, Any], today: str) -> tuple[bool, str]:
+    started_at = parse_iso(state.get("daily_tracking_started_at"))
+    if started_at is None:
+        return False, "数据起点未知"
+
+    local_start = started_at.astimezone(LOCAL_TZ)
+    complete = local_start.date().isoformat() < today
+    if complete:
+        return True, "今日完整（Vancouver 00:00起）"
+    return False, f"今日部分数据（从 {local_start.strftime('%H:%M')} 起）"
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +656,13 @@ def build_snapshot(
     turbine_usdt = balance_of(usdt_contract, TURBINE_ADDRESS, usdt_meta.decimals)
     bonding_usdt = balance_of(usdt_contract, BONDING_ADDRESS, usdt_meta.decimals)
     rbs_ibs = balance_of(ibs_contract, RBS_ADDRESS, ibs_meta.decimals)
+    dead_ibs = balance_of(ibs_contract, DEAD_ADDRESS, ibs_meta.decimals)
+
+    circulating_supply_proxy = max(total_supply - dead_ibs, Decimal("0"))
+    market_cap_proxy = circulating_supply_proxy * price
+    fully_diluted_value = total_supply * price
+    lp_total_value = Decimal("2") * usdt_reserve
+    rbs_total_value = rbs_usdt + (rbs_ibs * price)
 
     # This is explicitly a proxy, not the protocol's exact internal B_IBS formula.
     lp_backing_proxy = (
@@ -627,8 +681,14 @@ def build_snapshot(
         "pair_ibs_reserve": str(ibs_reserve),
         "pair_usdt_reserve": str(usdt_reserve),
         "ibs_total_supply": str(total_supply),
+        "ibs_dead_balance": str(dead_ibs),
+        "ibs_circulating_supply_proxy": str(circulating_supply_proxy),
+        "market_cap_proxy": str(market_cap_proxy),
+        "fully_diluted_value": str(fully_diluted_value),
+        "lp_total_value": str(lp_total_value),
         "rbs_usdt": str(rbs_usdt),
         "rbs_ibs": str(rbs_ibs),
+        "rbs_total_value": str(rbs_total_value),
         "safety_usdt": str(safety_usdt),
         "turbine_usdt": str(turbine_usdt),
         "bonding_usdt": str(bonding_usdt),
@@ -1029,11 +1089,13 @@ def process_scanned_logs(
         if swap["side"] == "BUY":
             add_daily(state, date, "buy_usdt", swap["usdt"])
             add_daily(state, date, "buy_ibs", swap["ibs"])
+            add_daily(state, date, "buy_count", Decimal("1"))
             if is_protocol_swap(web3, swap, tx_sender_cache):
                 add_daily(state, date, "protocol_buy_usdt", swap["usdt"])
         else:
             add_daily(state, date, "sell_usdt", swap["usdt"])
             add_daily(state, date, "sell_ibs", swap["ibs"])
+            add_daily(state, date, "sell_count", Decimal("1"))
 
     for log in ibs_transfers:
         if len(log["topics"]) < 3:
@@ -1168,10 +1230,18 @@ def calculate_risks(
 
     buy_today = daily_value(state, today, "buy_usdt")
     sell_today = daily_value(state, today, "sell_usdt")
+    buy_count_today = daily_value(state, today, "buy_count")
+    sell_count_today = daily_value(state, today, "sell_count")
     protocol_buy_today = daily_value(state, today, "protocol_buy_usdt")
     external_buy_today = max(buy_today - protocol_buy_today, Decimal("0"))
+    net_buy_sell_today = buy_today - sell_today
     sell_buy_ratio = safe_ratio(sell_today, external_buy_today)
     protocol_buy_share = safe_ratio(protocol_buy_today, buy_today)
+
+    mint_today = daily_value(state, today, "mint_ibs")
+    burn_today = daily_value(state, today, "burn_ibs")
+    net_mint_today = mint_today - burn_today
+    daily_data_complete, daily_coverage_text = daily_coverage(state, today)
 
     mint_7d = sum_daily(state, dates_7d, "mint_ibs")
     burn_7d = sum_daily(state, dates_7d, "burn_ibs")
@@ -1422,10 +1492,18 @@ def calculate_risks(
         "today": today,
         "buy_today": buy_today,
         "sell_today": sell_today,
+        "buy_count_today": buy_count_today,
+        "sell_count_today": sell_count_today,
         "protocol_buy_today": protocol_buy_today,
         "external_buy_today": external_buy_today,
+        "net_buy_sell_today": net_buy_sell_today,
         "sell_buy_ratio": sell_buy_ratio,
         "protocol_buy_share": protocol_buy_share,
+        "mint_today": mint_today,
+        "burn_today": burn_today,
+        "net_mint_today": net_mint_today,
+        "daily_data_complete": daily_data_complete,
+        "daily_coverage_text": daily_coverage_text,
         "mint_7d": mint_7d,
         "burn_7d": burn_7d,
         "net_mint_7d": net_mint_7d,
@@ -1500,14 +1578,28 @@ def format_risk_message(
         "",
         f"<b>行动建议：</b>{html.escape(metrics['advice'])}",
         "",
-        "<b>核心数据</b>",
+        "<b>实时链上总览</b>",
+        f"IBS总供应量：{fmt_number(decimal_from(current['ibs_total_supply']))} IBS",
+        f"流通量代理：{fmt_number(decimal_from(current['ibs_circulating_supply_proxy']))} IBS",
+        f"流通市值代理：<b>{fmt_usdt(decimal_from(current['market_cap_proxy']))}</b>",
+        f"总供应市值（FDV）：{fmt_usdt(decimal_from(current['fully_diluted_value']))}",
         f"IBS价格：<b>{fmt_usdt(decimal_from(current['ibs_price_usdt']))}</b>",
+        f"LP总价值：<b>{fmt_usdt(decimal_from(current['lp_total_value']))}</b>",
+        f"累计销毁代理（黑洞余额）：{fmt_number(decimal_from(current['ibs_dead_balance']))} IBS",
         f"RBS USDT：<b>{fmt_usdt(decimal_from(current['rbs_usdt']))}</b>",
-        f"LP池 USDT：<b>{fmt_usdt(decimal_from(current['pair_usdt_reserve']))}</b>",
-        f"今日外部买入：{fmt_usdt(metrics['external_buy_today'])}",
-        f"今日卖出：{fmt_usdt(metrics['sell_today'])}",
+        f"RBS IBS：{fmt_number(decimal_from(current['rbs_ibs']))} IBS",
+        f"RBS总值代理：{fmt_usdt(decimal_from(current['rbs_total_value']))}",
+        "",
+        f"<b>今日链上数据 · {html.escape(metrics['daily_coverage_text'])}</b>",
+        f"主池买入：{fmt_usdt(metrics['buy_today'])}（{fmt_number(metrics['buy_count_today'], 0)}笔）",
+        f"外部买入：{fmt_usdt(metrics['external_buy_today'])}",
+        f"主池卖出：{fmt_usdt(metrics['sell_today'])}（{fmt_number(metrics['sell_count_today'], 0)}笔）",
+        f"买卖净额：{fmt_usdt(metrics['net_buy_sell_today'])}",
         f"卖出/外部买入：{fmt_number(metrics['sell_buy_ratio'])}",
         f"可识别协议买盘占比：{fmt_pct(metrics['protocol_buy_share'])}",
+        f"今日Mint：{fmt_number(metrics['mint_today'])} IBS",
+        f"今日Burn：{fmt_number(metrics['burn_today'])} IBS",
+        f"今日净增发：{fmt_number(metrics['net_mint_today'])} IBS",
         f"7日净增发：{fmt_number(metrics['net_mint_7d'])} IBS",
         f"RBS可支撑天数：{fmt_number(metrics['support_days'], 1)}",
     ]
@@ -1541,8 +1633,17 @@ def format_daily_report(metrics: dict[str, Any], current: dict[str, Any]) -> str
             f"风险等级：{icon} <b>{cn_level}</b>（{metrics['score']}/100）",
             f"行动建议：{html.escape(metrics['advice'])}",
             "",
+            "<b>实时供应与市值</b>",
+            f"总供应量：{fmt_number(decimal_from(current['ibs_total_supply']))} IBS",
+            f"流通量代理：{fmt_number(decimal_from(current['ibs_circulating_supply_proxy']))} IBS",
+            f"流通市值代理：{fmt_usdt(decimal_from(current['market_cap_proxy']))}",
+            f"总供应市值（FDV）：{fmt_usdt(decimal_from(current['fully_diluted_value']))}",
+            f"累计销毁代理（黑洞余额）：{fmt_number(decimal_from(current['ibs_dead_balance']))} IBS",
+            "",
             "<b>储备</b>",
             f"RBS USDT：{fmt_usdt(decimal_from(current['rbs_usdt']))}",
+            f"RBS IBS：{fmt_number(decimal_from(current['rbs_ibs']))} IBS",
+            f"RBS总值代理：{fmt_usdt(decimal_from(current['rbs_total_value']))}",
             f"RBS 24h变化：{fmt_pct(metrics['rbs_24h_change'], signed=True)}",
             f"RBS/LP USDT代理比率：{fmt_pct(metrics['rbs_to_lp'])}",
             f"RBS可支撑天数：{fmt_number(metrics['support_days'], 1)}",
@@ -1550,17 +1651,24 @@ def format_daily_report(metrics: dict[str, Any], current: dict[str, Any]) -> str
             "",
             "<b>流动性与价格</b>",
             f"IBS价格：{fmt_usdt(decimal_from(current['ibs_price_usdt']))}",
-            f"LP池 USDT：{fmt_usdt(decimal_from(current['pair_usdt_reserve']))}",
+            f"LP总价值：{fmt_usdt(decimal_from(current['lp_total_value']))}",
+            f"LP池单边USDT：{fmt_usdt(decimal_from(current['pair_usdt_reserve']))}",
             f"LP 24h变化：{fmt_pct(metrics['lp_24h_change'], signed=True)}",
             f"LP 7d变化：{fmt_pct(metrics['lp_7d_change'], signed=True)}",
             f"价格/LP支持价值代理：{fmt_number(metrics['price_to_backing'], 3)}",
             "",
-            "<b>今日买卖压力</b>",
-            f"总买入：{fmt_usdt(metrics['buy_today'])}",
+            f"<b>今日买卖压力 · {html.escape(metrics['daily_coverage_text'])}</b>",
+            f"主池总买入：{fmt_usdt(metrics['buy_today'])}（{fmt_number(metrics['buy_count_today'], 0)}笔）",
             f"外部买入：{fmt_usdt(metrics['external_buy_today'])}",
             f"可识别协议买入：{fmt_usdt(metrics['protocol_buy_today'])}",
-            f"卖出：{fmt_usdt(metrics['sell_today'])}",
+            f"主池总卖出：{fmt_usdt(metrics['sell_today'])}（{fmt_number(metrics['sell_count_today'], 0)}笔）",
+            f"买卖净额：{fmt_usdt(metrics['net_buy_sell_today'])}",
             f"卖出/外部买入：{fmt_number(metrics['sell_buy_ratio'])}",
+            "",
+            "<b>今日供应变化</b>",
+            f"Mint：{fmt_number(metrics['mint_today'])} IBS",
+            f"Burn：{fmt_number(metrics['burn_today'])} IBS",
+            f"净增发：{fmt_number(metrics['net_mint_today'])} IBS",
             "",
             "<b>7日供应</b>",
             f"Mint：{fmt_number(metrics['mint_7d'])} IBS",
@@ -1568,8 +1676,54 @@ def format_daily_report(metrics: dict[str, Any], current: dict[str, Any]) -> str
             f"净增发：{fmt_number(metrics['net_mint_7d'])} IBS",
             f"净通胀率：{fmt_pct(metrics['net_inflation_7d'])}",
             "",
-            "说明：协议买盘归因和LP支持价值均为链上保守代理，不能替代完整合约会计。",
+            "说明：流通量=总供应量-黑洞余额；市值、LP与RBS总值均为实时链上代理值；买卖额只统计指定IBS/USDT主池。",
         ]
+    )
+
+
+def format_realtime_report(metrics: dict[str, Any], current: dict[str, Any]) -> str:
+    icon, cn_level = LEVEL_STYLE[metrics["level"]]
+    return "\n".join(
+        [
+            "⏱ <b>POTS 链上实时简报</b>",
+            f"风险：{icon} {cn_level}（{metrics['score']}/100）",
+            f"区块：<code>{current['block']}</code>",
+            "",
+            "<b>供应与市值</b>",
+            f"IBS总供应量：{fmt_number(decimal_from(current['ibs_total_supply']))} IBS",
+            f"流通量代理：{fmt_number(decimal_from(current['ibs_circulating_supply_proxy']))} IBS",
+            f"累计销毁代理（黑洞余额）：{fmt_number(decimal_from(current['ibs_dead_balance']))} IBS",
+            f"价格：<b>{fmt_usdt(decimal_from(current['ibs_price_usdt']))}</b>",
+            f"流通市值代理：<b>{fmt_usdt(decimal_from(current['market_cap_proxy']))}</b>",
+            f"总供应市值（FDV）：{fmt_usdt(decimal_from(current['fully_diluted_value']))}",
+            "",
+            "<b>LP与RBS</b>",
+            f"LP总价值：<b>{fmt_usdt(decimal_from(current['lp_total_value']))}</b>",
+            f"LP池：{fmt_number(decimal_from(current['pair_ibs_reserve']))} IBS + "
+            f"{fmt_usdt(decimal_from(current['pair_usdt_reserve']))}",
+            f"RBS：{fmt_usdt(decimal_from(current['rbs_usdt']))} + "
+            f"{fmt_number(decimal_from(current['rbs_ibs']))} IBS",
+            f"RBS总值代理：<b>{fmt_usdt(decimal_from(current['rbs_total_value']))}</b>",
+            "",
+            f"<b>今日主池买卖 · {html.escape(metrics['daily_coverage_text'])}</b>",
+            f"买入：{fmt_usdt(metrics['buy_today'])}（{fmt_number(metrics['buy_count_today'], 0)}笔）",
+            f"卖出：{fmt_usdt(metrics['sell_today'])}（{fmt_number(metrics['sell_count_today'], 0)}笔）",
+            f"买卖净额：{fmt_usdt(metrics['net_buy_sell_today'])}",
+            f"可识别协议买入：{fmt_usdt(metrics['protocol_buy_today'])}",
+            f"今日Mint / Burn：{fmt_number(metrics['mint_today'])} / "
+            f"{fmt_number(metrics['burn_today'])} IBS",
+            "",
+            "说明：买卖额只统计指定IBS/USDT主池；流通、市值、LP、RBS和累计销毁为链上代理口径。",
+        ]
+    )
+
+
+def should_send_realtime_report(state: dict[str, Any]) -> bool:
+    previous = parse_iso(state.get("last_realtime_report_at"))
+    return (
+        previous is None
+        or now_utc() - previous
+        >= timedelta(minutes=REALTIME_REPORT_INTERVAL_MINUTES)
     )
 
 
@@ -1604,9 +1758,37 @@ def main() -> None:
     latest = int(retry_call("读取最新区块", lambda: web3.eth.block_number))
     safe_latest = max(1, latest - CONFIRMATION_BLOCKS)
 
-    first_run = int(state.get("last_block", 0)) <= 0
+    previous_last_block = int(state.get("last_block", 0))
+    first_run = previous_last_block <= 0
+    backlog = max(0, safe_latest - previous_last_block)
+    resynced = False
+    skipped_blocks = 0
+
     if first_run:
-        state["last_block"] = safe_latest - 1
+        reset_realtime_baseline(
+            state,
+            safe_latest,
+            skipped_blocks=0,
+            reason="首次启动实时快照模式",
+        )
+        save_state(state)
+    elif backlog > MAX_INCREMENTAL_BACKLOG_BLOCKS:
+        skipped_blocks = backlog
+        reset_realtime_baseline(
+            state,
+            safe_latest,
+            skipped_blocks=skipped_blocks,
+            reason="积压过大，放弃历史追赶并切换到当前实时基准",
+        )
+        resynced = True
+        save_state(state)
+        print(
+            f"积压 {skipped_blocks} 个区块，已跳到当前安全区块 {safe_latest}；"
+            "今日累计数据从现在重新开始",
+            flush=True,
+        )
+    elif not state.get("daily_tracking_started_at"):
+        state["daily_tracking_started_at"] = state.get("created_at") or iso_now()
 
     last_block = int(state["last_block"])
     run_target = min(safe_latest, last_block + MAX_BLOCKS_PER_RUN)
@@ -1650,7 +1832,7 @@ def main() -> None:
     completed_block = int(state["last_block"])
     snapshot = build_snapshot(
         web3,
-        completed_block,
+        safe_latest,
         ibs_contract,
         usdt_contract,
         pair_contract,
@@ -1659,6 +1841,19 @@ def main() -> None:
         pair_meta,
     )
 
+    print(
+        "实时快照："
+        f"供应量={fmt_number(decimal_from(snapshot['ibs_total_supply']))} IBS, "
+        f"市值代理={fmt_usdt(decimal_from(snapshot['market_cap_proxy']))}, "
+        f"价格={fmt_usdt(decimal_from(snapshot['ibs_price_usdt']))}, "
+        f"LP总值={fmt_usdt(decimal_from(snapshot['lp_total_value']))}, "
+        f"RBS USDT={fmt_usdt(decimal_from(snapshot['rbs_usdt']))}, "
+        f"黑洞余额={fmt_number(decimal_from(snapshot['ibs_dead_balance']))} IBS",
+        flush=True,
+    )
+
+    state["latest_snapshot"] = snapshot
+
     contract_risks = check_contract_changes(web3, state)
 
     if should_store_snapshot(state, snapshot):
@@ -1666,29 +1861,59 @@ def main() -> None:
 
     risks, metrics = calculate_risks(state, snapshot, event_risks, contract_risks)
 
-    if first_run:
+    print(
+        f"今日主池买入={fmt_usdt(metrics['buy_today'])} "
+        f"({fmt_number(metrics['buy_count_today'], 0)}笔), "
+        f"卖出={fmt_usdt(metrics['sell_today'])} "
+        f"({fmt_number(metrics['sell_count_today'], 0)}笔), "
+        f"净额={fmt_usdt(metrics['net_buy_sell_today'])}, "
+        f"数据范围={metrics['daily_coverage_text']}",
+        flush=True,
+    )
+
+    if first_run or resynced:
+        mode_title = "POTS 实时快照监控已启动"
+        history_note = (
+            f"已跳过 {skipped_blocks} 个历史积压区块，不再追赶旧数据。"
+            if resynced
+            else "首次运行只建立当前基准，不补发历史报警。"
+        )
         startup_message = "\n".join(
             [
-                "✅ <b>POTS 撤退风险监控已启动</b>",
+                f"✅ <b>{mode_title}</b>",
                 "",
+                f"IBS总供应量：{fmt_number(decimal_from(snapshot['ibs_total_supply']))} IBS",
+                f"流通量代理：{fmt_number(decimal_from(snapshot['ibs_circulating_supply_proxy']))} IBS",
+                f"流通市值代理：{fmt_usdt(decimal_from(snapshot['market_cap_proxy']))}",
                 f"IBS价格：{fmt_usdt(decimal_from(snapshot['ibs_price_usdt']))}",
+                f"LP总价值：{fmt_usdt(decimal_from(snapshot['lp_total_value']))}",
                 f"RBS USDT：{fmt_usdt(decimal_from(snapshot['rbs_usdt']))}",
-                f"LP池 USDT：{fmt_usdt(decimal_from(snapshot['pair_usdt_reserve']))}",
+                f"RBS总值代理：{fmt_usdt(decimal_from(snapshot['rbs_total_value']))}",
+                f"累计销毁代理（黑洞余额）：{fmt_number(decimal_from(snapshot['ibs_dead_balance']))} IBS",
+                f"今日主池买入：{fmt_usdt(metrics['buy_today'])}（{fmt_number(metrics['buy_count_today'], 0)}笔）",
+                f"今日主池卖出：{fmt_usdt(metrics['sell_today'])}（{fmt_number(metrics['sell_count_today'], 0)}笔）",
                 f"当前风险：{LEVEL_STYLE[metrics['level']][0]} {LEVEL_STYLE[metrics['level']][1]}（{metrics['score']}/100）",
                 "",
+                history_note,
+                f"今日买卖与Mint/Burn：{metrics['daily_coverage_text']}。",
                 "每5分钟扫描链上变化；每天20:00（Vancouver时间）发送日报。",
-                "首次运行只建立基准，不补发历史报警。",
             ]
         )
         send_telegram(startup_message)
+        state["last_realtime_report_at"] = iso_now()
         update_alert_state(state, risks, metrics)
     elif should_send_risk_alert(state, risks, metrics):
         send_telegram(format_risk_message(risks, metrics, snapshot))
+        state["last_realtime_report_at"] = iso_now()
         update_alert_state(state, risks, metrics)
 
     if should_send_daily_report(state):
         send_telegram(format_daily_report(metrics, snapshot))
+        state["last_realtime_report_at"] = iso_now()
         state["last_daily_report_date"] = now_utc().astimezone(LOCAL_TZ).date().isoformat()
+    elif should_send_realtime_report(state):
+        send_telegram(format_realtime_report(metrics, snapshot))
+        state["last_realtime_report_at"] = iso_now()
 
     save_state(state)
 
