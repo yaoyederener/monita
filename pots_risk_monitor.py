@@ -31,8 +31,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 from zoneinfo import ZoneInfo
 
-import requests
 from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +403,7 @@ def retry_call(label: str, func: Callable[[], Any]) -> Any:
 def connect_web3() -> Web3:
     rpc = require_env("BSC_RPC", BSC_RPC)
     web3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": RPC_TIMEOUT_SECONDS}))
+    web3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
     if not retry_call("连接 BSC RPC", web3.is_connected):
         raise RuntimeError("BSC RPC 连接失败")
     chain_id = int(retry_call("读取 Chain ID", lambda: web3.eth.chain_id))
