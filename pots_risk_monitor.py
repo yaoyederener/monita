@@ -108,7 +108,10 @@ STATE_FILE = Path(os.getenv("POTS_STATE_FILE", "data/pots_risk_state.json"))
 LOCAL_TZ = ZoneInfo(os.getenv("LOCAL_TIMEZONE", "America/Vancouver"))
 
 CONFIRMATION_BLOCKS = int(os.getenv("CONFIRMATION_BLOCKS", "20"))
-BLOCK_CHUNK_SIZE = int(os.getenv("BLOCK_CHUNK_SIZE", "50"))
+BLOCK_CHUNK_SIZE = min(
+    10,
+    max(1, int(os.getenv("BLOCK_CHUNK_SIZE", "10"))),
+)
 MAX_BLOCKS_PER_RUN = int(os.getenv("MAX_BLOCKS_PER_RUN", "1200"))
 MAX_RUNTIME_SECONDS = int(os.getenv("MAX_RUNTIME_SECONDS", "330"))
 SNAPSHOT_INTERVAL_MINUTES = int(os.getenv("SNAPSHOT_INTERVAL_MINUTES", "30"))
@@ -120,7 +123,7 @@ TELEGRAM_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_TIMEOUT_SECONDS", "20"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
 RETRY_BASE_SECONDS = int(os.getenv("RETRY_BASE_SECONDS", "3"))
 RPC_LOG_REQUEST_DELAY_SECONDS = float(
-    os.getenv("RPC_LOG_REQUEST_DELAY_SECONDS", "0.4")
+    os.getenv("RPC_LOG_REQUEST_DELAY_SECONDS", "1.0")
 )
 RPC_MAX_BACKOFF_SECONDS = float(os.getenv("RPC_MAX_BACKOFF_SECONDS", "60"))
 
