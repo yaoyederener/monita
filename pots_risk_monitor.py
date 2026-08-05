@@ -160,7 +160,15 @@ UNKNOWN_TREASURY_OUTFLOW_USDT = Decimal(
 LARGE_TREASURY_OUTFLOW_USDT = Decimal(
     os.getenv("LARGE_TREASURY_OUTFLOW_USDT", "100000")
 )
-ALERT_COOLDOWN_HOURS = int(os.getenv("ALERT_COOLDOWN_HOURS", "6"))
+ALERT_COOLDOWN_HOURS = int(os.getenv("ALERT_COOLDOWN_HOURS", "12"))
+SOFT_RISK_CONFIRMATIONS = max(
+    1,
+    int(os.getenv("SOFT_RISK_CONFIRMATIONS", "3")),
+)
+RISK_RECOVERY_CONFIRMATIONS = max(
+    1,
+    int(os.getenv("RISK_RECOVERY_CONFIRMATIONS", "3")),
+)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("CHAT_ID", "").strip()
@@ -488,7 +496,7 @@ def empty_daily_bucket() -> dict[str, str]:
 
 def default_state() -> dict[str, Any]:
     return {
-        "version": 2,
+        "version": 3,
         "last_block": 0,
         "created_at": iso_now(),
         "updated_at": iso_now(),
@@ -500,6 +508,7 @@ def default_state() -> dict[str, Any]:
         "contract_fingerprints": {},
         "fingerprint_checked_at": None,
         "last_risk_alert": {},
+        "risk_confirmation": {},
         "last_realtime_report_at": None,
         "last_daily_report_date": None,
         "seen_critical_events": [],
@@ -517,7 +526,7 @@ def load_state() -> dict[str, Any]:
         raise RuntimeError("状态文件格式错误：根节点不是对象")
     merged = default_state()
     merged.update(state)
-    merged["version"] = 2
+    merged["version"] = 3
     return merged
 
 
@@ -562,7 +571,7 @@ def reset_realtime_baseline(
     reason: str,
 ) -> None:
     started_at = iso_now()
-    state["version"] = 2
+    state["version"] = 3
     state["last_block"] = safe_latest
     state["daily"] = {}
     state["daily_tracking_started_at"] = started_at
@@ -1218,12 +1227,52 @@ def estimate_support_days(
     return current_rbs / conservative_daily_depletion
 
 
+HARD_RISK_PREFIXES = (
+    "code_changed:",
+    "implementation_changed:",
+    "owner_changed:",
+    "unknown_outflow:",
+)
+
+LEVEL_ADVICE = {
+    "GREEN": "正常观察；不新增超出可承受损失范围的资金。",
+    "YELLOW": "暂停新增和复利，正常回收收益；暂不因单项波动执行撤退。",
+    "RED": "进入减仓观察阶段：停止新增和复利，优先回收本金；若红色持续24小时或升级黑色，再扩大撤出比例。",
+    "BLACK": "出现硬风险或多项严重恶化：停止新增和复利，优先分批撤出，不等待30天释放。",
+}
+
+RISK_RANK = {"GREEN": 0, "YELLOW": 1, "RED": 2, "BLACK": 3}
+LEVEL_SCORE_FLOOR = {"GREEN": 0, "YELLOW": 25, "RED": 55, "BLACK": 85}
+
+
+def risk_family(code: str) -> str:
+    """Group correlated signals so one mechanism cannot fake broad contagion."""
+    if code.startswith(("rbs_24h_", "support_days_", "rbs_lp_ratio_")):
+        return "rbs"
+    if code.startswith(("lp_24h_", "lp_7d_")):
+        return "liquidity"
+    if code.startswith(("sell_", "protocol_buy_")):
+        return "market_flow"
+    if code.startswith("inflation_"):
+        return "inflation"
+    if code.startswith("price_"):
+        return "price"
+    if code.startswith(HARD_RISK_PREFIXES):
+        return "hard_event"
+    return code.split(":", 1)[0]
+
+
 def calculate_risks(
     state: dict[str, Any],
     current: dict[str, Any],
     event_risks: list[RiskItem],
     contract_risks: list[RiskItem],
 ) -> tuple[list[RiskItem], dict[str, Any]]:
+    hard_event_risks = [
+        risk
+        for risk in list(event_risks) + list(contract_risks)
+        if risk.code.startswith(HARD_RISK_PREFIXES)
+    ]
     risks = list(event_risks) + list(contract_risks)
     today = recent_dates(1)[0]
     dates_7d = recent_dates(7)
@@ -1423,11 +1472,14 @@ def calculate_risks(
         if support_days <= Decimal("7"):
             risks.append(
                 RiskItem(
-                    code="support_days_black",
-                    severity=3,
-                    points=100,
-                    title="按当前消耗速度，RBS或不足7天",
-                    detail=f"保守估算约 {support_days:.1f} 天",
+                    code="support_days_red",
+                    severity=2,
+                    points=45,
+                    title="按近期消耗速度，RBS支撑天数偏低",
+                    detail=(
+                        f"估算约 {support_days:.1f} 天；该数值受短时资金调度影响，"
+                        "需要连续确认"
+                    ),
                 )
             )
         elif support_days <= Decimal("14"):
@@ -1435,9 +1487,12 @@ def calculate_risks(
                 RiskItem(
                     code="support_days_red",
                     severity=2,
-                    points=50,
-                    title="按当前消耗速度，RBS或不足14天",
-                    detail=f"保守估算约 {support_days:.1f} 天",
+                    points=35,
+                    title="按近期消耗速度，RBS支撑天数偏低",
+                    detail=(
+                        f"估算约 {support_days:.1f} 天；该数值受短时资金调度影响，"
+                        "需要连续确认"
+                    ),
                 )
             )
 
@@ -1446,8 +1501,8 @@ def calculate_risks(
             risks.append(
                 RiskItem(
                     code="price_below_proxy_band",
-                    severity=2,
-                    points=45,
+                    severity=1,
+                    points=15,
                     title="IBS价格跌破LP支持价值代理下沿",
                     detail=(
                         f"价格 {fmt_usdt(price)}，LP支持价值代理 {fmt_usdt(backing_proxy)}。"
@@ -1475,18 +1530,29 @@ def calculate_risks(
 
     score = min(100, sum(item.points for item in risks))
     max_severity = max((item.severity for item in risks), default=0)
-    if max_severity >= 3 or score >= 75:
+    hard_event_severity = max(
+        (item.severity for item in hard_event_risks),
+        default=0,
+    )
+    severe_families = {
+        risk_family(item.code)
+        for item in risks
+        if item.severity >= 2
+    }
+
+    if hard_event_severity >= 3:
         level = "BLACK"
-        advice = "优先撤退，不等待30天；先保证资金安全，再核实原因。"
-    elif max_severity >= 2 or score >= 50:
+    elif hard_event_severity >= 2:
         level = "RED"
-        advice = "停止复利，优先回收本金，并考虑撤出50%—80%。"
+    elif score >= 85 and len(severe_families) >= 2:
+        level = "BLACK"
+    elif score >= 55:
+        level = "RED"
     elif max_severity >= 1 or score >= 25:
         level = "YELLOW"
-        advice = "停止新增投入，停止复利，开始持续回收本金。"
     else:
         level = "GREEN"
-        advice = "暂未触发撤退线，但日化1%仍属于极高风险收益，继续只用可承受损失的资金。"
+    advice = LEVEL_ADVICE[level]
 
     metrics = {
         "today": today,
@@ -1517,6 +1583,9 @@ def calculate_risks(
         "score": score,
         "level": level,
         "advice": advice,
+        "hard_risk": bool(hard_event_risks),
+        "hard_risk_codes": sorted(item.code for item in hard_event_risks),
+        "severe_risk_families": sorted(severe_families),
     }
     return risks, metrics
 
@@ -1538,31 +1607,126 @@ def risk_signature(risks: list[RiskItem], level: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def apply_risk_confirmation(
+    state: dict[str, Any],
+    metrics: dict[str, Any],
+) -> None:
+    """Confirm soft level changes across runs; hard events bypass the delay."""
+    raw_level = str(metrics["level"])
+    raw_score = int(metrics["score"])
+    previous = state.get("risk_confirmation", {})
+
+    confirmed_level = str(previous.get("confirmed_level", ""))
+    if confirmed_level not in RISK_RANK:
+        last_alert_level = str(
+            state.get("last_risk_alert", {}).get("level", "GREEN")
+        )
+        confirmed_level = (
+            last_alert_level
+            if last_alert_level in RISK_RANK
+            else "GREEN"
+        )
+
+    previous_score = previous.get("confirmed_score")
+    try:
+        confirmed_score = int(previous_score)
+    except (TypeError, ValueError):
+        confirmed_score = (
+            raw_score
+            if raw_level == confirmed_level
+            else LEVEL_SCORE_FLOOR[confirmed_level]
+        )
+
+    candidate_level = str(previous.get("candidate_level", ""))
+    try:
+        candidate_count = max(0, int(previous.get("candidate_count", 0)))
+    except (TypeError, ValueError):
+        candidate_count = 0
+
+    confirmation_note: str | None = None
+    if metrics.get("hard_risk"):
+        confirmed_level = raw_level
+        confirmed_score = raw_score
+        candidate_level = raw_level
+        candidate_count = 0
+    elif raw_level == confirmed_level:
+        confirmed_score = raw_score
+        candidate_level = raw_level
+        candidate_count = 0
+    else:
+        if candidate_level == raw_level:
+            candidate_count += 1
+        else:
+            candidate_level = raw_level
+            candidate_count = 1
+
+        worsening = RISK_RANK[raw_level] > RISK_RANK[confirmed_level]
+        required = (
+            SOFT_RISK_CONFIRMATIONS
+            if worsening
+            else RISK_RECOVERY_CONFIRMATIONS
+        )
+        if candidate_count >= required:
+            confirmed_level = raw_level
+            confirmed_score = raw_score
+            candidate_count = 0
+        else:
+            icon, cn_level = LEVEL_STYLE[raw_level]
+            direction = "升级" if worsening else "恢复"
+            confirmation_note = (
+                f"{icon} 短时模型为{cn_level}，正在{direction}确认 "
+                f"{candidate_count}/{required}"
+            )
+
+    state["risk_confirmation"] = {
+        "candidate_level": candidate_level,
+        "candidate_count": candidate_count,
+        "confirmed_level": confirmed_level,
+        "confirmed_score": confirmed_score,
+        "updated_at": iso_now(),
+    }
+
+    metrics["raw_level"] = raw_level
+    metrics["raw_score"] = raw_score
+    metrics["level"] = confirmed_level
+    metrics["score"] = confirmed_score
+    metrics["advice"] = LEVEL_ADVICE[confirmed_level]
+    metrics["confirmation_note"] = confirmation_note
+
+
 def should_send_risk_alert(state: dict[str, Any], risks: list[RiskItem], metrics: dict[str, Any]) -> bool:
     previous = state.get("last_risk_alert", {})
-    current_signature = risk_signature(risks, metrics["level"])
-    previous_signature = previous.get("signature")
     previous_level = previous.get("level", "GREEN")
     previous_time = parse_iso(previous.get("sent_at"))
+    previous_hard_codes = set(previous.get("hard_risk_codes", []))
+    current_hard_codes = set(metrics.get("hard_risk_codes", []))
 
-    rank = {"GREEN": 0, "YELLOW": 1, "RED": 2, "BLACK": 3}
-    worsened = rank[metrics["level"]] > rank.get(previous_level, 0)
-    changed = current_signature != previous_signature
+    worsened = RISK_RANK[metrics["level"]] > RISK_RANK.get(previous_level, 0)
+    new_hard_risk = bool(current_hard_codes - previous_hard_codes)
     cooldown_elapsed = (
         previous_time is None
         or now_utc() - previous_time >= timedelta(hours=ALERT_COOLDOWN_HOURS)
     )
-    recovered = metrics["level"] == "GREEN" and rank.get(previous_level, 0) >= 2
+    high_risk_reminder = (
+        RISK_RANK[metrics["level"]] >= RISK_RANK["RED"]
+        and cooldown_elapsed
+    )
+    recovered = (
+        metrics["level"] == "GREEN"
+        and RISK_RANK.get(previous_level, 0) >= RISK_RANK["RED"]
+    )
 
     if metrics["level"] == "GREEN" and not recovered:
         return False
-    return worsened or changed or cooldown_elapsed or recovered
+    return new_hard_risk or worsened or high_risk_reminder or recovered
 
 
 def update_alert_state(state: dict[str, Any], risks: list[RiskItem], metrics: dict[str, Any]) -> None:
     state["last_risk_alert"] = {
         "signature": risk_signature(risks, metrics["level"]),
         "level": metrics["level"],
+        "score": metrics["score"],
+        "hard_risk_codes": metrics.get("hard_risk_codes", []),
         "sent_at": iso_now(),
     }
 
@@ -1573,8 +1737,14 @@ def format_risk_message(
     current: dict[str, Any],
 ) -> str:
     icon, cn_level = LEVEL_STYLE[metrics["level"]]
+    alert_title = {
+        "GREEN": "POTS 风险恢复",
+        "YELLOW": "POTS 风险观察",
+        "RED": "POTS 高风险预警",
+        "BLACK": "POTS 紧急撤退预警",
+    }[metrics["level"]]
     lines = [
-        f"{icon} <b>POTS 撤退风险：{cn_level}（{metrics['score']}/100）</b>",
+        f"{icon} <b>{alert_title}：{cn_level}（{metrics['score']}/100）</b>",
         "",
         f"<b>行动建议：</b>{html.escape(metrics['advice'])}",
         "",
@@ -1631,6 +1801,11 @@ def format_daily_report(metrics: dict[str, Any], current: dict[str, Any]) -> str
             f"📊 <b>POTS 每日风险报告 · {metrics['today']}</b>",
             "",
             f"风险等级：{icon} <b>{cn_level}</b>（{metrics['score']}/100）",
+            *(
+                [html.escape(metrics["confirmation_note"])]
+                if metrics.get("confirmation_note")
+                else []
+            ),
             f"行动建议：{html.escape(metrics['advice'])}",
             "",
             "<b>实时供应与市值</b>",
@@ -1687,6 +1862,11 @@ def format_realtime_report(metrics: dict[str, Any], current: dict[str, Any]) -> 
         [
             "⏱ <b>POTS 链上实时简报</b>",
             f"风险：{icon} {cn_level}（{metrics['score']}/100）",
+            *(
+                [html.escape(metrics["confirmation_note"])]
+                if metrics.get("confirmation_note")
+                else []
+            ),
             f"区块：<code>{current['block']}</code>",
             "",
             "<b>供应与市值</b>",
@@ -1860,6 +2040,7 @@ def main() -> None:
         state.setdefault("snapshots", []).append(snapshot)
 
     risks, metrics = calculate_risks(state, snapshot, event_risks, contract_risks)
+    apply_risk_confirmation(state, metrics)
 
     print(
         f"今日主池买入={fmt_usdt(metrics['buy_today'])} "
