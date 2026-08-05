@@ -21,6 +21,7 @@ import hashlib
 import html
 import json
 import os
+import random
 import sys
 import time
 from collections import defaultdict
@@ -107,7 +108,7 @@ STATE_FILE = Path(os.getenv("POTS_STATE_FILE", "data/pots_risk_state.json"))
 LOCAL_TZ = ZoneInfo(os.getenv("LOCAL_TIMEZONE", "America/Vancouver"))
 
 CONFIRMATION_BLOCKS = int(os.getenv("CONFIRMATION_BLOCKS", "20"))
-BLOCK_CHUNK_SIZE = int(os.getenv("BLOCK_CHUNK_SIZE", "10"))
+BLOCK_CHUNK_SIZE = int(os.getenv("BLOCK_CHUNK_SIZE", "50"))
 MAX_BLOCKS_PER_RUN = int(os.getenv("MAX_BLOCKS_PER_RUN", "1200"))
 MAX_RUNTIME_SECONDS = int(os.getenv("MAX_RUNTIME_SECONDS", "330"))
 SNAPSHOT_INTERVAL_MINUTES = int(os.getenv("SNAPSHOT_INTERVAL_MINUTES", "30"))
@@ -118,6 +119,10 @@ RPC_TIMEOUT_SECONDS = int(os.getenv("RPC_TIMEOUT_SECONDS", "30"))
 TELEGRAM_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_TIMEOUT_SECONDS", "20"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
 RETRY_BASE_SECONDS = int(os.getenv("RETRY_BASE_SECONDS", "3"))
+RPC_LOG_REQUEST_DELAY_SECONDS = float(
+    os.getenv("RPC_LOG_REQUEST_DELAY_SECONDS", "0.4")
+)
+RPC_MAX_BACKOFF_SECONDS = float(os.getenv("RPC_MAX_BACKOFF_SECONDS", "60"))
 
 # Alert thresholds. They can be overridden in GitHub repository variables.
 MIN_VOLUME_FOR_RATIO_USDT = Decimal(
@@ -781,7 +786,7 @@ def check_contract_changes(
 # Log querying and parsing
 # ---------------------------------------------------------------------------
 
-def is_retryable_log_error(exc: Exception) -> bool:
+def is_rate_limit_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(
         keyword in text
@@ -789,6 +794,15 @@ def is_retryable_log_error(exc: Exception) -> bool:
             "429",
             "rate limit",
             "too many requests",
+        )
+    )
+
+
+def is_splittable_log_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        keyword in text
+        for keyword in (
             "block range",
             "response size",
             "query returned more than",
@@ -796,6 +810,20 @@ def is_retryable_log_error(exc: Exception) -> bool:
             "timeout",
         )
     )
+
+
+def rate_limit_wait_seconds(exc: Exception, attempt: int) -> float:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    retry_after = headers.get("Retry-After") if headers else None
+    if retry_after is not None:
+        try:
+            return max(1.0, min(float(retry_after), RPC_MAX_BACKOFF_SECONDS))
+        except (TypeError, ValueError):
+            pass
+
+    exponential = RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+    return min(exponential + random.uniform(0, 1), RPC_MAX_BACKOFF_SECONDS)
 
 
 def get_logs_resilient(
@@ -815,6 +843,8 @@ def get_logs_resilient(
     last_error: Exception | None = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
+            if RPC_LOG_REQUEST_DELAY_SECONDS > 0:
+                time.sleep(RPC_LOG_REQUEST_DELAY_SECONDS)
             return list(web3.eth.get_logs(query))
         except Exception as exc:  # noqa: BLE001
             last_error = exc
@@ -823,17 +853,37 @@ def get_logs_resilient(
                 f"（{attempt}/{MAX_RETRIES}）：{exc}",
                 flush=True,
             )
-            if from_block < to_block and is_retryable_log_error(exc):
-                break
+            if is_rate_limit_error(exc):
+                if attempt >= MAX_RETRIES:
+                    raise RuntimeError(
+                        f"{label}连续遭遇 RPC 429 限流：{last_error}"
+                    ) from exc
+                wait_seconds = rate_limit_wait_seconds(exc, attempt)
+                print(
+                    f"RPC 限流，等待 {wait_seconds:.1f} 秒后重试同一区块范围",
+                    flush=True,
+                )
+                time.sleep(wait_seconds)
+                continue
+
+            if from_block < to_block and is_splittable_log_error(exc):
+                middle = (from_block + to_block) // 2
+                print(
+                    f"{label}查询范围过大，拆分为 "
+                    f"{from_block}-{middle} 和 {middle + 1}-{to_block}",
+                    flush=True,
+                )
+                return get_logs_resilient(
+                    web3, params, from_block, middle, label
+                ) + get_logs_resilient(
+                    web3, params, middle + 1, to_block, label
+                )
+
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_BASE_SECONDS * attempt)
 
-    if from_block >= to_block:
-        raise RuntimeError(f"{label}单区块日志查询失败：{last_error}")
-
-    middle = (from_block + to_block) // 2
-    return get_logs_resilient(web3, params, from_block, middle, label) + get_logs_resilient(
-        web3, params, middle + 1, to_block, label
+    raise RuntimeError(
+        f"{label}日志查询连续失败 {from_block}-{to_block}：{last_error}"
     )
 
 
