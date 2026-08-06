@@ -780,6 +780,42 @@ def build_telegram_message(
 ) -> str:
     usdt_decimals = current.usdt_decimals
     ibs_decimals = current.ibs_decimals
+
+    if (
+        metrics_24h is None
+        and not flow.critical_events
+        and report_reason in {"BASELINE", "PERIODIC", "PROTOCOL_CONFIG_CHANGED"}
+    ):
+        lines = [
+            "🔵 <b>POTS资金监控｜数据积累中</b>",
+            "",
+            (
+                f"💰 <b>当前核心资金：{fmt_amount(current.total_usdt_raw, usdt_decimals)} "
+                "USDT</b>"
+            ),
+            f"• LP：{fmt_amount(current.lp_usdt_raw, usdt_decimals)}",
+            f"• RBS：{fmt_amount(current.rbs_usdt_raw, usdt_decimals)}",
+            "",
+            (
+                "🪙 每枚 IBS 的可见 USDT 覆盖："
+                f"<b>{current.backing_per_ibs:.4f} USDT</b>"
+            ),
+            "",
+            "📌 目前数据不足，暂时无法判断资金是在增加还是减少。",
+            "积累满24小时后显示短期变化，满7天后显示长期趋势。",
+            "",
+            f"区块：<code>{current.block_number}</code>",
+        ]
+        if flow.config_changed:
+            lines.append("ℹ️ 监控地址已更新，正在重新积累对比数据。")
+        if current.lp_balance_usdt_raw != current.lp_usdt_raw:
+            unsynced = current.lp_balance_usdt_raw - current.lp_usdt_raw
+            lines.append(
+                f"⚠️ LP实际余额与reserve相差 "
+                f"{fmt_signed_amount(unsynced, usdt_decimals)} USDT。"
+            )
+        return "\n".join(lines)
+
     total_24 = format_window_change(
         metrics_24h, "total_delta_raw", "total_change", usdt_decimals
     )
