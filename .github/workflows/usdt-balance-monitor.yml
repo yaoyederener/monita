@@ -1,4 +1,4 @@
-name: BSC USDT Balance Monitor
+name: POTS Core Funds Monitor
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
 permissions:
   contents: write
 
-# 必须与IBS工作流使用完全相同的并发组名称
+# Keep repository-writing workflows serialized.
 concurrency:
   group: monita-repository-writer
   cancel-in-progress: false
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -30,22 +30,29 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements-usdt.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-usdt.txt
 
-      - name: Check USDT balance
+      - name: Run unit tests
+        run: python -m unittest -v test_usdt_balance_monitor.py
+
+      - name: Check POTS core funds
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           BSC_RPC: ${{ secrets.BSC_RPC }}
+          REPORT_INTERVAL_MINUTES: ${{ vars.POTS_FLOW_REPORT_MINUTES || '60' }}
+          IMMEDIATE_TOTAL_CHANGE_USDT: ${{ vars.POTS_FLOW_IMMEDIATE_ALERT_USDT || '100000' }}
+          CRITICAL_OUTFLOW_USDT: ${{ vars.POTS_CRITICAL_OUTFLOW_USDT || '100000' }}
+          CONFIRMATION_BLOCKS: "3"
           PYTHONUNBUFFERED: "1"
-        run: |
-          python -u usdt_balance_monitor.py
+        run: python -u usdt_balance_monitor.py
 
-      - name: Save updated USDT balance
+      - name: Save updated flow state and history
         shell: bash
         run: |
           set -e
@@ -53,32 +60,31 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 这里只提交USDT余额状态文件
           git add data/usdt_balance.json
+          if [ -f data/usdt_flow_history.csv ]; then
+            git add data/usdt_flow_history.csv
+          fi
 
           if git diff --cached --quiet; then
-            echo "USDT余额没有变化，无需提交"
+            echo "尚未到报告时间，状态无需提交"
             exit 0
           fi
 
-          git commit -m "Update monitored USDT balance [skip ci]"
+          git commit -m "Update POTS core funds state [skip ci]"
 
           for attempt in 1 2 3 4 5; do
             echo "第 ${attempt} 次尝试同步并推送"
-
             git fetch origin main
 
             if git rebase origin/main; then
               if git push origin HEAD:main; then
-                echo "USDT余额状态保存成功"
+                echo "POTS USDT资金流状态保存成功"
                 exit 0
               fi
             else
-              echo "Rebase发生冲突，取消本次Rebase"
               git rebase --abort || true
             fi
 
-            echo "推送失败，稍后重试"
             sleep $((attempt * 5))
           done
 
