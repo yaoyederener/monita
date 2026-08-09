@@ -12,16 +12,25 @@ USDT_SCALE = 10**18
 IBS_SCALE = 10**18
 
 
+def swap_data(amount0_in, amount1_in, amount0_out, amount1_out):
+    return b"".join(
+        int(value).to_bytes(32, byteorder="big")
+        for value in (amount0_in, amount1_in, amount0_out, amount1_out)
+    )
+
+
 def make_snapshot(
     when,
     block,
     lp=10_000_000,
+    lp_ibs=500_000,
     lp_balance=None,
     rbs=1_500_000,
     safety=200_000,
     protocol=None,
     supply=1_000_000,
     backing=monitor.Decimal("11.7"),
+    price=monitor.Decimal("20"),
     config_hash="config-a",
 ):
     lp_balance = lp if lp_balance is None else lp_balance
@@ -33,14 +42,19 @@ def make_snapshot(
         usdt_decimals=18,
         ibs_decimals=18,
         lp_usdt_raw=lp * USDT_SCALE,
+        lp_ibs_raw=lp_ibs * IBS_SCALE,
         lp_balance_usdt_raw=lp_balance * USDT_SCALE,
         rbs_usdt_raw=rbs * USDT_SCALE,
         safety_usdt_raw=safety * USDT_SCALE,
+        treasury_usdt_raw=(lp + rbs + safety) * USDT_SCALE,
         total_usdt_raw=(lp + rbs) * USDT_SCALE,
         protocol_usdt_raw=protocol * USDT_SCALE,
         ibs_total_supply_raw=supply * IBS_SCALE,
         ibs_dead_raw=0,
         ibs_circulating_raw=supply * IBS_SCALE,
+        ibs_is_token0=True,
+        ibs_price_usdt=price,
+        market_cap_usdt=price * monitor.Decimal(supply),
         backing_per_ibs=backing,
         treasury_address="0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
         tax_treasury_address="0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
@@ -49,18 +63,42 @@ def make_snapshot(
     )
 
 
-def make_metrics(rbs_delta, elapsed_days, total_change=0, backing_change=0, external=0):
+def make_metrics(
+    rbs_delta,
+    elapsed_days,
+    total_change=0,
+    backing_change=0,
+    external=0,
+    treasury_delta=None,
+    supply_delta=0,
+    start_block=100,
+    end_block=200,
+):
+    treasury_delta_raw = (
+        int(total_change * 1_000_000)
+        if treasury_delta is None
+        else treasury_delta * USDT_SCALE
+    )
+    treasury_change = (
+        monitor.Decimal(str(total_change))
+        if treasury_delta is None
+        else monitor.Decimal(str(treasury_delta / 12_000_000))
+    )
     return monitor.WindowMetrics(
         label="test",
         elapsed_days=monitor.Decimal(str(elapsed_days)),
         total_delta_raw=int(total_change * 1_000_000),
         total_change=monitor.Decimal(str(total_change)),
+        treasury_delta_raw=treasury_delta_raw,
+        treasury_change=treasury_change,
         rbs_delta_raw=rbs_delta * USDT_SCALE,
         rbs_change=monitor.Decimal(str(rbs_delta / 1_500_000)),
-        supply_delta_raw=0,
+        supply_delta_raw=supply_delta * IBS_SCALE,
         supply_change=monitor.Decimal("0"),
         backing_change=monitor.Decimal(str(backing_change)),
         external_net_raw=external,
+        start_block=start_block,
+        end_block=end_block,
     )
 
 
@@ -102,7 +140,25 @@ class MonitorTests(unittest.TestCase):
         now = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
         snapshot = make_snapshot(now, 100, lp=10_000_000, lp_balance=10_000_123)
         self.assertEqual(snapshot.total_usdt_raw, 11_500_000 * USDT_SCALE)
+        self.assertEqual(snapshot.treasury_usdt_raw, 11_700_000 * USDT_SCALE)
         self.assertEqual(snapshot.protocol_usdt_raw, 11_700_123 * USDT_SCALE)
+
+    def test_market_data_uses_reserves_decimals_and_circulating_supply(self):
+        price, market_cap = monitor.calculate_market_data(
+            2_000_000 * 10**6,
+            100_000 * IBS_SCALE,
+            6,
+            18,
+            900_000 * IBS_SCALE,
+        )
+        self.assertEqual(price, monitor.Decimal("20"))
+        self.assertEqual(market_cap, monitor.Decimal("18000000"))
+
+    def test_market_data_rejects_empty_ibs_reserve(self):
+        with self.assertRaisesRegex(RuntimeError, "IBS储备为0"):
+            monitor.calculate_market_data(
+                2_000_000 * USDT_SCALE, 0, 18, 18, 900_000 * IBS_SCALE
+            )
 
     def test_protocol_config_change_rebuilds_flow_baseline(self):
         now = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
@@ -158,6 +214,25 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(metrics.total_delta_raw, 50_000 * USDT_SCALE)
         self.assertEqual(metrics.external_net_raw, 50_000 * USDT_SCALE)
         self.assertEqual(metrics.rbs_delta_raw, -50_000 * USDT_SCALE)
+
+    def test_window_adds_safety_to_treasury_without_changing_legacy_total(self):
+        end = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+        start = make_snapshot(end - timedelta(hours=24), 100, safety=200_000)
+        current = make_snapshot(end, 200, safety=250_000)
+        start_record = monitor.record_from_snapshot(
+            start, monitor.FlowSummary(100, 100, False)
+        )
+        # Simulate a state record written before treasury_usdt_raw was introduced.
+        start_record.pop("treasury_usdt_raw")
+        current_record = monitor.record_from_snapshot(
+            current, monitor.FlowSummary(101, 200, True)
+        )
+        metrics = monitor.calculate_window(
+            [start_record, current_record], current_record, "24h", timedelta(hours=24)
+        )
+        self.assertIsNotNone(metrics)
+        self.assertEqual(metrics.total_delta_raw, 0)
+        self.assertEqual(metrics.treasury_delta_raw, 50_000 * USDT_SCALE)
 
     def test_window_rejects_stale_snapshot(self):
         end = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
@@ -222,6 +297,106 @@ class MonitorTests(unittest.TestCase):
             1_500_000 * USDT_SCALE, metrics_24h, metrics_7d
         )
         self.assertEqual(runway, monitor.Decimal("15"))
+
+    def test_treasury_runway_uses_faster_recent_decline(self):
+        metrics_24h = make_metrics(0, 1, treasury_delta=-200_000)
+        metrics_7d = make_metrics(0, 7, treasury_delta=-700_000)
+        runway = monitor.estimate_treasury_runway(
+            12_000_000 * USDT_SCALE, metrics_24h, metrics_7d
+        )
+        self.assertEqual(runway, monitor.Decimal("60"))
+
+    def test_sell_pressure_counts_only_net_ibs_sells_for_either_pair_order(self):
+        token0_logs = [
+            {"data": swap_data(100 * IBS_SCALE, 0, 0, 2_000 * USDT_SCALE)},
+            {"data": swap_data(0, 1_000 * USDT_SCALE, 50 * IBS_SCALE, 0)},
+            {
+                "data": swap_data(
+                    30 * IBS_SCALE,
+                    20 * USDT_SCALE,
+                    5 * IBS_SCALE,
+                    620 * USDT_SCALE,
+                )
+            },
+        ]
+        sell_ibs, sell_usdt, count = monitor.summarize_sell_pressure_logs(
+            token0_logs, True
+        )
+        self.assertEqual(sell_ibs, 125 * IBS_SCALE)
+        self.assertEqual(sell_usdt, 2_600 * USDT_SCALE)
+        self.assertEqual(count, 2)
+
+        token1_logs = [
+            {"data": swap_data(0, 40 * IBS_SCALE, 800 * USDT_SCALE, 0)}
+        ]
+        self.assertEqual(
+            monitor.summarize_sell_pressure_logs(token1_logs, False),
+            (40 * IBS_SCALE, 800 * USDT_SCALE, 1),
+        )
+
+    def test_safety_only_change_can_trigger_immediate_treasury_report(self):
+        now = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+        previous = make_snapshot(now - timedelta(minutes=5), 100, safety=200_000)
+        current = make_snapshot(now, 200, safety=350_000)
+        previous_record = monitor.record_from_snapshot(
+            previous, monitor.FlowSummary(100, 100, False)
+        )
+        flow = monitor.summarize_interval(previous_record, current)
+        with patch.object(
+            monitor, "IMMEDIATE_TOTAL_CHANGE_USDT", monitor.Decimal("100000")
+        ):
+            due, reason = monitor.report_due({"latest": previous_record}, current, flow)
+        self.assertTrue(due)
+        self.assertEqual(reason, "IMMEDIATE_TREASURY_CHANGE")
+
+    def test_telegram_message_contains_new_and_existing_metrics(self):
+        now = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+        snapshot = make_snapshot(now, 200)
+        baseline = monitor.build_telegram_message(
+            snapshot,
+            None,
+            None,
+            monitor.FlowSummary(200, 200, False),
+            "🔵 建立基线",
+            ["等待至少24小时数据"],
+            None,
+            "BASELINE",
+        )
+        self.assertIn("当前国库资金", baseline)
+        self.assertIn("Safety", baseline)
+        self.assertIn("流通市值估算", baseline)
+        self.assertIn("当前总量", baseline)
+        self.assertIn("可见USDT覆盖", baseline)
+
+        metrics_24h = make_metrics(
+            -50_000,
+            1,
+            total_change=-0.01,
+            backing_change=-0.01,
+            external=-25_000 * USDT_SCALE,
+            treasury_delta=-200_000,
+            supply_delta=1_000,
+        )
+        pressure = monitor.SellPressure(
+            101, 200, 2_000 * IBS_SCALE, 40_000 * USDT_SCALE, 12
+        )
+        message = monitor.build_telegram_message(
+            snapshot,
+            metrics_24h,
+            None,
+            monitor.FlowSummary(101, 200, True),
+            "🟠 下行阶段",
+            ["国库资金下降", "外部净流出"],
+            monitor.Decimal("30"),
+            "PERIODIC",
+            treasury_runway_days=monitor.Decimal("60"),
+            sell_pressure=pressure,
+        )
+        self.assertIn("国库静态可持续时间：约60.0天", message)
+        self.assertIn("近24h净增发 +1,000.00 IBS", message)
+        self.assertIn("近24h真实抛压 40,000.00 USDT", message)
+        self.assertIn("LP+RBS 24h", message)
+        self.assertIn("已知协议地址净流入", message)
 
     def test_growth_and_death_spiral_classification(self):
         growth_24 = make_metrics(15_000, 1, 0.01, 0.01, 1)
