@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Minimal POTS core-health monitor for GitHub Actions + Telegram.
+"""POTS treasury, market, and core-health monitor for GitHub Actions + Telegram.
 
-The four reported indicators are:
-1. IBS/USDT LP + RBS USDT balance trend.
+The reported indicators include:
+1. Treasury USDT = IBS/USDT LP reserve + RBS + Safety Treasury.
 2. External USDT net flow across the known POTS protocol perimeter.
-3. RBS drawdown and estimated runway.
-4. IBS net issuance and visible-USDT coverage estimate per circulating IBS.
+3. RBS drawdown plus treasury and RBS runway estimates.
+4. IBS price, circulating-market-cap proxy, supply, and net issuance.
+5. Rolling 24-hour IBS sell pressure from Pancake V2 Swap logs.
+6. Visible-USDT coverage estimate per circulating IBS.
 
 The monitor is read-only on BNB Smart Chain. It never needs a wallet key.
 """
@@ -29,7 +31,7 @@ from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 
 
-PROGRAM_VERSION = "2026-08-05-core-v2"
+PROGRAM_VERSION = "2026-08-08-treasury-v3"
 STATE_SCHEMA_VERSION = 4
 
 IBS_ADDRESS = "0x255e746aBb8D9Acac00d6d023e5E63E3b8DFA7cd"
@@ -87,6 +89,7 @@ CONFIRMATION_BLOCKS = int_env("CONFIRMATION_BLOCKS", "3", 0)
 REPORT_INTERVAL_MINUTES = int_env("REPORT_INTERVAL_MINUTES", "60", 5)
 IMMEDIATE_TOTAL_CHANGE_USDT = decimal_env("IMMEDIATE_TOTAL_CHANGE_USDT", "100000")
 CRITICAL_OUTFLOW_USDT = decimal_env("CRITICAL_OUTFLOW_USDT", "100000")
+LOG_CHUNK_SIZE = int_env("LOG_CHUNK_SIZE", "2000", 100)
 
 ERC20_ABI = [
     {
@@ -154,6 +157,10 @@ PAIR_ABI = [
     },
 ]
 
+SWAP_TOPIC = Web3.to_hex(
+    Web3.keccak(text="Swap(address,uint256,uint256,uint256,uint256,address)")
+)
+
 @dataclass(frozen=True)
 class CurrentSnapshot:
     observed_at: datetime
@@ -162,14 +169,20 @@ class CurrentSnapshot:
     usdt_decimals: int
     ibs_decimals: int
     lp_usdt_raw: int
+    lp_ibs_raw: int
     lp_balance_usdt_raw: int
     rbs_usdt_raw: int
     safety_usdt_raw: int
+    treasury_usdt_raw: int
+    # Compatibility field retained for existing state readers: LP + RBS only.
     total_usdt_raw: int
     protocol_usdt_raw: int
     ibs_total_supply_raw: int
     ibs_dead_raw: int
     ibs_circulating_raw: int
+    ibs_is_token0: bool
+    ibs_price_usdt: Decimal
+    market_cap_usdt: Decimal
     backing_per_ibs: Decimal
     treasury_address: str
     tax_treasury_address: str
@@ -194,12 +207,25 @@ class WindowMetrics:
     elapsed_days: Decimal
     total_delta_raw: int
     total_change: Decimal
+    treasury_delta_raw: int
+    treasury_change: Decimal
     rbs_delta_raw: int
     rbs_change: Decimal
     supply_delta_raw: int
     supply_change: Decimal
     backing_change: Decimal
     external_net_raw: Optional[int]
+    start_block: int = 0
+    end_block: int = 0
+
+
+@dataclass(frozen=True)
+class SellPressure:
+    from_block: int
+    to_block: int
+    sell_ibs_raw: int
+    sell_usdt_raw: int
+    event_count: int
 
 
 def require_env(name: str) -> str:
@@ -261,6 +287,124 @@ def pct_change(current: Decimal, previous: Decimal) -> Decimal:
     if previous == 0:
         return Decimal("0")
     return (current - previous) / previous
+
+
+def treasury_raw_from_record(record: Dict[str, Any]) -> int:
+    value = record.get("treasury_usdt_raw")
+    if value is not None:
+        return int(value)
+    components = (
+        record.get("lp_usdt_raw"),
+        record.get("rbs_usdt_raw"),
+        record.get("safety_usdt_raw"),
+    )
+    if all(item is not None for item in components):
+        return sum(int(item) for item in components)
+    return int(record.get("total_usdt_raw", 0))
+
+
+def calculate_market_data(
+    lp_usdt_raw: int,
+    lp_ibs_raw: int,
+    usdt_decimals: int,
+    ibs_decimals: int,
+    circulating_raw: int,
+) -> Tuple[Decimal, Decimal]:
+    lp_ibs = token_amount(lp_ibs_raw, ibs_decimals)
+    if lp_ibs <= 0:
+        raise RuntimeError("LP中的IBS储备为0，无法计算价格和市值")
+    price_usdt = token_amount(lp_usdt_raw, usdt_decimals) / lp_ibs
+    market_cap_usdt = price_usdt * token_amount(circulating_raw, ibs_decimals)
+    return price_usdt, market_cap_usdt
+
+
+def decode_swap_amounts(data: Any) -> Tuple[int, int, int, int]:
+    if isinstance(data, str):
+        raw = bytes.fromhex(data.removeprefix("0x"))
+    else:
+        raw = bytes(data)
+    if len(raw) != 128:
+        raise RuntimeError(f"Swap日志数据长度异常：{len(raw)}")
+    return tuple(
+        int.from_bytes(raw[offset : offset + 32], byteorder="big")
+        for offset in range(0, 128, 32)
+    )  # type: ignore[return-value]
+
+
+def summarize_sell_pressure_logs(
+    logs: Sequence[Dict[str, Any]],
+    ibs_is_token0: bool,
+) -> Tuple[int, int, int]:
+    sell_ibs_raw = 0
+    sell_usdt_raw = 0
+    event_count = 0
+    for log in logs:
+        amount0_in, amount1_in, amount0_out, amount1_out = decode_swap_amounts(
+            log["data"]
+        )
+        ibs_in = amount0_in if ibs_is_token0 else amount1_in
+        ibs_out = amount0_out if ibs_is_token0 else amount1_out
+        usdt_in = amount1_in if ibs_is_token0 else amount0_in
+        usdt_out = amount1_out if ibs_is_token0 else amount0_out
+        net_ibs_in = max(0, ibs_in - ibs_out)
+        net_usdt_out = max(0, usdt_out - usdt_in)
+        if net_ibs_in > 0 and net_usdt_out > 0:
+            sell_ibs_raw += net_ibs_in
+            sell_usdt_raw += net_usdt_out
+            event_count += 1
+    return sell_ibs_raw, sell_usdt_raw, event_count
+
+
+def get_swap_logs_adaptive(web3: Web3, from_block: int, to_block: int) -> List[Any]:
+    try:
+        return list(
+            web3.eth.get_logs(
+                {
+                    "address": Web3.to_checksum_address(LP_ADDRESS),
+                    "fromBlock": from_block,
+                    "toBlock": to_block,
+                    "topics": [SWAP_TOPIC],
+                }
+            )
+        )
+    except Exception:
+        if to_block - from_block + 1 <= 10:
+            raise
+        midpoint = (from_block + to_block) // 2
+        return get_swap_logs_adaptive(web3, from_block, midpoint) + get_swap_logs_adaptive(
+            web3, midpoint + 1, to_block
+        )
+
+
+def read_sell_pressure(
+    web3: Web3,
+    from_block: int,
+    to_block: int,
+    ibs_is_token0: bool,
+) -> SellPressure:
+    if from_block > to_block:
+        return SellPressure(from_block, to_block, 0, 0, 0)
+    sell_ibs_raw = 0
+    sell_usdt_raw = 0
+    event_count = 0
+    chunk_start = from_block
+    while chunk_start <= to_block:
+        chunk_end = min(chunk_start + LOG_CHUNK_SIZE - 1, to_block)
+        logs = get_swap_logs_adaptive(web3, chunk_start, chunk_end)
+        chunk_ibs, chunk_usdt, chunk_count = summarize_sell_pressure_logs(
+            logs, ibs_is_token0
+        )
+        sell_ibs_raw += chunk_ibs
+        sell_usdt_raw += chunk_usdt
+        event_count += chunk_count
+        chunk_start = chunk_end + 1
+    return SellPressure(
+        from_block=from_block,
+        to_block=to_block,
+        sell_ibs_raw=sell_ibs_raw,
+        sell_usdt_raw=sell_usdt_raw,
+        event_count=event_count,
+    )
 
 
 def default_state() -> Dict[str, Any]:
@@ -371,9 +515,9 @@ def read_current_snapshot(web3: Web3) -> CurrentSnapshot:
     reserve0, reserve1, _ = pair.functions.getReserves().call(
         block_identifier=block_number
     )
-    lp_usdt_raw = int(
-        reserve0 if token0.lower() == usdt_address.lower() else reserve1
-    )
+    ibs_is_token0 = token0.lower() == ibs_address.lower()
+    lp_ibs_raw = int(reserve0 if ibs_is_token0 else reserve1)
+    lp_usdt_raw = int(reserve1 if ibs_is_token0 else reserve0)
 
     ibs_total_supply_raw = int(
         ibs.functions.totalSupply().call(block_identifier=block_number)
@@ -389,6 +533,13 @@ def read_current_snapshot(web3: Web3) -> CurrentSnapshot:
         )
     )
     ibs_circulating_raw = max(0, ibs_total_supply_raw - ibs_dead_raw - ibs_zero_raw)
+    ibs_price_usdt, market_cap_usdt = calculate_market_data(
+        lp_usdt_raw,
+        lp_ibs_raw,
+        usdt_decimals,
+        ibs_decimals,
+        ibs_circulating_raw,
+    )
 
     treasury_address = Web3.to_checksum_address(
         ibs.functions.treasury().call(block_identifier=block_number)
@@ -420,11 +571,11 @@ def read_current_snapshot(web3: Web3) -> CurrentSnapshot:
             )
     protocol_usdt_raw = sum(known_balances[address.lower()] for address in protocol_addresses)
 
-    lp_value = token_amount(lp_usdt_raw, usdt_decimals)
-    reserve_value = token_amount(rbs_usdt_raw + safety_usdt_raw, usdt_decimals)
+    treasury_usdt_raw = lp_usdt_raw + rbs_usdt_raw + safety_usdt_raw
+    treasury_value = token_amount(treasury_usdt_raw, usdt_decimals)
     circulating = token_amount(ibs_circulating_raw, ibs_decimals)
     backing_per_ibs = (
-        (lp_value + reserve_value) / circulating if circulating > 0 else Decimal("0")
+        treasury_value / circulating if circulating > 0 else Decimal("0")
     )
 
     block = web3.eth.get_block(block_number)
@@ -436,14 +587,19 @@ def read_current_snapshot(web3: Web3) -> CurrentSnapshot:
         usdt_decimals=usdt_decimals,
         ibs_decimals=ibs_decimals,
         lp_usdt_raw=lp_usdt_raw,
+        lp_ibs_raw=lp_ibs_raw,
         lp_balance_usdt_raw=lp_balance_usdt_raw,
         rbs_usdt_raw=rbs_usdt_raw,
         safety_usdt_raw=safety_usdt_raw,
+        treasury_usdt_raw=treasury_usdt_raw,
         total_usdt_raw=lp_usdt_raw + rbs_usdt_raw,
         protocol_usdt_raw=protocol_usdt_raw,
         ibs_total_supply_raw=ibs_total_supply_raw,
         ibs_dead_raw=ibs_dead_raw + ibs_zero_raw,
         ibs_circulating_raw=ibs_circulating_raw,
+        ibs_is_token0=ibs_is_token0,
+        ibs_price_usdt=ibs_price_usdt,
+        market_cap_usdt=market_cap_usdt,
         backing_per_ibs=backing_per_ibs,
         treasury_address=treasury_address,
         tax_treasury_address=tax_treasury_address,
@@ -514,9 +670,11 @@ def record_from_snapshot(snapshot: CurrentSnapshot, flow: FlowSummary) -> Dict[s
         "usdt_decimals": snapshot.usdt_decimals,
         "ibs_decimals": snapshot.ibs_decimals,
         "lp_usdt_raw": str(snapshot.lp_usdt_raw),
+        "lp_ibs_raw": str(snapshot.lp_ibs_raw),
         "lp_balance_usdt_raw": str(snapshot.lp_balance_usdt_raw),
         "rbs_usdt_raw": str(snapshot.rbs_usdt_raw),
         "safety_usdt_raw": str(snapshot.safety_usdt_raw),
+        "treasury_usdt_raw": str(snapshot.treasury_usdt_raw),
         "total_usdt_raw": str(snapshot.total_usdt_raw),
         "protocol_usdt_raw": str(snapshot.protocol_usdt_raw),
         "protocol_addresses": list(snapshot.protocol_addresses),
@@ -526,6 +684,9 @@ def record_from_snapshot(snapshot: CurrentSnapshot, flow: FlowSummary) -> Dict[s
         "ibs_total_supply_raw": str(snapshot.ibs_total_supply_raw),
         "ibs_dead_raw": str(snapshot.ibs_dead_raw),
         "ibs_circulating_raw": str(snapshot.ibs_circulating_raw),
+        "ibs_is_token0": snapshot.ibs_is_token0,
+        "ibs_price_usdt": format(snapshot.ibs_price_usdt, "f"),
+        "market_cap_usdt": format(snapshot.market_cap_usdt, "f"),
         "backing_per_ibs": format(snapshot.backing_per_ibs, "f"),
         "flow_from_block": flow.from_block,
         "flow_to_block": flow.to_block,
@@ -580,6 +741,8 @@ def calculate_window(
 
     total_current = int(current_record["total_usdt_raw"])
     total_start = int(start["total_usdt_raw"])
+    treasury_current = treasury_raw_from_record(current_record)
+    treasury_start = treasury_raw_from_record(start)
     rbs_current = int(current_record["rbs_usdt_raw"])
     rbs_start = int(start["rbs_usdt_raw"])
     supply_current = int(current_record["ibs_total_supply_raw"])
@@ -614,12 +777,18 @@ def calculate_window(
         elapsed_days=elapsed_days,
         total_delta_raw=total_current - total_start,
         total_change=pct_change(Decimal(total_current), Decimal(total_start)),
+        treasury_delta_raw=treasury_current - treasury_start,
+        treasury_change=pct_change(
+            Decimal(treasury_current), Decimal(treasury_start)
+        ),
         rbs_delta_raw=rbs_current - rbs_start,
         rbs_change=pct_change(Decimal(rbs_current), Decimal(rbs_start)),
         supply_delta_raw=supply_current - supply_start,
         supply_change=pct_change(Decimal(supply_current), Decimal(supply_start)),
         backing_change=pct_change(backing_current, backing_start),
         external_net_raw=external_net,
+        start_block=int(start["block_number"]),
+        end_block=int(current_record["block_number"]),
     )
 
 
@@ -645,6 +814,26 @@ def estimate_rbs_runway(
     return Decimal(current_rbs_raw) / daily_drawdown
 
 
+def estimate_treasury_runway(
+    current_treasury_raw: int,
+    metrics_24h: Optional[WindowMetrics],
+    metrics_7d: Optional[WindowMetrics],
+) -> Optional[Decimal]:
+    drawdown_rates = [
+        Decimal(-metrics.treasury_delta_raw) / metrics.elapsed_days
+        for metrics in (metrics_24h, metrics_7d)
+        if metrics is not None
+        and metrics.elapsed_days > 0
+        and metrics.treasury_delta_raw < 0
+    ]
+    if not drawdown_rates:
+        return None
+    daily_drawdown = max(drawdown_rates)
+    if daily_drawdown <= 0:
+        return None
+    return Decimal(current_treasury_raw) / daily_drawdown
+
+
 def classify_health(
     metrics_24h: Optional[WindowMetrics],
     metrics_7d: Optional[WindowMetrics],
@@ -657,8 +846,8 @@ def classify_health(
     ext24_negative = (
         metrics_24h.external_net_raw is not None and metrics_24h.external_net_raw < 0
     )
-    if metrics_24h.total_change < 0:
-        reasons.append("核心USDT下降")
+    if metrics_24h.treasury_change < 0:
+        reasons.append("国库资金下降")
     if ext24_negative:
         reasons.append("外部净流出")
     if metrics_24h.rbs_change < 0:
@@ -673,8 +862,8 @@ def classify_health(
             metrics_7d.external_net_raw is not None and metrics_7d.external_net_raw < 0
         )
         death_risk = (
-            metrics_24h.total_change < 0
-            and metrics_7d.total_change < 0
+            metrics_24h.treasury_change < 0
+            and metrics_7d.treasury_change < 0
             and ext24_negative
             and ext7_negative
             and metrics_7d.rbs_change <= Decimal("-0.10")
@@ -686,8 +875,8 @@ def classify_health(
             return "DEATH_SPIRAL_RISK", "🔴 死亡螺旋风险", reasons
 
         growth = (
-            metrics_24h.total_change > 0
-            and metrics_7d.total_change > 0
+            metrics_24h.treasury_change > 0
+            and metrics_7d.treasury_change > 0
             and metrics_24h.external_net_raw is not None
             and metrics_24h.external_net_raw > 0
             and metrics_7d.external_net_raw is not None
@@ -696,10 +885,10 @@ def classify_health(
             and metrics_7d.backing_change >= 0
         )
         if growth:
-            return "GROWTH", "🟢 增长阶段", ["核心资金与外部资金均为正"]
+            return "GROWTH", "🟢 增长阶段", ["国库资金与外部资金均为正"]
 
     downtrend = (
-        metrics_24h.total_change < 0
+        metrics_24h.treasury_change < 0
         and ext24_negative
         and metrics_24h.rbs_change < 0
     )
@@ -726,11 +915,14 @@ def report_due(
     if flow.critical_events:
         return True, "CRITICAL_OUTFLOW"
     total_delta = current.total_usdt_raw - int(previous["total_usdt_raw"])
+    treasury_delta = current.treasury_usdt_raw - treasury_raw_from_record(previous)
     threshold_raw = int(
         IMMEDIATE_TOTAL_CHANGE_USDT * (Decimal(10) ** current.usdt_decimals)
     )
     if threshold_raw > 0 and abs(total_delta) >= threshold_raw:
         return True, "IMMEDIATE_TOTAL_CHANGE"
+    if threshold_raw > 0 and abs(treasury_delta) >= threshold_raw:
+        return True, "IMMEDIATE_TREASURY_CHANGE"
     previous_time = parse_iso(previous.get("timestamp_utc"))
     if previous_time is None:
         return True, "MISSING_TIMESTAMP"
@@ -768,6 +960,41 @@ def format_runway(runway_days: Optional[Decimal]) -> str:
     return f"约{runway_days:.1f}天"
 
 
+def fmt_signed_decimal(value: Decimal, places: int = 2) -> str:
+    sign = "+" if value >= 0 else "-"
+    return f"{sign}{abs(value):,.{places}f}"
+
+
+def format_daily_issuance(
+    metrics_24h: Optional[WindowMetrics],
+    current: CurrentSnapshot,
+) -> str:
+    if metrics_24h is None:
+        return "积累中"
+    issuance_ibs = token_amount(metrics_24h.supply_delta_raw, current.ibs_decimals)
+    issuance_value = issuance_ibs * current.ibs_price_usdt
+    return (
+        f"{fmt_signed_decimal(issuance_ibs)} IBS"
+        f"（按现价 {fmt_signed_decimal(issuance_value)} USDT）"
+    )
+
+
+def format_sell_pressure(
+    pressure: Optional[SellPressure],
+    metrics_24h: Optional[WindowMetrics],
+    current: CurrentSnapshot,
+) -> str:
+    if metrics_24h is None:
+        return "积累中"
+    if pressure is None:
+        return "暂时无法读取"
+    return (
+        f"{fmt_amount(pressure.sell_usdt_raw, current.usdt_decimals)} USDT"
+        f"（{fmt_amount(pressure.sell_ibs_raw, current.ibs_decimals)} IBS，"
+        f"{pressure.event_count}笔）"
+    )
+
+
 def build_telegram_message(
     current: CurrentSnapshot,
     metrics_24h: Optional[WindowMetrics],
@@ -777,6 +1004,8 @@ def build_telegram_message(
     health_reasons: Sequence[str],
     runway_days: Optional[Decimal],
     report_reason: str,
+    treasury_runway_days: Optional[Decimal] = None,
+    sell_pressure: Optional[SellPressure] = None,
 ) -> str:
     usdt_decimals = current.usdt_decimals
     ibs_decimals = current.ibs_decimals
@@ -790,19 +1019,22 @@ def build_telegram_message(
             "🔵 <b>POTS资金监控｜数据积累中</b>",
             "",
             (
-                f"💰 <b>当前核心资金：{fmt_amount(current.total_usdt_raw, usdt_decimals)} "
+                f"💰 <b>当前国库资金：{fmt_amount(current.treasury_usdt_raw, usdt_decimals)} "
                 "USDT</b>"
             ),
             f"• LP：{fmt_amount(current.lp_usdt_raw, usdt_decimals)}",
             f"• RBS：{fmt_amount(current.rbs_usdt_raw, usdt_decimals)}",
+            f"• Safety：{fmt_amount(current.safety_usdt_raw, usdt_decimals)}",
             "",
             (
-                "🪙 每枚 IBS 的可见 USDT 覆盖："
-                f"<b>{current.backing_per_ibs:.4f} USDT</b>"
+                f"📊 IBS池内价格：<b>{current.ibs_price_usdt:,.4f} USDT</b>\n"
+                f"流通市值估算：<b>{current.market_cap_usdt:,.2f} USDT</b>\n"
+                f"当前总量：<b>{fmt_amount(current.ibs_total_supply_raw, ibs_decimals)} IBS</b>\n"
+                f"可见USDT覆盖：<b>{current.backing_per_ibs:.4f}/IBS</b>"
             ),
             "",
-            "📌 目前数据不足，暂时无法判断资金是在增加还是减少。",
-            "积累满24小时后显示短期变化，满7天后显示长期趋势。",
+            "📌 24h净增发、每日抛压和国库运行时间正在积累。",
+            "积累满24小时后显示短期数据，满7天后显示长期趋势。",
             "",
             f"区块：<code>{current.block_number}</code>",
         ]
@@ -822,17 +1054,19 @@ def build_telegram_message(
     total_7 = format_window_change(
         metrics_7d, "total_delta_raw", "total_change", usdt_decimals
     )
+    treasury_24 = format_window_change(
+        metrics_24h, "treasury_delta_raw", "treasury_change", usdt_decimals
+    )
+    treasury_7 = format_window_change(
+        metrics_7d, "treasury_delta_raw", "treasury_change", usdt_decimals
+    )
     rbs_24 = format_window_change(
         metrics_24h, "rbs_delta_raw", "rbs_change", usdt_decimals
     )
     rbs_7 = format_window_change(
         metrics_7d, "rbs_delta_raw", "rbs_change", usdt_decimals
     )
-    issuance_24 = (
-        "积累中"
-        if metrics_24h is None
-        else fmt_signed_amount(metrics_24h.supply_delta_raw, ibs_decimals)
-    )
+    issuance_24 = format_daily_issuance(metrics_24h, current)
     issuance_7 = (
         "积累中"
         if metrics_7d is None
@@ -840,15 +1074,18 @@ def build_telegram_message(
     )
     backing_24 = "积累中" if metrics_24h is None else fmt_pct(metrics_24h.backing_change)
     backing_7 = "积累中" if metrics_7d is None else fmt_pct(metrics_7d.backing_change)
+    sell_pressure_24 = format_sell_pressure(sell_pressure, metrics_24h, current)
 
     lines = [
         f"<b>{health_label}｜POTS核心资金监控</b>",
         "",
         (
-            f"① 核心USDT：<b>{fmt_amount(current.total_usdt_raw, usdt_decimals)} USDT</b>\n"
+            f"① 国库资金：<b>{fmt_amount(current.treasury_usdt_raw, usdt_decimals)} USDT</b>\n"
             f"　LP {fmt_amount(current.lp_usdt_raw, usdt_decimals)} ｜ "
-            f"RBS {fmt_amount(current.rbs_usdt_raw, usdt_decimals)}\n"
-            f"　24h {total_24} ｜ 7d {total_7}"
+            f"RBS {fmt_amount(current.rbs_usdt_raw, usdt_decimals)} ｜ "
+            f"Safety {fmt_amount(current.safety_usdt_raw, usdt_decimals)}\n"
+            f"　24h {treasury_24} ｜ 7d {treasury_7}\n"
+            f"　国库静态可持续时间：{format_runway(treasury_runway_days)}"
         ),
         (
             "② 已知协议地址净流入：\n"
@@ -856,14 +1093,25 @@ def build_telegram_message(
             f"7d {format_external(metrics_7d, usdt_decimals)}"
         ),
         (
-            f"③ RBS支撑：<b>{fmt_amount(current.rbs_usdt_raw, usdt_decimals)} USDT</b>\n"
-            f"　24h {rbs_24} ｜ 7d {rbs_7}\n"
-            f"　按较快净消耗速度估算：{format_runway(runway_days)}"
+            "③ IBS市值与总量：\n"
+            f"　池内价格 <b>{current.ibs_price_usdt:,.4f} USDT</b> ｜ "
+            f"流通市值估算 <b>{current.market_cap_usdt:,.2f} USDT</b>\n"
+            f"　当前总量 {fmt_amount(current.ibs_total_supply_raw, ibs_decimals)} IBS ｜ "
+            f"流通量 {fmt_amount(current.ibs_circulating_raw, ibs_decimals)} IBS"
         ),
         (
-            f"④ IBS供给/可见USDT覆盖估算：<b>${current.backing_per_ibs:.4f}/IBS</b>\n"
-            f"　净增发 24h {issuance_24} ｜ 7d {issuance_7}\n"
-            f"　覆盖变化 24h {backing_24} ｜ 7d {backing_7}"
+            "④ 每日增发与抛压：\n"
+            f"　近24h净增发 {issuance_24}\n"
+            f"　近24h真实抛压 {sell_pressure_24}"
+        ),
+        (
+            f"⑤ 现有风险指标：\n"
+            f"　LP+RBS 24h {total_24} ｜ 7d {total_7}\n"
+            f"　RBS 24h {rbs_24} ｜ 7d {rbs_7} ｜ "
+            f"支撑 {format_runway(runway_days)}\n"
+            f"　可见USDT覆盖 <b>{current.backing_per_ibs:.4f}/IBS</b> ｜ "
+            f"24h {backing_24} ｜ 7d {backing_7}\n"
+            f"　净增发 7d {issuance_7} IBS"
         ),
         "",
         f"判断依据：{'、'.join(health_reasons[:5])}",
@@ -1045,7 +1293,8 @@ def main() -> None:
     print(
         f"区块={current.block_number}, LP={fmt_amount(current.lp_usdt_raw, current.usdt_decimals)}, "
         f"RBS={fmt_amount(current.rbs_usdt_raw, current.usdt_decimals)}, "
-        f"合计={fmt_amount(current.total_usdt_raw, current.usdt_decimals)} USDT"
+        f"Safety={fmt_amount(current.safety_usdt_raw, current.usdt_decimals)}, "
+        f"国库={fmt_amount(current.treasury_usdt_raw, current.usdt_decimals)} USDT"
     )
     print(
         f"已知协议USDT={fmt_amount(current.protocol_usdt_raw, current.usdt_decimals)}, "
@@ -1063,6 +1312,25 @@ def main() -> None:
     )
     metrics_7d = calculate_window(records, record, "7d", timedelta(days=7))
     runway_days = estimate_rbs_runway(current.rbs_usdt_raw, metrics_24h, metrics_7d)
+    treasury_runway_days = estimate_treasury_runway(
+        current.treasury_usdt_raw, metrics_24h, metrics_7d
+    )
+    sell_pressure: Optional[SellPressure] = None
+    if metrics_24h is not None:
+        try:
+            sell_pressure = read_sell_pressure(
+                web3,
+                metrics_24h.start_block + 1,
+                metrics_24h.end_block,
+                current.ibs_is_token0,
+            )
+            print(
+                "近24h真实抛压="
+                f"{fmt_amount(sell_pressure.sell_usdt_raw, current.usdt_decimals)} USDT, "
+                f"{sell_pressure.event_count}笔"
+            )
+        except Exception as exc:  # Preserve the existing report if log RPC is unavailable.
+            print(f"读取近24h Swap抛压失败，本次其余指标继续推送：{exc}")
     health_code, health_label, health_reasons = classify_health(
         metrics_24h, metrics_7d, runway_days
     )
@@ -1075,6 +1343,8 @@ def main() -> None:
         health_reasons,
         runway_days,
         report_reason,
+        treasury_runway_days=treasury_runway_days,
+        sell_pressure=sell_pressure,
     )
 
     # Advance the baseline only after Telegram accepted the report.
