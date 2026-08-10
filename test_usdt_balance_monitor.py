@@ -19,6 +19,26 @@ def swap_data(amount0_in, amount1_in, amount0_out, amount1_out):
     )
 
 
+def swap_log(
+    amount0_in,
+    amount1_in,
+    amount0_out,
+    amount1_out,
+    *,
+    block=200,
+    transaction_index=0,
+    log_index=0,
+    tx_byte="11",
+):
+    return {
+        "data": swap_data(amount0_in, amount1_in, amount0_out, amount1_out),
+        "transactionHash": "0x" + tx_byte * 32,
+        "blockNumber": block,
+        "transactionIndex": transaction_index,
+        "logIndex": log_index,
+    }
+
+
 def make_snapshot(
     when,
     block,
@@ -103,6 +123,27 @@ def make_metrics(
 
 
 class MonitorTests(unittest.TestCase):
+    def setUp(self):
+        self._temp_dir = tempfile.TemporaryDirectory()
+        temp_root = Path(self._temp_dir.name)
+        self._state_file_patch = patch.object(
+            monitor,
+            "STATE_FILE",
+            temp_root / "data" / "usdt_balance.json",
+        )
+        self._history_file_patch = patch.object(
+            monitor,
+            "HISTORY_FILE",
+            temp_root / "data" / "usdt_flow_history.csv",
+        )
+        self._state_file_patch.start()
+        self._history_file_patch.start()
+
+    def tearDown(self):
+        self._history_file_patch.stop()
+        self._state_file_patch.stop()
+        self._temp_dir.cleanup()
+
     def test_legacy_rbs_state_is_preserved_for_migration(self):
         legacy = {
             "wallet": monitor.RBS_ADDRESS,
@@ -334,6 +375,239 @@ class MonitorTests(unittest.TestCase):
             (40 * IBS_SCALE, 800 * USDT_SCALE, 1),
         )
 
+    def test_large_trade_direction_uses_pair_net_flow_for_both_token_orders(self):
+        token0_buy = monitor.decode_large_trade_log(
+            swap_log(0, 5_000 * USDT_SCALE, 250 * IBS_SCALE, 0), True
+        )
+        token0_sell = monitor.decode_large_trade_log(
+            swap_log(
+                250 * IBS_SCALE,
+                0,
+                0,
+                5_000 * USDT_SCALE,
+                log_index=1,
+            ),
+            True,
+        )
+        token1_buy = monitor.decode_large_trade_log(
+            swap_log(
+                5_000 * USDT_SCALE,
+                0,
+                0,
+                250 * IBS_SCALE,
+                log_index=2,
+            ),
+            False,
+        )
+        token1_sell = monitor.decode_large_trade_log(
+            swap_log(
+                0,
+                250 * IBS_SCALE,
+                5_000 * USDT_SCALE,
+                0,
+                log_index=3,
+            ),
+            False,
+        )
+
+        self.assertEqual(
+            (token0_buy.side, token0_buy.ibs_raw, token0_buy.usdt_raw),
+            ("BUY", 250 * IBS_SCALE, 5_000 * USDT_SCALE),
+        )
+        self.assertEqual(
+            (token0_sell.side, token0_sell.ibs_raw, token0_sell.usdt_raw),
+            ("SELL", 250 * IBS_SCALE, 5_000 * USDT_SCALE),
+        )
+        self.assertEqual(token1_buy.side, "BUY")
+        self.assertEqual(token1_sell.side, "SELL")
+        self.assertIsNone(
+            monitor.decode_large_trade_log(
+                swap_log(250 * IBS_SCALE, 5_000 * USDT_SCALE, 0, 0), True
+            )
+        )
+
+    def test_large_trade_threshold_is_strictly_over_200_and_dedupes_by_log(self):
+        same_tx = "22"
+        logs = [
+            swap_log(
+                0,
+                4_000 * USDT_SCALE,
+                200 * IBS_SCALE,
+                0,
+                block=202,
+                log_index=0,
+                tx_byte=same_tx,
+            ),
+            swap_log(
+                0,
+                4_001 * USDT_SCALE,
+                200 * IBS_SCALE + 1,
+                0,
+                block=201,
+                transaction_index=2,
+                log_index=4,
+                tx_byte=same_tx,
+            ),
+            swap_log(
+                201 * IBS_SCALE,
+                0,
+                0,
+                4_020 * USDT_SCALE,
+                block=201,
+                transaction_index=1,
+                log_index=3,
+                tx_byte=same_tx,
+            ),
+            # Exact duplicate returned by an overlapping RPC range.
+            swap_log(
+                201 * IBS_SCALE,
+                0,
+                0,
+                4_020 * USDT_SCALE,
+                block=201,
+                transaction_index=1,
+                log_index=3,
+                tx_byte=same_tx,
+            ),
+        ]
+        trades = monitor.find_large_trades(
+            logs,
+            True,
+            200 * IBS_SCALE,
+        )
+        self.assertEqual(len(trades), 2)
+        self.assertEqual([trade.log_index for trade in trades], [3, 4])
+        self.assertEqual([trade.side for trade in trades], ["SELL", "BUY"])
+        self.assertNotEqual(trades[0].event_id, trades[1].event_id)
+
+        ignored = monitor.find_large_trades(
+            logs,
+            True,
+            200 * IBS_SCALE,
+            [trade.event_id for trade in trades],
+        )
+        self.assertEqual(ignored, [])
+
+    def test_large_trade_message_contains_amount_price_direction_and_tx_link(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        current = make_snapshot(now, 250)
+        trade = monitor.decode_large_trade_log(
+            swap_log(
+                0,
+                5_000 * USDT_SCALE,
+                250 * IBS_SCALE,
+                0,
+                block=249,
+                log_index=7,
+                tx_byte="ab",
+            ),
+            True,
+        )
+        message = monitor.build_large_trade_message([trade], current)
+        self.assertIn("大额买入", message)
+        self.assertIn("250.0000", message)
+        self.assertIn("5,000.00", message)
+        self.assertIn("20.0000 USDT/IBS", message)
+        self.assertIn("池侧", message)
+        self.assertIn(f"https://bscscan.com/tx/{trade.transaction_hash}", message)
+
+    def test_large_trade_state_starts_at_current_block_without_history_backfill(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        current = make_snapshot(now, 10_000)
+        state = monitor.default_state()
+        self.assertTrue(monitor.ensure_large_trade_alert_state(state, current))
+        self.assertEqual(
+            state["large_trade_alerts"]["tracking_started_block"], 10_000
+        )
+        self.assertEqual(
+            state["large_trade_alerts"]["last_scanned_block"], 10_000
+        )
+        self.assertIsNone(monitor.large_trade_scan_range(state, 10_000))
+        self.assertEqual(
+            monitor.large_trade_scan_range(state, 10_010),
+            (10_001, 10_010),
+        )
+
+    def test_large_trade_scan_resumes_from_cursor_and_caps_catch_up(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        state = monitor.default_state()
+        monitor.ensure_large_trade_alert_state(state, make_snapshot(now, 100))
+        state["large_trade_alerts"]["last_scanned_block"] = 150
+
+        with patch.object(monitor, "LARGE_TRADE_MAX_SCAN_BLOCKS", 20):
+            self.assertEqual(
+                monitor.large_trade_scan_range(state, 1_000),
+                (151, 170),
+            )
+
+        state["large_trade_alerts"]["last_scanned_block"] = 1_000
+        self.assertIsNone(monitor.large_trade_scan_range(state, 1_000))
+
+    def test_large_trade_batches_retry_only_the_failed_batch(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        current = make_snapshot(now, 300)
+        state = monitor.default_state()
+        monitor.ensure_large_trade_alert_state(state, make_snapshot(now, 100))
+        trades = [
+            monitor.decode_large_trade_log(
+                swap_log(
+                    0,
+                    (5_000 + index) * USDT_SCALE,
+                    (250 + index) * IBS_SCALE,
+                    0,
+                    block=200 + index,
+                    log_index=index,
+                    tx_byte=f"{index + 1:02x}",
+                ),
+                True,
+            )
+            for index in range(7)
+        ]
+        self.assertTrue(monitor.enqueue_large_trades(state, trades))
+
+        with (
+            patch.object(
+                monitor,
+                "send_telegram",
+                side_effect=[None, RuntimeError("second batch failed")],
+            ) as send_telegram,
+            patch.object(monitor, "atomic_write_json") as atomic_write_json,
+        ):
+            sent = monitor.send_pending_large_trade_alerts(
+                state,
+                current,
+                "token",
+                "chat",
+                persist_state=True,
+            )
+
+        self.assertEqual(sent, 6)
+        self.assertEqual(send_telegram.call_count, 2)
+        self.assertEqual(len(state["large_trade_alerts"]["seen_event_ids"]), 6)
+        self.assertEqual(len(state["large_trade_alerts"]["pending"]), 1)
+        self.assertEqual(
+            state["large_trade_alerts"]["pending"][0]["event_id"],
+            trades[6].event_id,
+        )
+        atomic_write_json.assert_called_once()
+
+        with (
+            patch.object(monitor, "send_telegram") as retry_send,
+            patch.object(monitor, "atomic_write_json") as retry_write,
+        ):
+            retried = monitor.send_pending_large_trade_alerts(
+                state,
+                current,
+                "token",
+                "chat",
+            )
+
+        self.assertEqual(retried, 1)
+        retry_send.assert_called_once()
+        retry_write.assert_called_once()
+        self.assertEqual(state["large_trade_alerts"]["pending"], [])
+        self.assertEqual(len(state["large_trade_alerts"]["seen_event_ids"]), 7)
+
     def test_swap_log_timeout_fails_fast_without_recursive_splitting(self):
         web3 = MagicMock()
         web3.eth.get_logs.side_effect = RuntimeError("request timed out")
@@ -500,6 +774,176 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(saved["latest"]["protocol_usdt_raw"], str(snapshot.protocol_usdt_raw))
             self.assertTrue(history_path.exists())
             send_telegram.assert_called_once()
+
+    def test_non_report_run_sends_large_trade_without_moving_funds_baseline(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        previous = make_snapshot(now - timedelta(minutes=5), 100)
+        current = make_snapshot(now, 200)
+        previous_record = monitor.record_from_snapshot(
+            previous, monitor.FlowSummary(100, 100, False)
+        )
+        state = monitor.default_state()
+        state["latest"] = previous_record
+        state["snapshots"] = [previous_record]
+        state["large_trade_alerts"] = {
+            "tracking_started_at_utc": previous.observed_at.isoformat(),
+            "tracking_started_block": 100,
+            "seen_event_ids": [],
+            "pending": [],
+            "last_alert_at_utc": None,
+        }
+        trade = monitor.decode_large_trade_log(
+            swap_log(
+                0,
+                5_000 * USDT_SCALE,
+                250 * IBS_SCALE,
+                0,
+                block=150,
+                log_index=8,
+                tx_byte="cd",
+            ),
+            True,
+        )
+        with (
+            patch.object(monitor, "load_state", return_value=state),
+            patch.object(monitor, "connect_web3", return_value=object()),
+            patch.object(monitor, "read_current_snapshot", return_value=current),
+            patch.object(
+                monitor, "read_large_trades", return_value=[trade]
+            ) as read_large_trades,
+            patch.object(monitor, "send_telegram") as send_telegram,
+            patch.object(monitor, "atomic_write_json") as atomic_write_json,
+            patch.object(monitor, "update_state") as update_state,
+            patch.dict(
+                monitor.os.environ,
+                {
+                    "BSC_RPC": "https://example.invalid",
+                    "BOT_TOKEN": "x",
+                    "CHAT_ID": "y",
+                },
+            ),
+        ):
+            monitor.main()
+
+        read_large_trades.assert_called_once()
+        send_telegram.assert_called_once()
+        self.assertIn("大额买入", send_telegram.call_args.args[2])
+        update_state.assert_not_called()
+        self.assertEqual(state["latest"]["block_number"], 100)
+        self.assertEqual(state["large_trade_alerts"]["pending"], [])
+        self.assertIn(
+            trade.event_id,
+            state["large_trade_alerts"]["seen_event_ids"],
+        )
+        atomic_write_json.assert_called_once()
+
+    def test_large_trade_empty_catch_up_persists_and_advances_each_run(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        previous = make_snapshot(now - timedelta(minutes=5), 100)
+        current = make_snapshot(now, 1_000)
+        previous_record = monitor.record_from_snapshot(
+            previous, monitor.FlowSummary(100, 100, False)
+        )
+        state = monitor.default_state()
+        state["latest"] = previous_record
+        state["snapshots"] = [previous_record]
+        state["large_trade_alerts"] = {
+            "tracking_started_at_utc": previous.observed_at.isoformat(),
+            "tracking_started_block": 100,
+            "last_scanned_block": 100,
+            "seen_event_ids": [],
+            "pending": [],
+            "last_alert_at_utc": None,
+        }
+        with (
+            patch.object(monitor, "load_state", return_value=state),
+            patch.object(monitor, "connect_web3", return_value=object()),
+            patch.object(monitor, "read_current_snapshot", return_value=current),
+            patch.object(
+                monitor, "read_large_trades", return_value=[]
+            ) as read_large_trades,
+            patch.object(monitor, "send_telegram") as send_telegram,
+            patch.object(monitor, "atomic_write_json") as atomic_write_json,
+            patch.object(monitor, "update_state") as update_state,
+            patch.object(monitor, "LARGE_TRADE_MAX_SCAN_BLOCKS", 20),
+            patch.dict(
+                monitor.os.environ,
+                {
+                    "BSC_RPC": "https://example.invalid",
+                    "BOT_TOKEN": "x",
+                    "CHAT_ID": "y",
+                },
+            ),
+        ):
+            monitor.main()
+            monitor.main()
+
+        self.assertEqual(
+            [(call.args[1], call.args[2]) for call in read_large_trades.call_args_list],
+            [(101, 120), (121, 140)],
+        )
+        self.assertEqual(state["large_trade_alerts"]["last_scanned_block"], 140)
+        self.assertEqual(atomic_write_json.call_count, 2)
+        send_telegram.assert_not_called()
+        update_state.assert_not_called()
+
+    def test_failed_large_trade_telegram_stays_pending_for_retry(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        previous = make_snapshot(now - timedelta(minutes=5), 100)
+        current = make_snapshot(now, 200)
+        previous_record = monitor.record_from_snapshot(
+            previous, monitor.FlowSummary(100, 100, False)
+        )
+        state = monitor.default_state()
+        state["latest"] = previous_record
+        state["snapshots"] = [previous_record]
+        state["large_trade_alerts"] = {
+            "tracking_started_at_utc": previous.observed_at.isoformat(),
+            "tracking_started_block": 100,
+            "seen_event_ids": [],
+            "pending": [],
+            "last_alert_at_utc": None,
+        }
+        trade = monitor.decode_large_trade_log(
+            swap_log(
+                250 * IBS_SCALE,
+                0,
+                0,
+                5_000 * USDT_SCALE,
+                block=151,
+                log_index=9,
+                tx_byte="ef",
+            ),
+            True,
+        )
+        with (
+            patch.object(monitor, "load_state", return_value=state),
+            patch.object(monitor, "connect_web3", return_value=object()),
+            patch.object(monitor, "read_current_snapshot", return_value=current),
+            patch.object(monitor, "read_large_trades", return_value=[trade]),
+            patch.object(
+                monitor,
+                "send_telegram",
+                side_effect=RuntimeError("telegram down"),
+            ),
+            patch.object(monitor, "atomic_write_json") as atomic_write_json,
+            patch.dict(
+                monitor.os.environ,
+                {
+                    "BSC_RPC": "https://example.invalid",
+                    "BOT_TOKEN": "x",
+                    "CHAT_ID": "y",
+                },
+            ),
+        ):
+            monitor.main()
+
+        self.assertEqual(
+            state["large_trade_alerts"]["pending"][0]["event_id"],
+            trade.event_id,
+        )
+        self.assertEqual(state["large_trade_alerts"]["seen_event_ids"], [])
+        atomic_write_json.assert_called_once()
 
     def test_sell_pressure_rpc_failure_does_not_block_telegram_report(self):
         now = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
