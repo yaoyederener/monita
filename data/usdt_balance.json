@@ -3,6 +3,14 @@
   "chain": "BNB Smart Chain",
   "created_at_utc": "2026-08-06T07:59:52.229948+00:00",
   "decimals": 18,
+  "large_trade_alerts": {
+    "last_alert_at_utc": null,
+    "last_scanned_block": 115029129,
+    "pending": [],
+    "seen_event_ids": [],
+    "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
+    "tracking_started_block": 115029129
+  },
   "latest": {
     "backing_per_ibs": "11.708222347026276775360025929657820048642135852390750310921069862640661318346564",
     "block_number": 115021136,
