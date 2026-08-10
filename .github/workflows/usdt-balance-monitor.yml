@@ -48,6 +48,7 @@ jobs:
           REPORT_INTERVAL_MINUTES: ${{ vars.POTS_FLOW_REPORT_MINUTES || '60' }}
           IMMEDIATE_TOTAL_CHANGE_USDT: ${{ vars.POTS_FLOW_IMMEDIATE_ALERT_USDT || '100000' }}
           CRITICAL_OUTFLOW_USDT: ${{ vars.POTS_CRITICAL_OUTFLOW_USDT || '100000' }}
+          LARGE_TRADE_THRESHOLD_IBS: ${{ vars.POTS_LARGE_TRADE_THRESHOLD_IBS || '200' }}
           CONFIRMATION_BLOCKS: "3"
           PYTHONUNBUFFERED: "1"
         run: python -u usdt_balance_monitor.py
