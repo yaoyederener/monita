@@ -43,6 +43,16 @@
 
 RBS 或 Safety Treasury 相对上次报告的余额下降达到阈值时，会立即发送紧急通知，并同时显示整个已知协议地址边界的净变化，帮助区分内部调动与整体资金流出。
 
+### IBS 大额买卖提醒
+
+核心监控每 5 分钟扫描已确认的 IBS/USDT Pair `Swap` 事件。单个 Swap 的 IBS 池侧成交量**严格超过 200 IBS**时，不等待每小时资金报告，直接发送 Telegram：
+
+- 🟢 IBS 流出池、USDT 流入池：大额买入
+- 🔴 IBS 流入池、USDT 流出池：大额卖出
+- 通知包含 IBS 数量、USDT 成交额、该笔成交均价、确认区块和 BscScan 交易链接
+
+首次启用只从当前确认区块建立基线，不补发旧交易。之后记录扫描进度并从上次区块断点续扫；任务暂停后也会分批补扫。交易以 `txHash + logIndex` 去重；Telegram 暂时发送失败时会保留待发送记录，后续运行自动重试。该提醒已经并入现有核心工作流，不会增加新的 cron job。
+
 ## 运行频率与变量
 
 工作流每 5 分钟检查一次，默认每 60 分钟发一条常规 Telegram 报告。以下情况会提前报告：
@@ -56,6 +66,7 @@ RBS 或 Safety Treasury 相对上次报告的余额下降达到阈值时，会�
 - `POTS_FLOW_REPORT_MINUTES`：常规报告间隔，默认 `60`
 - `POTS_FLOW_IMMEDIATE_ALERT_USDT`：核心总额即时报告阈值，默认 `100000`
 - `POTS_CRITICAL_OUTFLOW_USDT`：金库大额余额下降阈值，默认 `100000`
+- `POTS_LARGE_TRADE_THRESHOLD_IBS`：单笔 IBS 大额买卖提醒阈值，默认 `200`；只有严格超过该数值才提醒
 
 ## GitHub Secrets
 
@@ -69,7 +80,7 @@ RBS 或 Safety Treasury 相对上次报告的余额下降达到阈值时，会�
 
 ## 历史记录与升级
 
-- `data/usdt_balance.json`：最新报告基线及最近 14 天快照，包含国库、价格、市值、总量、24h 增发、抛压和 runway 字段
+- `data/usdt_balance.json`：最新报告基线及最近 14 天快照，包含国库、价格、市值、总量、24h 增发、抛压、runway，以及大额交易去重/待重试记录
 - `data/usdt_flow_history.csv`：继续保留每次报告的原有指标列，兼容既有历史
 - Git 提交历史：每次有效报告后的状态都会提交，旧的 RBS 单地址记录仍可追溯
 
@@ -85,17 +96,16 @@ RBS 或 Safety Treasury 相对上次报告的余额下降达到阈值时，会�
 - “国库静态可持续时间”把 LP、RBS 和 Safety 合计余额按近期净下降速度外推，只用于趋势预警；LP 不是可直接支出的运营现金，Safety 也可能受权限限制。
 - 市值使用单个确认区块的池内现价估算，可能受短时交易影响，不是 TWAP、审计估值或实际可退出价值。
 - “真实抛压”是近 24 小时卖入该 LP 的总量，不扣除同期买盘，因此不是净资金流。
+- 大额买卖提醒采用 Pair 的池侧 Swap 数量；如果 IBS 对转账收税，钱包实际到账或支出可能与池侧数量略有差异。
 - 已知协议净流入只覆盖脚本中的地址和 IBS 当前 treasury 角色；项目启用其他新合约后仍应同步更新静态地址集合。
 - 可见 USDT 覆盖估算只纳入 LP 的 USDT 储备、RBS 与 Safety，不代表所有资产、债务、LP 所有权或可立即兑现价值。
 - runway 假设近期消耗速度继续，不是精确预测；RBS 停止下降时显示为“未持续消耗”。
 
 ## 其他现有监控
 
-- `monitor.py`：IBS 大额交易通知
-- `pots_risk_monitor.py`：LP、RBS、金库、Mint/Burn、买卖压力和合约变化风险监控
+- IBS 大额买卖提醒现在由 `usdt_balance_monitor.py` 和 `POTS Core Funds Monitor` 统一处理。
+- `monitor.py` 与 `pots_risk_monitor.py` 是仓库中的旧风险监控文件，不需要为本功能重新启用额外定时任务。
 - `README-POTS-RISK.md`：POTS 风险监控详细说明
-
-这些监控继续共存，不会因为本监控升级而删除。
 
 ## 官方地址与原理
 
