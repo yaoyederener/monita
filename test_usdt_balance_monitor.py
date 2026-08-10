@@ -360,19 +360,27 @@ class MonitorTests(unittest.TestCase):
                 )
             },
         ]
-        sell_ibs, sell_usdt, count = monitor.summarize_sell_pressure_logs(
+        pressure_values = monitor.summarize_sell_pressure_logs(
             token0_logs, True
         )
-        self.assertEqual(sell_ibs, 125 * IBS_SCALE)
-        self.assertEqual(sell_usdt, 2_600 * USDT_SCALE)
-        self.assertEqual(count, 2)
+        self.assertEqual(
+            pressure_values,
+            (
+                125 * IBS_SCALE,
+                2_600 * USDT_SCALE,
+                2,
+                50 * IBS_SCALE,
+                1_000 * USDT_SCALE,
+                1,
+            ),
+        )
 
         token1_logs = [
             {"data": swap_data(0, 40 * IBS_SCALE, 800 * USDT_SCALE, 0)}
         ]
         self.assertEqual(
             monitor.summarize_sell_pressure_logs(token1_logs, False),
-            (40 * IBS_SCALE, 800 * USDT_SCALE, 1),
+            (40 * IBS_SCALE, 800 * USDT_SCALE, 1, 0, 0, 0),
         )
 
     def test_large_trade_direction_uses_pair_net_flow_for_both_token_orders(self):
@@ -503,13 +511,112 @@ class MonitorTests(unittest.TestCase):
             ),
             True,
         )
+        trade = monitor.replace(
+            trade,
+            trader_address="0x1111111111111111111111111111111111111111",
+            address_side_sequence=3,
+        )
         message = monitor.build_large_trade_message([trade], current)
         self.assertIn("大额买入", message)
         self.assertIn("250.0000", message)
         self.assertIn("5,000.00", message)
         self.assertIn("20.0000 USDT/IBS", message)
         self.assertIn("池侧", message)
+        self.assertIn(trade.trader_address, message)
+        self.assertIn("本监控第 3 次大额买入", message)
+        self.assertIn(f"https://bscscan.com/address/{trade.trader_address}", message)
         self.assertIn(f"https://bscscan.com/tx/{trade.transaction_hash}", message)
+
+    def test_large_trade_address_resolution_caches_one_lookup_per_transaction(self):
+        same_tx = "33"
+        trades = [
+            monitor.decode_large_trade_log(
+                swap_log(
+                    0,
+                    5_000 * USDT_SCALE,
+                    250 * IBS_SCALE,
+                    0,
+                    log_index=index,
+                    tx_byte=same_tx,
+                ),
+                True,
+            )
+            for index in range(2)
+        ]
+        web3 = MagicMock()
+        web3.eth.get_transaction.return_value = {
+            "from": "0x2222222222222222222222222222222222222222"
+        }
+
+        resolved = monitor.resolve_large_trade_addresses(web3, trades)
+
+        web3.eth.get_transaction.assert_called_once_with(trades[0].transaction_hash)
+        self.assertEqual(
+            [trade.trader_address for trade in resolved],
+            ["0x2222222222222222222222222222222222222222"] * 2,
+        )
+
+    def test_large_trade_address_counts_are_side_specific_and_idempotent(self):
+        now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+        state = monitor.default_state()
+        monitor.ensure_large_trade_alert_state(state, make_snapshot(now, 100))
+        trader = "0x3333333333333333333333333333333333333333"
+        trades = [
+            monitor.replace(
+                monitor.decode_large_trade_log(
+                    swap_log(
+                        0,
+                        5_000 * USDT_SCALE,
+                        250 * IBS_SCALE,
+                        0,
+                        log_index=0,
+                        tx_byte="41",
+                    ),
+                    True,
+                ),
+                trader_address=trader,
+            ),
+            monitor.replace(
+                monitor.decode_large_trade_log(
+                    swap_log(
+                        0,
+                        5_100 * USDT_SCALE,
+                        255 * IBS_SCALE,
+                        0,
+                        log_index=1,
+                        tx_byte="42",
+                    ),
+                    True,
+                ),
+                trader_address=trader,
+            ),
+            monitor.replace(
+                monitor.decode_large_trade_log(
+                    swap_log(
+                        260 * IBS_SCALE,
+                        0,
+                        0,
+                        5_200 * USDT_SCALE,
+                        log_index=2,
+                        tx_byte="43",
+                    ),
+                    True,
+                ),
+                trader_address=trader,
+            ),
+        ]
+
+        self.assertTrue(monitor.enqueue_large_trades(state, trades))
+        self.assertFalse(monitor.enqueue_large_trades(state, trades))
+        queued = monitor.pending_large_trades(state)
+        self.assertEqual(
+            [trade.address_side_sequence for trade in queued],
+            [1, 2, 1],
+        )
+        self.assertEqual(
+            state["large_trade_alerts"]["address_side_counts"][trader.lower()],
+            {"BUY": 2, "SELL": 1},
+        )
 
     def test_large_trade_state_starts_at_current_block_without_history_backfill(self):
         now = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
@@ -685,7 +792,14 @@ class MonitorTests(unittest.TestCase):
             supply_delta=1_000,
         )
         pressure = monitor.SellPressure(
-            101, 200, 2_000 * IBS_SCALE, 40_000 * USDT_SCALE, 12
+            101,
+            200,
+            2_000 * IBS_SCALE,
+            40_000 * USDT_SCALE,
+            12,
+            buy_ibs_raw=1_500 * IBS_SCALE,
+            buy_usdt_raw=30_000 * USDT_SCALE,
+            buy_event_count=8,
         )
         message = monitor.build_telegram_message(
             snapshot,
@@ -701,7 +815,10 @@ class MonitorTests(unittest.TestCase):
         )
         self.assertIn("国库静态可持续时间：约60.0天", message)
         self.assertIn("近24h净增发 +1,000.00 IBS", message)
-        self.assertIn("近24h真实抛压 40,000.00 USDT", message)
+        self.assertIn("近24h毛卖压 40,000.00 USDT", message)
+        self.assertIn("毛买盘 30,000.00 USDT", message)
+        self.assertIn("净抛压 <b>+10,000.00 USDT</b>", message)
+        self.assertIn("卖买比 1.33", message)
         self.assertIn("LP+RBS 24h", message)
         self.assertIn("已知协议地址净流入", message)
 
