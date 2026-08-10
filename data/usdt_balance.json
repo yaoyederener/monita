@@ -5,20 +5,24 @@
   "decimals": 18,
   "large_trade_alerts": {
     "address_side_counts": {
+      "0xb1009bc28c5815c9d894dc4e9a2edd3767d6fcc6": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0xc963fb35b066c4dc203168279a7c3fd04be88888": {
         "BUY": 2,
         "SELL": 2
       },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
-        "BUY": 1,
+        "BUY": 3,
         "SELL": 0
       }
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-10T05:00:40.949460+00:00",
-    "last_alert_block": 115053627,
-    "last_scanned_block": 115061124,
+    "last_alert_at_utc": "2026-08-10T06:00:34.842916+00:00",
+    "last_alert_block": 115064780,
+    "last_scanned_block": 115069113,
     "pending": [],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
@@ -28,7 +32,10 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xaf62ad9939b9f033be5027374a12e829c4997001ba2f343c65ecd2eaeb1897fb:335",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x3643ad0b9075780dc0d7dd6c0ff912f7159e559238697cced00b925ef638861c:555",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x46b466a91fa1dd07344801fafb5ca2417ab32faaf2d27d5fbf39d2304642d8b7:235",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x875d9316bd7bbd50f967274024d4065b366313cf7921669a1afa1857ce133ee8:274"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x875d9316bd7bbd50f967274024d4065b366313cf7921669a1afa1857ce133ee8:274",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa6a861bafcb2be34a157ee2de3587d2965e2c4b396206746e03a05aceee456b9:119",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x78d676bff9a5fcffa843d620bbffd79ea257b66a19e7f6810755e1e2606a432e:70",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2771abae5fd9e7c0fb83d259b434b227148d85135dbe621f16244c86c82e5190:376"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
