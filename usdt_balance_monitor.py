@@ -8,6 +8,7 @@ The reported indicators include:
 4. IBS price, circulating-market-cap proxy, supply, and net issuance.
 5. Rolling 24-hour IBS sell pressure from Pancake V2 Swap logs.
 6. Visible-USDT coverage estimate per circulating IBS.
+7. Confirmed single-swap IBS buy/sell alerts above a configurable threshold.
 
 The monitor is read-only on BNB Smart Chain. It never needs a wallet key.
 """
@@ -32,7 +33,7 @@ from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 
 
-PROGRAM_VERSION = "2026-08-08-treasury-v4"
+PROGRAM_VERSION = "2026-08-09-large-trade-v5"
 STATE_SCHEMA_VERSION = 4
 
 IBS_ADDRESS = "0x255e746aBb8D9Acac00d6d023e5E63E3b8DFA7cd"
@@ -93,6 +94,10 @@ CRITICAL_OUTFLOW_USDT = decimal_env("CRITICAL_OUTFLOW_USDT", "100000")
 LOG_CHUNK_SIZE = int_env("LOG_CHUNK_SIZE", "2000", 100)
 LOG_MAX_RPC_CALLS = int_env("LOG_MAX_RPC_CALLS", "200", 1)
 LOG_SCAN_BUDGET_SECONDS = int_env("LOG_SCAN_BUDGET_SECONDS", "75", 10)
+LARGE_TRADE_THRESHOLD_IBS = decimal_env("LARGE_TRADE_THRESHOLD_IBS", "200")
+LARGE_TRADE_MAX_SCAN_BLOCKS = int_env("LARGE_TRADE_MAX_SCAN_BLOCKS", "20000", 100)
+LARGE_TRADE_MESSAGE_BATCH_SIZE = 6
+LARGE_TRADE_SEEN_LIMIT = 1000
 
 ERC20_ABI = [
     {
@@ -231,6 +236,18 @@ class SellPressure:
     event_count: int
 
 
+@dataclass(frozen=True)
+class LargeTrade:
+    event_id: str
+    transaction_hash: str
+    block_number: int
+    transaction_index: int
+    log_index: int
+    side: str
+    ibs_raw: int
+    usdt_raw: int
+
+
 def require_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -358,6 +375,138 @@ def summarize_sell_pressure_logs(
     return sell_ibs_raw, sell_usdt_raw, event_count
 
 
+def normalize_transaction_hash(value: Any) -> str:
+    if isinstance(value, str):
+        tx_hash = value.lower()
+    else:
+        tx_hash = Web3.to_hex(value).lower()
+    if not tx_hash.startswith("0x"):
+        tx_hash = "0x" + tx_hash
+    if len(tx_hash) != 66:
+        raise RuntimeError(f"Swap日志交易哈希长度异常：{tx_hash}")
+    try:
+        int(tx_hash[2:], 16)
+    except ValueError as exc:
+        raise RuntimeError(f"Swap日志交易哈希格式异常：{tx_hash}") from exc
+    return tx_hash
+
+
+def decode_large_trade_log(
+    log: Dict[str, Any],
+    ibs_is_token0: bool,
+) -> Optional[LargeTrade]:
+    amount0_in, amount1_in, amount0_out, amount1_out = decode_swap_amounts(
+        log["data"]
+    )
+    ibs_in = amount0_in if ibs_is_token0 else amount1_in
+    ibs_out = amount0_out if ibs_is_token0 else amount1_out
+    usdt_in = amount1_in if ibs_is_token0 else amount0_in
+    usdt_out = amount1_out if ibs_is_token0 else amount0_out
+
+    ibs_net_to_pair = ibs_in - ibs_out
+    usdt_net_to_pair = usdt_in - usdt_out
+    if ibs_net_to_pair > 0 and usdt_net_to_pair < 0:
+        side = "SELL"
+        ibs_raw = ibs_net_to_pair
+        usdt_raw = -usdt_net_to_pair
+    elif ibs_net_to_pair < 0 and usdt_net_to_pair > 0:
+        side = "BUY"
+        ibs_raw = -ibs_net_to_pair
+        usdt_raw = usdt_net_to_pair
+    else:
+        return None
+
+    transaction_hash_value = log.get("transactionHash", log.get("transaction_hash"))
+    block_number_value = log.get("blockNumber", log.get("block_number"))
+    log_index_value = log.get("logIndex", log.get("log_index"))
+    if (
+        transaction_hash_value is None
+        or block_number_value is None
+        or log_index_value is None
+    ):
+        raise RuntimeError("Swap日志缺少 transactionHash、blockNumber 或 logIndex")
+    transaction_hash = normalize_transaction_hash(transaction_hash_value)
+    block_number = int(block_number_value)
+    log_index = int(log_index_value)
+    transaction_index = int(
+        log.get("transactionIndex", log.get("transaction_index", 0))
+    )
+    event_id = f"56:{LP_ADDRESS.lower()}:{transaction_hash}:{log_index}"
+    return LargeTrade(
+        event_id=event_id,
+        transaction_hash=transaction_hash,
+        block_number=block_number,
+        transaction_index=transaction_index,
+        log_index=log_index,
+        side=side,
+        ibs_raw=ibs_raw,
+        usdt_raw=usdt_raw,
+    )
+
+
+def find_large_trades(
+    logs: Sequence[Dict[str, Any]],
+    ibs_is_token0: bool,
+    threshold_raw: int,
+    ignored_event_ids: Sequence[str] = (),
+) -> List[LargeTrade]:
+    if threshold_raw <= 0:
+        return []
+    ignored = set(ignored_event_ids)
+    found: List[LargeTrade] = []
+    for log in logs:
+        trade = decode_large_trade_log(log, ibs_is_token0)
+        if trade is None or trade.ibs_raw <= threshold_raw:
+            continue
+        if trade.event_id in ignored:
+            continue
+        ignored.add(trade.event_id)
+        found.append(trade)
+    return sorted(
+        found,
+        key=lambda trade: (
+            trade.block_number,
+            trade.transaction_index,
+            trade.log_index,
+        ),
+    )
+
+
+def large_trade_to_record(trade: LargeTrade) -> Dict[str, Any]:
+    return {
+        "event_id": trade.event_id,
+        "transaction_hash": trade.transaction_hash,
+        "block_number": trade.block_number,
+        "transaction_index": trade.transaction_index,
+        "log_index": trade.log_index,
+        "side": trade.side,
+        "ibs_raw": str(trade.ibs_raw),
+        "usdt_raw": str(trade.usdt_raw),
+    }
+
+
+def large_trade_from_record(record: Dict[str, Any]) -> LargeTrade:
+    side = str(record.get("side", ""))
+    if side not in {"BUY", "SELL"}:
+        raise RuntimeError(f"大额交易待发送记录方向异常：{side}")
+    transaction_hash = normalize_transaction_hash(record.get("transaction_hash"))
+    log_index = int(record["log_index"])
+    expected_event_id = f"56:{LP_ADDRESS.lower()}:{transaction_hash}:{log_index}"
+    event_id = str(record.get("event_id", expected_event_id))
+    if event_id != expected_event_id:
+        raise RuntimeError("大额交易待发送记录 event_id 不匹配")
+    return LargeTrade(
+        event_id=event_id,
+        transaction_hash=transaction_hash,
+        block_number=int(record["block_number"]),
+        transaction_index=int(record.get("transaction_index", 0)),
+        log_index=log_index,
+        side=side,
+        ibs_raw=int(record["ibs_raw"]),
+        usdt_raw=int(record["usdt_raw"]),
+    )
+
+
 def is_log_range_error(exc: Exception) -> bool:
     message = str(exc).lower()
     if any(
@@ -452,6 +601,40 @@ def read_sell_pressure(
     )
 
 
+def read_large_trades(
+    web3: Web3,
+    from_block: int,
+    to_block: int,
+    ibs_is_token0: bool,
+    threshold_raw: int,
+    ignored_event_ids: Sequence[str] = (),
+) -> List[LargeTrade]:
+    if from_block > to_block or threshold_raw <= 0:
+        return []
+    logs: List[Dict[str, Any]] = []
+    rpc_calls = [0]
+    deadline = time.monotonic() + LOG_SCAN_BUDGET_SECONDS
+    chunk_start = from_block
+    while chunk_start <= to_block:
+        chunk_end = min(chunk_start + LOG_CHUNK_SIZE - 1, to_block)
+        logs.extend(
+            get_swap_logs_adaptive(
+                web3,
+                chunk_start,
+                chunk_end,
+                rpc_calls,
+                deadline,
+            )
+        )
+        chunk_start = chunk_end + 1
+    return find_large_trades(
+        logs,
+        ibs_is_token0,
+        threshold_raw,
+        ignored_event_ids,
+    )
+
+
 def default_state() -> Dict[str, Any]:
     return {
         "schema_version": STATE_SCHEMA_VERSION,
@@ -461,6 +644,7 @@ def default_state() -> Dict[str, Any]:
         "latest": None,
         "snapshots": [],
         "legacy_rbs_raw_balance": None,
+        "large_trade_alerts": None,
     }
 
 
@@ -502,6 +686,159 @@ def atomic_write_json(path: Path, data: Dict[str, Any]) -> None:
         encoding="utf-8",
     )
     os.replace(temp, path)
+
+
+def ensure_large_trade_alert_state(
+    state: Dict[str, Any],
+    current: CurrentSnapshot,
+) -> bool:
+    alert_state = state.get("large_trade_alerts")
+    if alert_state is None:
+        state["large_trade_alerts"] = {
+            "tracking_started_at_utc": current.observed_at.isoformat(),
+            "tracking_started_block": current.block_number,
+            "last_scanned_block": current.block_number,
+            "seen_event_ids": [],
+            "pending": [],
+            "last_alert_at_utc": None,
+        }
+        return True
+    if not isinstance(alert_state, dict):
+        raise RuntimeError("状态文件 large_trade_alerts 格式错误")
+    if int(alert_state.get("tracking_started_block", 0)) <= 0:
+        raise RuntimeError("状态文件缺少有效的 large_trade_alerts.tracking_started_block")
+    if not isinstance(alert_state.get("seen_event_ids", []), list):
+        raise RuntimeError("状态文件 large_trade_alerts.seen_event_ids 格式错误")
+    if not isinstance(alert_state.get("pending", []), list):
+        raise RuntimeError("状态文件 large_trade_alerts.pending 格式错误")
+    return False
+
+
+def large_trade_scan_range(
+    state: Dict[str, Any],
+    current_block: int,
+) -> Optional[Tuple[int, int]]:
+    alert_state = state["large_trade_alerts"]
+    started_block = int(alert_state["tracking_started_block"])
+    last_scanned_block = int(
+        alert_state.get("last_scanned_block", started_block)
+    )
+    from_block = max(last_scanned_block + 1, 1)
+    if from_block > current_block:
+        return None
+    to_block = min(
+        current_block,
+        from_block + LARGE_TRADE_MAX_SCAN_BLOCKS - 1,
+    )
+    return from_block, to_block
+
+
+def large_trade_ignored_ids(state: Dict[str, Any]) -> List[str]:
+    alert_state = state["large_trade_alerts"]
+    seen = [str(value) for value in alert_state.get("seen_event_ids", [])]
+    pending = [
+        str(record.get("event_id"))
+        for record in alert_state.get("pending", [])
+        if isinstance(record, dict) and record.get("event_id")
+    ]
+    return seen + pending
+
+
+def enqueue_large_trades(
+    state: Dict[str, Any],
+    trades: Sequence[LargeTrade],
+) -> bool:
+    if not trades:
+        return False
+    alert_state = state["large_trade_alerts"]
+    pending = list(alert_state.get("pending", []))
+    existing = set(large_trade_ignored_ids(state))
+    changed = False
+    for trade in trades:
+        if trade.event_id in existing:
+            continue
+        pending.append(large_trade_to_record(trade))
+        existing.add(trade.event_id)
+        changed = True
+    if changed:
+        alert_state["pending"] = pending
+    return changed
+
+
+def pending_large_trades(state: Dict[str, Any]) -> List[LargeTrade]:
+    alert_state = state["large_trade_alerts"]
+    trades = [
+        large_trade_from_record(record)
+        for record in alert_state.get("pending", [])
+    ]
+    return sorted(
+        trades,
+        key=lambda trade: (
+            trade.block_number,
+            trade.transaction_index,
+            trade.log_index,
+        ),
+    )
+
+
+def mark_large_trades_sent(
+    state: Dict[str, Any],
+    trades: Sequence[LargeTrade],
+    sent_at: datetime,
+) -> None:
+    sent_ids = {trade.event_id for trade in trades}
+    alert_state = state["large_trade_alerts"]
+    alert_state["pending"] = [
+        record
+        for record in alert_state.get("pending", [])
+        if str(record.get("event_id")) not in sent_ids
+    ]
+    seen = [str(value) for value in alert_state.get("seen_event_ids", [])]
+    seen.extend(trade.event_id for trade in trades)
+    alert_state["seen_event_ids"] = list(dict.fromkeys(seen))[
+        -LARGE_TRADE_SEEN_LIMIT:
+    ]
+    alert_state["last_alert_at_utc"] = sent_at.isoformat()
+    alert_state["last_alert_block"] = max(trade.block_number for trade in trades)
+
+
+def build_large_trade_message(
+    trades: Sequence[LargeTrade],
+    current: CurrentSnapshot,
+) -> str:
+    if not trades:
+        raise ValueError("大额交易提醒至少需要一笔交易")
+    threshold_text = format(LARGE_TRADE_THRESHOLD_IBS, "f")
+    lines = [
+        "🚨 <b>IBS大额买卖提醒</b>",
+        f"发现 {len(trades)} 笔单笔超过 {threshold_text} IBS 的池侧成交。",
+    ]
+    for index, trade in enumerate(trades, start=1):
+        side_icon = "🟢" if trade.side == "BUY" else "🔴"
+        side_text = "大额买入" if trade.side == "BUY" else "大额卖出"
+        ibs_amount = token_amount(trade.ibs_raw, current.ibs_decimals)
+        usdt_amount = token_amount(trade.usdt_raw, current.usdt_decimals)
+        execution_price = usdt_amount / ibs_amount
+        tx_url = f"https://bscscan.com/tx/{trade.transaction_hash}"
+        lines.extend(
+            [
+                "",
+                f"{index}. {side_icon} <b>{side_text}</b>",
+                f"IBS（池侧）：<b>{ibs_amount:,.4f}</b>",
+                f"USDT（池侧）：<b>{usdt_amount:,.2f}</b>",
+                f"成交均价：<b>{execution_price:,.4f} USDT/IBS</b>",
+                f"确认区块：<code>{trade.block_number}</code>",
+                f'<a href="{tx_url}">查看交易</a>',
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f"扫描至确认区块：<code>{current.block_number}</code>",
+            "说明：数量按IBS/USDT交易池的Swap事件计算，若代币收税，可能与钱包实际到账略有差异。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def connect_web3(rpc_url: str) -> Web3:
@@ -1234,6 +1571,34 @@ def send_telegram(bot_token: str, chat_id: str, message: str) -> None:
         )
 
 
+def send_pending_large_trade_alerts(
+    state: Dict[str, Any],
+    current: CurrentSnapshot,
+    bot_token: str,
+    chat_id: str,
+    persist_state: bool = False,
+) -> int:
+    pending = pending_large_trades(state)
+    sent_count = 0
+    state_changed = persist_state
+    for offset in range(0, len(pending), LARGE_TRADE_MESSAGE_BATCH_SIZE):
+        batch = pending[offset : offset + LARGE_TRADE_MESSAGE_BATCH_SIZE]
+        message = build_large_trade_message(batch, current)
+        try:
+            send_telegram(bot_token, chat_id, message)
+        except Exception as exc:
+            # Keep the batch in pending state so a later run can retry it even
+            # after the rolling on-chain lookback has moved past the event.
+            print(f"大额买卖Telegram提醒失败，保留待重试：{exc}")
+            continue
+        mark_large_trades_sent(state, batch, current.observed_at)
+        sent_count += len(batch)
+        state_changed = True
+    if state_changed:
+        atomic_write_json(STATE_FILE, state)
+    return sent_count
+
+
 def append_history(
     current: CurrentSnapshot,
     flow: FlowSummary,
@@ -1337,6 +1702,60 @@ def main() -> None:
     flow = summarize_interval(previous_record, current)
     should_report, report_reason = report_due(state, current, flow)
 
+    large_trade_ready = False
+    large_trade_state_dirty = False
+    if LARGE_TRADE_THRESHOLD_IBS > 0:
+        try:
+            initialized = ensure_large_trade_alert_state(state, current)
+            large_trade_ready = True
+            large_trade_state_dirty = initialized
+            if initialized:
+                print(
+                    "IBS大额买卖提醒已建立当前确认区块基线；首次启用不补发历史交易"
+                )
+            else:
+                scan_range = large_trade_scan_range(state, current.block_number)
+                if scan_range is not None:
+                    threshold_raw = int(
+                        LARGE_TRADE_THRESHOLD_IBS
+                        * (Decimal(10) ** current.ibs_decimals)
+                    )
+                    large_trades = read_large_trades(
+                        web3,
+                        scan_range[0],
+                        scan_range[1],
+                        current.ibs_is_token0,
+                        threshold_raw,
+                        large_trade_ignored_ids(state),
+                    )
+                    state["large_trade_alerts"]["last_scanned_block"] = scan_range[1]
+                    # Persist partial catch-up progress immediately. When the scan
+                    # reaches the current block, the cursor can ride along with the
+                    # hourly report unless an alert itself changes the state.
+                    if scan_range[1] < current.block_number:
+                        large_trade_state_dirty = True
+                    if enqueue_large_trades(state, large_trades):
+                        large_trade_state_dirty = True
+                    print(
+                        f"大额买卖扫描区块={scan_range[0]}-{scan_range[1]}，"
+                        f"新增待提醒={len(large_trades)}笔"
+                    )
+        except Exception as exc:
+            # A log RPC problem must not suppress the existing core-funds report.
+            print(f"读取IBS大额买卖失败，本次核心资金监控继续：{exc}")
+
+    # Large-trade alerts are independent from the hourly funds report. Send them
+    # first so report calculation or delivery problems cannot delay the alert.
+    large_trade_sent_count = 0
+    if large_trade_ready:
+        large_trade_sent_count = send_pending_large_trade_alerts(
+            state,
+            current,
+            bot_token,
+            chat_id,
+            persist_state=large_trade_state_dirty,
+        )
+
     print(
         f"区块={current.block_number}, LP={fmt_amount(current.lp_usdt_raw, current.usdt_decimals)}, "
         f"RBS={fmt_amount(current.rbs_usdt_raw, current.usdt_decimals)}, "
@@ -1349,7 +1768,10 @@ def main() -> None:
         f"边界一致={flow.complete}"
     )
     if not should_report:
-        print("尚未到报告时间且未触发即时阈值；本次不推送、不移动基线")
+        print(
+            "尚未到核心资金报告时间且未触发资金阈值；"
+            f"本次大额买卖提醒={large_trade_sent_count}笔，不移动资金报告基线"
+        )
         return
 
     record = record_from_snapshot(current, flow)
@@ -1429,6 +1851,8 @@ def main() -> None:
     )
     update_state(state, record, current)
     print(f"Telegram报告成功：{health_code}，状态和CSV历史已保存")
+    if large_trade_sent_count:
+        print(f"IBS大额买卖提醒成功：{large_trade_sent_count}笔")
 
 
 if __name__ == "__main__":
