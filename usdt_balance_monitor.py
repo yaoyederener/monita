@@ -22,7 +22,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, getcontext
 from pathlib import Path
@@ -33,7 +33,7 @@ from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 
 
-PROGRAM_VERSION = "2026-08-09-large-trade-v5"
+PROGRAM_VERSION = "2026-08-09-real-pressure-v6"
 STATE_SCHEMA_VERSION = 4
 
 IBS_ADDRESS = "0x255e746aBb8D9Acac00d6d023e5E63E3b8DFA7cd"
@@ -96,6 +96,9 @@ LOG_MAX_RPC_CALLS = int_env("LOG_MAX_RPC_CALLS", "200", 1)
 LOG_SCAN_BUDGET_SECONDS = int_env("LOG_SCAN_BUDGET_SECONDS", "75", 10)
 LARGE_TRADE_THRESHOLD_IBS = decimal_env("LARGE_TRADE_THRESHOLD_IBS", "200")
 LARGE_TRADE_MAX_SCAN_BLOCKS = int_env("LARGE_TRADE_MAX_SCAN_BLOCKS", "20000", 100)
+LARGE_TRADE_ADDRESS_BUDGET_SECONDS = int_env(
+    "LARGE_TRADE_ADDRESS_BUDGET_SECONDS", "30", 5
+)
 LARGE_TRADE_MESSAGE_BATCH_SIZE = 6
 LARGE_TRADE_SEEN_LIMIT = 1000
 
@@ -234,6 +237,14 @@ class SellPressure:
     sell_ibs_raw: int
     sell_usdt_raw: int
     event_count: int
+    buy_ibs_raw: int = 0
+    buy_usdt_raw: int = 0
+    buy_event_count: int = 0
+
+    @property
+    def net_sell_usdt_raw(self) -> int:
+        """Positive means swaps removed net USDT from the pair."""
+        return self.sell_usdt_raw - self.buy_usdt_raw
 
 
 @dataclass(frozen=True)
@@ -246,6 +257,8 @@ class LargeTrade:
     side: str
     ibs_raw: int
     usdt_raw: int
+    trader_address: Optional[str] = None
+    address_side_sequence: Optional[int] = None
 
 
 def require_env(name: str) -> str:
@@ -354,10 +367,13 @@ def decode_swap_amounts(data: Any) -> Tuple[int, int, int, int]:
 def summarize_sell_pressure_logs(
     logs: Sequence[Dict[str, Any]],
     ibs_is_token0: bool,
-) -> Tuple[int, int, int]:
+) -> Tuple[int, int, int, int, int, int]:
     sell_ibs_raw = 0
     sell_usdt_raw = 0
-    event_count = 0
+    sell_event_count = 0
+    buy_ibs_raw = 0
+    buy_usdt_raw = 0
+    buy_event_count = 0
     for log in logs:
         amount0_in, amount1_in, amount0_out, amount1_out = decode_swap_amounts(
             log["data"]
@@ -366,13 +382,24 @@ def summarize_sell_pressure_logs(
         ibs_out = amount0_out if ibs_is_token0 else amount1_out
         usdt_in = amount1_in if ibs_is_token0 else amount0_in
         usdt_out = amount1_out if ibs_is_token0 else amount0_out
-        net_ibs_in = max(0, ibs_in - ibs_out)
-        net_usdt_out = max(0, usdt_out - usdt_in)
-        if net_ibs_in > 0 and net_usdt_out > 0:
-            sell_ibs_raw += net_ibs_in
-            sell_usdt_raw += net_usdt_out
-            event_count += 1
-    return sell_ibs_raw, sell_usdt_raw, event_count
+        ibs_net_to_pair = ibs_in - ibs_out
+        usdt_net_to_pair = usdt_in - usdt_out
+        if ibs_net_to_pair > 0 and usdt_net_to_pair < 0:
+            sell_ibs_raw += ibs_net_to_pair
+            sell_usdt_raw += -usdt_net_to_pair
+            sell_event_count += 1
+        elif ibs_net_to_pair < 0 and usdt_net_to_pair > 0:
+            buy_ibs_raw += -ibs_net_to_pair
+            buy_usdt_raw += usdt_net_to_pair
+            buy_event_count += 1
+    return (
+        sell_ibs_raw,
+        sell_usdt_raw,
+        sell_event_count,
+        buy_ibs_raw,
+        buy_usdt_raw,
+        buy_event_count,
+    )
 
 
 def normalize_transaction_hash(value: Any) -> str:
@@ -389,6 +416,15 @@ def normalize_transaction_hash(value: Any) -> str:
     except ValueError as exc:
         raise RuntimeError(f"Swap日志交易哈希格式异常：{tx_hash}") from exc
     return tx_hash
+
+
+def normalize_trader_address(value: Any) -> Optional[str]:
+    if value is None or not str(value).strip():
+        return None
+    try:
+        return Web3.to_checksum_address(str(value))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"大额交易发起地址格式异常：{value}") from exc
 
 
 def decode_large_trade_log(
@@ -473,7 +509,7 @@ def find_large_trades(
 
 
 def large_trade_to_record(trade: LargeTrade) -> Dict[str, Any]:
-    return {
+    record = {
         "event_id": trade.event_id,
         "transaction_hash": trade.transaction_hash,
         "block_number": trade.block_number,
@@ -483,6 +519,11 @@ def large_trade_to_record(trade: LargeTrade) -> Dict[str, Any]:
         "ibs_raw": str(trade.ibs_raw),
         "usdt_raw": str(trade.usdt_raw),
     }
+    if trade.trader_address is not None:
+        record["trader_address"] = trade.trader_address
+    if trade.address_side_sequence is not None:
+        record["address_side_sequence"] = trade.address_side_sequence
+    return record
 
 
 def large_trade_from_record(record: Dict[str, Any]) -> LargeTrade:
@@ -495,6 +536,13 @@ def large_trade_from_record(record: Dict[str, Any]) -> LargeTrade:
     event_id = str(record.get("event_id", expected_event_id))
     if event_id != expected_event_id:
         raise RuntimeError("大额交易待发送记录 event_id 不匹配")
+    address_side_sequence = (
+        None
+        if record.get("address_side_sequence") is None
+        else int(record["address_side_sequence"])
+    )
+    if address_side_sequence is not None and address_side_sequence <= 0:
+        raise RuntimeError("大额交易待发送记录地址次数必须大于0")
     return LargeTrade(
         event_id=event_id,
         transaction_hash=transaction_hash,
@@ -504,6 +552,8 @@ def large_trade_from_record(record: Dict[str, Any]) -> LargeTrade:
         side=side,
         ibs_raw=int(record["ibs_raw"]),
         usdt_raw=int(record["usdt_raw"]),
+        trader_address=normalize_trader_address(record.get("trader_address")),
+        address_side_sequence=address_side_sequence,
     )
 
 
@@ -576,7 +626,10 @@ def read_sell_pressure(
         return SellPressure(from_block, to_block, 0, 0, 0)
     sell_ibs_raw = 0
     sell_usdt_raw = 0
-    event_count = 0
+    sell_event_count = 0
+    buy_ibs_raw = 0
+    buy_usdt_raw = 0
+    buy_event_count = 0
     rpc_calls = [0]
     deadline = time.monotonic() + LOG_SCAN_BUDGET_SECONDS
     chunk_start = from_block
@@ -585,20 +638,69 @@ def read_sell_pressure(
         logs = get_swap_logs_adaptive(
             web3, chunk_start, chunk_end, rpc_calls, deadline
         )
-        chunk_ibs, chunk_usdt, chunk_count = summarize_sell_pressure_logs(
-            logs, ibs_is_token0
-        )
-        sell_ibs_raw += chunk_ibs
-        sell_usdt_raw += chunk_usdt
-        event_count += chunk_count
+        (
+            chunk_sell_ibs,
+            chunk_sell_usdt,
+            chunk_sell_count,
+            chunk_buy_ibs,
+            chunk_buy_usdt,
+            chunk_buy_count,
+        ) = summarize_sell_pressure_logs(logs, ibs_is_token0)
+        sell_ibs_raw += chunk_sell_ibs
+        sell_usdt_raw += chunk_sell_usdt
+        sell_event_count += chunk_sell_count
+        buy_ibs_raw += chunk_buy_ibs
+        buy_usdt_raw += chunk_buy_usdt
+        buy_event_count += chunk_buy_count
         chunk_start = chunk_end + 1
     return SellPressure(
         from_block=from_block,
         to_block=to_block,
         sell_ibs_raw=sell_ibs_raw,
         sell_usdt_raw=sell_usdt_raw,
-        event_count=event_count,
+        event_count=sell_event_count,
+        buy_ibs_raw=buy_ibs_raw,
+        buy_usdt_raw=buy_usdt_raw,
+        buy_event_count=buy_event_count,
     )
+
+
+def resolve_large_trade_addresses(
+    web3: Web3,
+    trades: Sequence[LargeTrade],
+) -> List[LargeTrade]:
+    """Resolve tx.from only for qualifying large trades, with per-tx caching."""
+    resolved: List[LargeTrade] = []
+    address_by_transaction: Dict[str, Optional[str]] = {}
+    deadline = time.monotonic() + LARGE_TRADE_ADDRESS_BUDGET_SECONDS
+    budget_exhausted = False
+    for trade in trades:
+        if trade.transaction_hash not in address_by_transaction:
+            if time.monotonic() >= deadline:
+                address_by_transaction[trade.transaction_hash] = None
+                if not budget_exhausted:
+                    print(
+                        "大额交易地址读取超过时间预算；剩余交易继续提醒但地址暂不可用"
+                    )
+                    budget_exhausted = True
+            else:
+                try:
+                    transaction = web3.eth.get_transaction(trade.transaction_hash)
+                    address_by_transaction[trade.transaction_hash] = (
+                        normalize_trader_address(transaction.get("from"))
+                    )
+                except Exception as exc:
+                    print(
+                        f"读取大额交易发起地址失败 {trade.transaction_hash}：{exc}"
+                    )
+                    address_by_transaction[trade.transaction_hash] = None
+        resolved.append(
+            replace(
+                trade,
+                trader_address=address_by_transaction[trade.transaction_hash],
+            )
+        )
+    return resolved
 
 
 def read_large_trades(
@@ -627,12 +729,13 @@ def read_large_trades(
             )
         )
         chunk_start = chunk_end + 1
-    return find_large_trades(
+    trades = find_large_trades(
         logs,
         ibs_is_token0,
         threshold_raw,
         ignored_event_ids,
     )
+    return resolve_large_trade_addresses(web3, trades)
 
 
 def default_state() -> Dict[str, Any]:
@@ -701,6 +804,9 @@ def ensure_large_trade_alert_state(
             "seen_event_ids": [],
             "pending": [],
             "last_alert_at_utc": None,
+            "address_side_counts": {},
+            "address_tracking_started_at_utc": current.observed_at.isoformat(),
+            "address_tracking_started_block": current.block_number,
         }
         return True
     if not isinstance(alert_state, dict):
@@ -712,6 +818,33 @@ def ensure_large_trade_alert_state(
     if not isinstance(alert_state.get("pending", []), list):
         raise RuntimeError("状态文件 large_trade_alerts.pending 格式错误")
     return False
+
+
+def ensure_large_trade_address_state(
+    state: Dict[str, Any],
+    current: CurrentSnapshot,
+) -> bool:
+    """Add address counters without resetting or skipping the existing scan cursor."""
+    alert_state = state["large_trade_alerts"]
+    changed = False
+    if "address_side_counts" not in alert_state:
+        alert_state["address_side_counts"] = {}
+        changed = True
+    if not isinstance(alert_state["address_side_counts"], dict):
+        raise RuntimeError(
+            "状态文件 large_trade_alerts.address_side_counts 格式错误"
+        )
+    if "address_tracking_started_at_utc" not in alert_state:
+        alert_state["address_tracking_started_at_utc"] = (
+            current.observed_at.isoformat()
+        )
+        changed = True
+    if "address_tracking_started_block" not in alert_state:
+        alert_state["address_tracking_started_block"] = int(
+            alert_state.get("last_scanned_block", current.block_number)
+        )
+        changed = True
+    return changed
 
 
 def large_trade_scan_range(
@@ -752,16 +885,39 @@ def enqueue_large_trades(
         return False
     alert_state = state["large_trade_alerts"]
     pending = list(alert_state.get("pending", []))
+    raw_address_side_counts = alert_state["address_side_counts"]
+    address_side_counts = dict(raw_address_side_counts)
     existing = set(large_trade_ignored_ids(state))
     changed = False
     for trade in trades:
         if trade.event_id in existing:
             continue
-        pending.append(large_trade_to_record(trade))
+        if trade.side not in {"BUY", "SELL"}:
+            raise RuntimeError(f"大额交易方向异常：{trade.side}")
+        queued_trade = trade
+        if trade.trader_address is not None:
+            address_key = trade.trader_address.lower()
+            raw_counts = address_side_counts.get(address_key, {})
+            if not isinstance(raw_counts, dict):
+                raise RuntimeError(
+                    f"大额交易地址计数格式错误：{trade.trader_address}"
+                )
+            counts = {
+                "BUY": int(raw_counts.get("BUY", 0)),
+                "SELL": int(raw_counts.get("SELL", 0)),
+            }
+            counts[trade.side] += 1
+            address_side_counts[address_key] = counts
+            queued_trade = replace(
+                trade,
+                address_side_sequence=counts[trade.side],
+            )
+        pending.append(large_trade_to_record(queued_trade))
         existing.add(trade.event_id)
         changed = True
     if changed:
         alert_state["pending"] = pending
+        alert_state["address_side_counts"] = address_side_counts
     return changed
 
 
@@ -820,6 +976,17 @@ def build_large_trade_message(
         usdt_amount = token_amount(trade.usdt_raw, current.usdt_decimals)
         execution_price = usdt_amount / ibs_amount
         tx_url = f"https://bscscan.com/tx/{trade.transaction_hash}"
+        address_lines: List[str]
+        if trade.trader_address is None:
+            address_lines = ["发起地址：暂时无法读取"]
+        else:
+            address_url = f"https://bscscan.com/address/{trade.trader_address}"
+            address_lines = [f"发起地址：<code>{trade.trader_address}</code>"]
+            if trade.address_side_sequence is not None:
+                address_lines.append(
+                    f"地址记录：本监控第 {trade.address_side_sequence} 次{side_text}"
+                )
+            address_lines.append(f'<a href="{address_url}">查看地址</a>')
         lines.extend(
             [
                 "",
@@ -827,6 +994,7 @@ def build_large_trade_message(
                 f"IBS（池侧）：<b>{ibs_amount:,.4f}</b>",
                 f"USDT（池侧）：<b>{usdt_amount:,.2f}</b>",
                 f"成交均价：<b>{execution_price:,.4f} USDT/IBS</b>",
+                *address_lines,
                 f"确认区块：<code>{trade.block_number}</code>",
                 f'<a href="{tx_url}">查看交易</a>',
             ]
@@ -835,7 +1003,10 @@ def build_large_trade_message(
         [
             "",
             f"扫描至确认区块：<code>{current.block_number}</code>",
-            "说明：数量按IBS/USDT交易池的Swap事件计算，若代币收税，可能与钱包实际到账略有差异。",
+            (
+                "说明：数量按IBS/USDT交易池的Swap事件计算；发起地址取交易tx.from，"
+                "智能钱包或聚合器场景可能不是最终受益人。"
+            ),
         ]
     )
     return "\n".join(lines)
@@ -1369,13 +1540,35 @@ def format_sell_pressure(
     current: CurrentSnapshot,
 ) -> str:
     if metrics_24h is None:
-        return "积累中"
+        return "近24h买卖压力 积累中"
     if pressure is None:
-        return "暂时无法读取"
+        return "近24h买卖压力 暂时无法读取"
+    net_pressure = pressure.net_sell_usdt_raw
+    if pressure.buy_usdt_raw > 0:
+        sell_buy_ratio = (
+            Decimal(pressure.sell_usdt_raw) / Decimal(pressure.buy_usdt_raw)
+        )
+        ratio_text = f"{sell_buy_ratio:.2f}"
+    elif pressure.sell_usdt_raw > 0:
+        ratio_text = "∞（无买盘）"
+    else:
+        ratio_text = "无成交"
+    if current.lp_usdt_raw > 0:
+        net_pressure_pct = (
+            Decimal(net_pressure) / Decimal(current.lp_usdt_raw) * Decimal(100)
+        )
+        pressure_pct_text = f"{fmt_signed_decimal(net_pressure_pct)}%"
+    else:
+        pressure_pct_text = "无法计算"
     return (
-        f"{fmt_amount(pressure.sell_usdt_raw, current.usdt_decimals)} USDT"
+        f"近24h毛卖压 {fmt_amount(pressure.sell_usdt_raw, current.usdt_decimals)} USDT"
         f"（{fmt_amount(pressure.sell_ibs_raw, current.ibs_decimals)} IBS，"
-        f"{pressure.event_count}笔）"
+        f"{pressure.event_count}笔）\n"
+        f"　毛买盘 {fmt_amount(pressure.buy_usdt_raw, current.usdt_decimals)} USDT"
+        f"（{fmt_amount(pressure.buy_ibs_raw, current.ibs_decimals)} IBS，"
+        f"{pressure.buy_event_count}笔）\n"
+        f"　净抛压 <b>{fmt_signed_amount(net_pressure, current.usdt_decimals)} USDT</b>"
+        f"（占LP {pressure_pct_text}） ｜ 卖买比 {ratio_text}"
     )
 
 
@@ -1417,7 +1610,7 @@ def build_telegram_message(
                 f"可见USDT覆盖：<b>{current.backing_per_ibs:.4f}/IBS</b>"
             ),
             "",
-            "📌 24h净增发、每日抛压和国库运行时间正在积累。",
+            "📌 24h净增发、买卖压力和国库运行时间正在积累。",
             "积累满24小时后显示短期数据，满7天后显示长期趋势。",
             "",
             f"区块：<code>{current.block_number}</code>",
@@ -1484,9 +1677,9 @@ def build_telegram_message(
             f"流通量 {fmt_amount(current.ibs_circulating_raw, ibs_decimals)} IBS"
         ),
         (
-            "④ 每日增发与抛压：\n"
+            "④ 每日增发与买卖压力：\n"
             f"　近24h净增发 {issuance_24}\n"
-            f"　近24h真实抛压 {sell_pressure_24}"
+            f"　{sell_pressure_24}"
         ),
         (
             f"⑤ 现有风险指标：\n"
@@ -1707,8 +1900,11 @@ def main() -> None:
     if LARGE_TRADE_THRESHOLD_IBS > 0:
         try:
             initialized = ensure_large_trade_alert_state(state, current)
+            address_state_initialized = ensure_large_trade_address_state(
+                state, current
+            )
             large_trade_ready = True
-            large_trade_state_dirty = initialized
+            large_trade_state_dirty = initialized or address_state_initialized
             if initialized:
                 print(
                     "IBS大额买卖提醒已建立当前确认区块基线；首次启用不补发历史交易"
@@ -1794,9 +1990,12 @@ def main() -> None:
                 current.ibs_is_token0,
             )
             print(
-                "近24h真实抛压="
+                "近24h毛卖压="
                 f"{fmt_amount(sell_pressure.sell_usdt_raw, current.usdt_decimals)} USDT, "
-                f"{sell_pressure.event_count}笔"
+                "毛买盘="
+                f"{fmt_amount(sell_pressure.buy_usdt_raw, current.usdt_decimals)} USDT, "
+                "净抛压="
+                f"{fmt_signed_amount(sell_pressure.net_sell_usdt_raw, current.usdt_decimals)} USDT"
             )
         except Exception as exc:  # Preserve the existing report if log RPC is unavailable.
             print(f"读取近24h Swap抛压失败，本次其余指标继续推送：{exc}")
@@ -1821,6 +2020,10 @@ def main() -> None:
             "sell_ibs_raw": str(sell_pressure.sell_ibs_raw),
             "sell_usdt_raw": str(sell_pressure.sell_usdt_raw),
             "event_count": sell_pressure.event_count,
+            "buy_ibs_raw": str(sell_pressure.buy_ibs_raw),
+            "buy_usdt_raw": str(sell_pressure.buy_usdt_raw),
+            "buy_event_count": sell_pressure.buy_event_count,
+            "net_sell_usdt_raw": str(sell_pressure.net_sell_usdt_raw),
         },
     }
     health_code, health_label, health_reasons = classify_health(
