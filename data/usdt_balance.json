@@ -21,6 +21,10 @@
         "BUY": 0,
         "SELL": 1
       },
+      "0x338796e3e8df68d2ab0854ec3f868ff4603382d0": {
+        "BUY": 1,
+        "SELL": 0
+      },
       "0x3b8d62b576c913a765d187a0392c5a1781992033": {
         "BUY": 1,
         "SELL": 0
@@ -65,6 +69,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x8a24dbb8c3ec560bda808049190c18edceb91c0a": {
+        "BUY": 1,
+        "SELL": 1
+      },
       "0xa30f413ac0414b100615f4eab8535b9e4d7d735d": {
         "BUY": 1,
         "SELL": 0
@@ -97,9 +105,13 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0xe79db52e77d275464bbca39d0a731cd32d170bfd": {
+        "BUY": 1,
+        "SELL": 0
+      },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
-        "BUY": 35,
-        "SELL": 9
+        "BUY": 36,
+        "SELL": 10
       },
       "0xfd8b635bf9c1ec50f4441a92343893a19f5ec61e": {
         "BUY": 1,
@@ -108,9 +120,9 @@
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-11T08:14:18.232248+00:00",
-    "last_alert_block": 115278694,
-    "last_scanned_block": 115278844,
+    "last_alert_at_utc": "2026-08-11T09:00:38.281442+00:00",
+    "last_alert_block": 115284476,
+    "last_scanned_block": 115285018,
     "pending": [],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
@@ -186,7 +198,13 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x40eae874896b0f1e0fbe3f3d12a49cf0be79e24f485db3a69fc3152990c6141e:431",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x8a75d8fce0ab2dda52d3d7343be48379ab63eba167f071b3a2d5eef3f9aa60ec:425",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0d2be73846d47a1600f22c4216b0848788d85cd5672427ce33eaa1a6b99cb8d0:373",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x97b35242773f470a223655e671bfbb342c5ea158747fc302f9fc2768a24472f9:334"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x97b35242773f470a223655e671bfbb342c5ea158747fc302f9fc2768a24472f9:334",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x81f9b7f920ad8a723fde983cfcf4c72c8bfe10c2dec42fbe7ef4addae9bb6d48:411",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1f24f5ad073179c7a1b1c9fd9e9f13ee5e68f6d76b9d5cca74d70eecf57eff8f:222",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc8ac57ab7db02557ea465906ea47e38199c126295727fa28b8e7465c97d6fd2e:30",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x3944cb16fe7c8017613fb2bf85da39fb11d1c5e8bf5c6573dcc5669da3fe63e4:113",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa24e3d12c867ec5f711ea84f25d4cac3f1fed192bc17cc831d910269999533aa:517",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9473107fee8a7e4e8bb5d35f95bed530f0af1cc16e706154d11bcb4475f30a30:193"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
