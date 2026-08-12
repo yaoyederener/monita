@@ -53,6 +53,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x67ec6918af71a528ba61241b4f6cb9acc1864615": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x6c1d43fbb4da2041cf7c245756a430a28c0bf482": {
         "BUY": 1,
         "SELL": 0
@@ -138,7 +142,7 @@
         "SELL": 0
       },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
-        "BUY": 68,
+        "BUY": 73,
         "SELL": 13
       },
       "0xf3badda926c246d2d3a38860b601e83d7e201dc6": {
@@ -164,9 +168,9 @@
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-12T08:00:47.940394+00:00",
-    "last_alert_block": 115468615,
-    "last_scanned_block": 115468971,
+    "last_alert_at_utc": "2026-08-12T09:00:42.766050+00:00",
+    "last_alert_block": 115476625,
+    "last_scanned_block": 115476954,
     "pending": [],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
@@ -297,7 +301,13 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1260a8add43baa7df27529a6059940d264ae129c3f3d1930f669a7d1ba208aee:417",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x684836a9aea0baf32f0392a4ce3adabb79898da0d0807ca53202178d6cdad97c:343",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xbfa878241de1439bbb4322ef5e15dbb5240802a4a610c6df48c39af7c54d012a:166",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc1f8d00ca43350e38a73366bbfa982eed2cdb11af9e085f1807dda727bbfa0a5:339"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc1f8d00ca43350e38a73366bbfa982eed2cdb11af9e085f1807dda727bbfa0a5:339",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4b50ff4d5d5c9312482ad18824c936b5d3b250eb5bb254d0f1d2367f5c8ccce2:392",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x66d70af7d04a3ccbd0410d68a35871789cc2911bd2018dc44080a90e6314545c:395",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x5490d2a35cc8fd8f0160c445d6a60e8c6a39c76c346b2c997b0e4ef2d880e8cc:3571",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xcff2409ac45533cbd5b5ab2eb152b6c6f29b1ec0ec7abfac1d07f61e3062268b:182",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xdd33a269769852f21b7089c3c2b93e93095dbc13cc8734fe76816e3d43a2d01d:540",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9c3cba77833c60df0d358c54190bb16371220f1a8dadcaa9b03bb5626ec690f0:237"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
