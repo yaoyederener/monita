@@ -53,6 +53,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x58161b33924304495fc096c7a2898e7a7f88e31d": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x595643a90c9a8b9c3c0ff7ccbab9817e7800750a": {
         "BUY": 1,
         "SELL": 0
@@ -170,7 +174,7 @@
         "SELL": 0
       },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
-        "BUY": 91,
+        "BUY": 94,
         "SELL": 15
       },
       "0xf3badda926c246d2d3a38860b601e83d7e201dc6": {
@@ -196,9 +200,9 @@
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-12T16:00:44.449685+00:00",
-    "last_alert_block": 115532588,
-    "last_scanned_block": 115532939,
+    "last_alert_at_utc": "2026-08-12T17:00:40.752191+00:00",
+    "last_alert_block": 115537921,
+    "last_scanned_block": 115540932,
     "pending": [],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
@@ -366,7 +370,11 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xacae006dc276ee7ecc9202eeec8c4f48e195ef1edc0eccbe67d8519921951b60:467",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x01dcda3cd552d695368d8892a21afd6c83faeb2e07eca56be9220086fe33550f:696",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4f224b9dacc8efaa0b6c5c66f43a66ad8fcd2a6bbc800d6670030af712316b9f:410",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd4f0ecfca265bf05f3924067a45b1a339a66c95e3bcd5d00d0907de19a871ba2:197"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd4f0ecfca265bf05f3924067a45b1a339a66c95e3bcd5d00d0907de19a871ba2:197",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x6153d852859ab7df70ca52032c379461bd2a1d46f65753d6353a52b7698f4c6b:568",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2dd3690b9dcc4f740786e4f1bc77d8fea945a61fffb4b3665cc4eeceb2435ef0:503",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa4c7de9a16685d51163b3596e989da6cf109d71be5a09a17264148f2ba27a77f:296",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0f0fdb9d84bc3c5f31e2acc539e11a89a1c3518fcb90f3d72c855a3e2b8de62e:633"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
