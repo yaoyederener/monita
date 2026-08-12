@@ -1,5 +1,5 @@
 {
-  "block_number": 115516934,
+  "block_number": 115524934,
   "chain": "BNB Smart Chain",
   "created_at_utc": "2026-08-06T07:59:52.229948+00:00",
   "decimals": 18,
@@ -40,6 +40,10 @@
       "0x3cab71d8ccabde93c1bfc99f7565126922d7173d": {
         "BUY": 1,
         "SELL": 0
+      },
+      "0x40879a6c566a0611f898bce15747b2f013d6599d": {
+        "BUY": 0,
+        "SELL": 1
       },
       "0x4b35b508f393f2489606ae3c8b03bb1392bbd379": {
         "BUY": 1,
@@ -129,6 +133,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0xbd925431b2ee55ae7cf30b57232ee7ad42c03bec": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0xc1d0d462c1cba72d2346233e4bdabf5a1d63a821": {
         "BUY": 1,
         "SELL": 0
@@ -138,8 +146,8 @@
         "SELL": 0
       },
       "0xc963fb35b066c4dc203168279a7c3fd04be88888": {
-        "BUY": 3,
-        "SELL": 4
+        "BUY": 4,
+        "SELL": 6
       },
       "0xe329b859c9670a271eed83ab1e7ef1154a4e1b24": {
         "BUY": 1,
@@ -154,7 +162,7 @@
         "SELL": 0
       },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
-        "BUY": 83,
+        "BUY": 86,
         "SELL": 14
       },
       "0xf3badda926c246d2d3a38860b601e83d7e201dc6": {
@@ -180,9 +188,9 @@
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-12T14:00:35.695458+00:00",
-    "last_alert_block": 115516607,
-    "last_scanned_block": 115516934,
+    "last_alert_at_utc": "2026-08-12T15:00:36.601459+00:00",
+    "last_alert_block": 115524601,
+    "last_scanned_block": 115524934,
     "pending": [],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
@@ -334,30 +342,38 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xee6fdec36b0c296e11889ca3352f916f4046e9e175714aeffb472d20907bde9a:1303",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0f8e29c0635d649ac46482c21c9d9082f14894b37a0adad8cde683372ed8617a:1536",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x67bbb40c02dbdcedba6b736b7ca1b6d959c28d7b612c92e79337f401f2569525:888",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x15cb7c18966865e12b246c41121d1625842d7076885af3b257a64b265fdd5562:1563"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x15cb7c18966865e12b246c41121d1625842d7076885af3b257a64b265fdd5562:1563",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd034a78561008b9784f4e4448c532535fbbeca621b162ade131ab5656b142dab:228",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xb5771753081ff714725bc01311954b173bf857f66b488aa0f676039234df262f:234",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x6480a4aab6c3c05186a144daf27c96b12a784026cc39474f4233471f2b653d9d:330",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xe603fc4fa7fcc0a321f764b63a711e7d84f430020f2ffb24208d30e85e0db9c3:219",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x45814950243d0dbc732e5f6dddd4af18d746f3b583df41737f1bc44e9b0ea7e4:306",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x17d15eb5044a61c6bbebdf1f602a414f09d4a76516c2f611a13f056e013fb873:482",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4819ea363cdb61ff50c494619ccba4b8812e023cbf448b411c9db2bb558920c5:140",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x815d5bfcb67431331a735bb57daebefc20576c4e97743894a4367203bc0e68ba:482"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
   },
   "latest": {
-    "backing_per_ibs": "10.756640321467684500302003012071962712381082214256031906095153930251428366359762",
-    "block_number": 115516934,
-    "block_time_utc": "2026-08-12T14:00:31+00:00",
-    "external_net_raw": "-60369139424018814703921",
+    "backing_per_ibs": "10.716064965388277082151589755617007658782076718750654981151882518979342810741290",
+    "block_number": 115524934,
+    "block_time_utc": "2026-08-12T15:00:33+00:00",
+    "external_net_raw": "-68167751612179943480206",
     "flow_complete": true,
     "flow_event_count": 0,
-    "flow_from_block": 115500962,
-    "flow_to_block": 115516934,
-    "ibs_circulating_raw": "1037060334741619300259363",
+    "flow_from_block": 115516935,
+    "flow_to_block": 115524934,
+    "ibs_circulating_raw": "1034625797498846620438206",
     "ibs_dead_raw": "3141161280382810310804",
     "ibs_decimals": 18,
     "ibs_is_token0": true,
-    "ibs_price_usdt": "25.128347951403994400950999061951552200023544843897784782550520544547248855713817",
-    "ibs_total_supply_raw": "1040201496022002110570167",
-    "lp_balance_usdt_raw": "10800641451012371286595180",
-    "lp_ibs_raw": "429819002502665831386623",
-    "lp_usdt_raw": "10800641451012371286595180",
-    "market_cap_usdt": "26059612.937986910026778401059378356874813872969876476292356751291135662192527089",
+    "ibs_price_usdt": "25.093619842562472893683505874556166636865802115943365003590305849427431406808347",
+    "ibs_total_supply_raw": "1037766958779229430749010",
+    "lp_balance_usdt_raw": "10793649313393365875473118",
+    "lp_ibs_raw": "430135204929093086644263",
+    "lp_usdt_raw": "10793649313393365875473118",
+    "market_cap_usdt": "25962506.441744080492941590049802423180054052198475222760103139476424008355448314",
     "protocol_addresses": [
       "0x004202d0b1759bcdbd939bc5a2bfbceed9dd34b1",
       "0x2a4b99a9c4544d35e8d266111c50b67fea01d53d",
@@ -377,31 +393,21 @@
     ],
     "protocol_config_changed": false,
     "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
-    "protocol_usdt_raw": "11155301012981476326438332",
-    "rbs_usdt_raw": "154652371128105039843152",
+    "protocol_usdt_raw": "11087133261369296382958126",
+    "rbs_usdt_raw": "93476757134930507485008",
     "report_metrics": {
-      "ibs_net_issuance_24h_raw": "3001434649046003369066",
-      "rbs_runway_days": "0.32534667847951500267048786820431115942836726290603929935740954267724576029597822",
-      "sell_pressure_24h": {
-        "buy_event_count": 7417,
-        "buy_ibs_raw": "58891087401331484383077",
-        "buy_usdt_raw": "1482168984334379440328926",
-        "event_count": 7659,
-        "from_block": 115325015,
-        "net_sell_usdt_raw": "-3046839262918461886132",
-        "sell_ibs_raw": "59064919773461261435447",
-        "sell_usdt_raw": "1479122145071460978442794",
-        "to_block": 115516934
-      },
-      "treasury_delta_24h_raw": "-473371413467157979380587",
-      "treasury_runway_days": "23.562928753266422839164342455494021162064714763917341480167052320958980286883538"
+      "ibs_net_issuance_24h_raw": "566897406273323547909",
+      "rbs_runway_days": "0.18148702388231759141501382801457568562994355607724101672103834371903022845033006",
+      "sell_pressure_24h": null,
+      "treasury_delta_24h_raw": "-541539165079337922860793",
+      "treasury_runway_days": "21.324286610703386393559348221262897790503931161743109681430660207036444336298865"
     },
     "safety_usdt_raw": "199991190336000000000000",
     "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
-    "timestamp_utc": "2026-08-12T14:00:35.695458+00:00",
-    "total_usdt_raw": "10955293822140476326438332",
+    "timestamp_utc": "2026-08-12T15:00:36.601459+00:00",
+    "total_usdt_raw": "10887126070528296382958126",
     "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
-    "treasury_usdt_raw": "11155285012476476326438332",
+    "treasury_usdt_raw": "11087117260864296382958126",
     "usdt_decimals": 18
   },
   "legacy_rbs_raw_balance": "1558964938440708297433494",
@@ -427,7 +433,7 @@
     "0xf3fc289abbff1f847649bc738a4e39d2ed365711"
   ],
   "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
-  "raw_balance": "154652371128105039843152",
+  "raw_balance": "93476757134930507485008",
   "rbs_address": "0xCBA922f6aff0EC8CB0703D44249456Ef779A394C",
   "safety_address": "0x5BB0d5Cb2276a054d933B14D023A2063CF8F28Ce",
   "schema_version": 4,
@@ -5794,11 +5800,66 @@
       "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
       "treasury_usdt_raw": "11155285012476476326438332",
       "usdt_decimals": 18
+    },
+    {
+      "backing_per_ibs": "10.716064965388277082151589755617007658782076718750654981151882518979342810741290",
+      "block_number": 115524934,
+      "block_time_utc": "2026-08-12T15:00:33+00:00",
+      "external_net_raw": "-68167751612179943480206",
+      "flow_complete": true,
+      "flow_event_count": 0,
+      "flow_from_block": 115516935,
+      "flow_to_block": 115524934,
+      "ibs_circulating_raw": "1034625797498846620438206",
+      "ibs_dead_raw": "3141161280382810310804",
+      "ibs_decimals": 18,
+      "ibs_is_token0": true,
+      "ibs_price_usdt": "25.093619842562472893683505874556166636865802115943365003590305849427431406808347",
+      "ibs_total_supply_raw": "1037766958779229430749010",
+      "lp_balance_usdt_raw": "10793649313393365875473118",
+      "lp_ibs_raw": "430135204929093086644263",
+      "lp_usdt_raw": "10793649313393365875473118",
+      "market_cap_usdt": "25962506.441744080492941590049802423180054052198475222760103139476424008355448314",
+      "protocol_addresses": [
+        "0x004202d0b1759bcdbd939bc5a2bfbceed9dd34b1",
+        "0x2a4b99a9c4544d35e8d266111c50b67fea01d53d",
+        "0x5bb0d5cb2276a054d933b14d023a2063cf8f28ce",
+        "0x6025fc9840cc4e282125a74f4b00dc5038a8058f",
+        "0x7266256440a32f5da2691b1ef98fffb5b655658a",
+        "0x89e6efd26af347fd7f1eb9846a21e4e85311cc30",
+        "0xac739056e611d639abeb0b9a87da38bd297ba00e",
+        "0xb83d56a4de0f080d9a0ccb7b67e747af68bbc655",
+        "0xc274041bf5d9487bab196e63e6609b6161ffcd7d",
+        "0xc407928502e0aa6d313494ec2ee224db55dcf1fc",
+        "0xcba922f6aff0ec8cb0703d44249456ef779a394c",
+        "0xd9f49fa9d8376041093dda76baaf02c3221f8702",
+        "0xe72a413864b8f795f2a1c2de4176e4be9bf56f34",
+        "0xe9a7c7bb2d4264940296d5d6c414d09dd37627f0",
+        "0xf3fc289abbff1f847649bc738a4e39d2ed365711"
+      ],
+      "protocol_config_changed": false,
+      "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
+      "protocol_usdt_raw": "11087133261369296382958126",
+      "rbs_usdt_raw": "93476757134930507485008",
+      "report_metrics": {
+        "ibs_net_issuance_24h_raw": "566897406273323547909",
+        "rbs_runway_days": "0.18148702388231759141501382801457568562994355607724101672103834371903022845033006",
+        "sell_pressure_24h": null,
+        "treasury_delta_24h_raw": "-541539165079337922860793",
+        "treasury_runway_days": "21.324286610703386393559348221262897790503931161743109681430660207036444336298865"
+      },
+      "safety_usdt_raw": "199991190336000000000000",
+      "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
+      "timestamp_utc": "2026-08-12T15:00:36.601459+00:00",
+      "total_usdt_raw": "10887126070528296382958126",
+      "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
+      "treasury_usdt_raw": "11087117260864296382958126",
+      "usdt_decimals": 18
     }
   ],
   "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
   "token_contract": "0x55d398326f99059ff775485246999027B3197955",
   "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
-  "updated_at_utc": "2026-08-12T14:00:35.695458+00:00",
+  "updated_at_utc": "2026-08-12T15:00:36.601459+00:00",
   "wallet": "0xCBA922f6aff0EC8CB0703D44249456Ef779A394C"
 }
