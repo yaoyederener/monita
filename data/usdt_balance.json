@@ -1,5 +1,5 @@
 {
-  "block_number": 115460957,
+  "block_number": 115468971,
   "chain": "BNB Smart Chain",
   "created_at_utc": "2026-08-06T07:59:52.229948+00:00",
   "decimals": 18,
@@ -57,6 +57,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x72bfb2fa44b96dd1f24c4ebae428f57dd9080885": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x7817881c96ee16eb4f1511a299b0bf5cae999420": {
         "BUY": 1,
         "SELL": 0
@@ -80,6 +84,10 @@
       "0x8a24dbb8c3ec560bda808049190c18edceb91c0a": {
         "BUY": 1,
         "SELL": 1
+      },
+      "0x966b87c6ca612c1f25919557241d47d8e44c179c": {
+        "BUY": 1,
+        "SELL": 0
       },
       "0xa30f413ac0414b100615f4eab8535b9e4d7d735d": {
         "BUY": 1,
@@ -130,7 +138,7 @@
         "SELL": 0
       },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
-        "BUY": 65,
+        "BUY": 68,
         "SELL": 13
       },
       "0xf3badda926c246d2d3a38860b601e83d7e201dc6": {
@@ -156,9 +164,9 @@
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-12T07:00:41.336738+00:00",
-    "last_alert_block": 115459278,
-    "last_scanned_block": 115460957,
+    "last_alert_at_utc": "2026-08-12T08:00:47.940394+00:00",
+    "last_alert_block": 115468615,
+    "last_scanned_block": 115468971,
     "pending": [],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
@@ -284,30 +292,35 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xccc75901136385e5dbe5c4e57d994e5c93875dba6aac8e130fd99806ac5321a0:454",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1c3e8d96096d30c2807887024704172b306adc0086dff64c0fdd60b812f9e17e:417",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x6e16537797a8627380e1428cc6f84290bbb92ce40612c4899bc472869de1526e:621",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xec49f465e1876ba5ab30d61ffc3c93782f8963ea8f386ba667b5f702c57907e0:347"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xec49f465e1876ba5ab30d61ffc3c93782f8963ea8f386ba667b5f702c57907e0:347",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9e49eece4091f9beb723d73ebdb18b5d1278a558440a2282ae0b814770e9b800:243",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1260a8add43baa7df27529a6059940d264ae129c3f3d1930f669a7d1ba208aee:417",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x684836a9aea0baf32f0392a4ce3adabb79898da0d0807ca53202178d6cdad97c:343",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xbfa878241de1439bbb4322ef5e15dbb5240802a4a610c6df48c39af7c54d012a:166",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc1f8d00ca43350e38a73366bbfa982eed2cdb11af9e085f1807dda727bbfa0a5:339"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
   },
   "latest": {
-    "backing_per_ibs": "10.843485686576608701720440675544558808149042252812509548834129578217992587254492",
-    "block_number": 115460957,
-    "block_time_utc": "2026-08-12T07:00:37+00:00",
-    "external_net_raw": "-72043769626353431797666",
+    "backing_per_ibs": "10.828510421021869934298186973450707336028453339530004965723485575375447297229893",
+    "block_number": 115468971,
+    "block_time_utc": "2026-08-12T08:00:44+00:00",
+    "external_net_raw": "-26615552538710311177558",
     "flow_complete": true,
     "flow_event_count": 0,
-    "flow_from_block": 115444960,
-    "flow_to_block": 115460957,
-    "ibs_circulating_raw": "1043773618165914703147062",
+    "flow_from_block": 115460958,
+    "flow_to_block": 115468971,
+    "ibs_circulating_raw": "1042759188202738972219383",
     "ibs_dead_raw": "3141161280382810310804",
     "ibs_decimals": 18,
     "ibs_is_token0": true,
-    "ibs_price_usdt": "25.104937009698286159406183874872935455704836367896963403428831898998557318649093",
-    "ibs_total_supply_raw": "1046914779446297513457866",
-    "lp_balance_usdt_raw": "10794560045539833925587326",
-    "lp_ibs_raw": "429977579364958705882320",
-    "lp_usdt_raw": "10794560045539833925587326",
-    "market_cap_usdt": "26203870.936440159404492498788916520144019040257695793758440593540348961807461065",
+    "ibs_price_usdt": "25.098943746014134669121066798787373126936673617745387335440217263268948367998291",
+    "ibs_total_supply_raw": "1045900349483121782530187",
+    "lp_balance_usdt_raw": "10793472844214428778293660",
+    "lp_ibs_raw": "430036935157022218878572",
+    "lp_usdt_raw": "10793472844214428778293660",
+    "market_cap_usdt": "26172154.205339911362954348624916264718942776580915139485717093630400715951050504",
     "protocol_addresses": [
       "0x004202d0b1759bcdbd939bc5a2bfbceed9dd34b1",
       "0x2a4b99a9c4544d35e8d266111c50b67fea01d53d",
@@ -327,31 +340,31 @@
     ],
     "protocol_config_changed": false,
     "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
-    "protocol_usdt_raw": "11318160289113374607532801",
-    "rbs_usdt_raw": "323593052732540681945475",
+    "protocol_usdt_raw": "11291544736574664296355243",
+    "rbs_usdt_raw": "298064701519235518061583",
     "report_metrics": {
-      "ibs_net_issuance_24h_raw": "7033804285863528978557",
-      "rbs_runway_days": "0.90183763596732873396412181111159616210228663066592702606666724472147235582814058",
+      "ibs_net_issuance_24h_raw": "7507760775827507830233",
+      "rbs_runway_days": "0.82404353321545099804028383483008708697825939727569177350326895392677009882642700",
       "sell_pressure_24h": {
-        "buy_event_count": 7325,
-        "buy_ibs_raw": "57044408509704577792044",
-        "buy_usdt_raw": "1436430454324610821302996",
-        "event_count": 7577,
-        "from_block": 115261073,
-        "net_sell_usdt_raw": "4632132376036270650400",
-        "sell_ibs_raw": "57515462234659720203496",
-        "sell_usdt_raw": "1441062586700647091953396",
-        "to_block": 115460957
+        "buy_event_count": 7061,
+        "buy_ibs_raw": "52797176439609509783595",
+        "buy_usdt_raw": "1329315843956082455871076",
+        "event_count": 7253,
+        "from_block": 115277032,
+        "net_sell_usdt_raw": "6813754072186721391841",
+        "sell_ibs_raw": "53333982666307845193273",
+        "sell_usdt_raw": "1336129598028269177262917",
+        "to_block": 115468971
       },
-      "treasury_delta_24h_raw": "-379472175070547649044832",
-      "treasury_runway_days": "31.068248565272569516002537715839389270787668264896574593688904531130535462696882"
+      "treasury_delta_24h_raw": "-369630359957875568663853",
+      "treasury_runway_days": "30.550378986932958186226833909616577833434558915445333277724749645620189963528117"
     },
     "safety_usdt_raw": "199991190336000000000000",
     "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
-    "timestamp_utc": "2026-08-12T07:00:41.336738+00:00",
-    "total_usdt_raw": "11118153098272374607532801",
+    "timestamp_utc": "2026-08-12T08:00:47.940394+00:00",
+    "total_usdt_raw": "11091537545733664296355243",
     "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
-    "treasury_usdt_raw": "11318144288608374607532801",
+    "treasury_usdt_raw": "11291528736069664296355243",
     "usdt_decimals": 18
   },
   "legacy_rbs_raw_balance": "1558964938440708297433494",
@@ -377,7 +390,7 @@
     "0xf3fc289abbff1f847649bc738a4e39d2ed365711"
   ],
   "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
-  "raw_balance": "323593052732540681945475",
+  "raw_balance": "298064701519235518061583",
   "rbs_address": "0xCBA922f6aff0EC8CB0703D44249456Ef779A394C",
   "safety_address": "0x5BB0d5Cb2276a054d933B14D023A2063CF8F28Ce",
   "schema_version": 4,
@@ -5429,11 +5442,76 @@
       "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
       "treasury_usdt_raw": "11318144288608374607532801",
       "usdt_decimals": 18
+    },
+    {
+      "backing_per_ibs": "10.828510421021869934298186973450707336028453339530004965723485575375447297229893",
+      "block_number": 115468971,
+      "block_time_utc": "2026-08-12T08:00:44+00:00",
+      "external_net_raw": "-26615552538710311177558",
+      "flow_complete": true,
+      "flow_event_count": 0,
+      "flow_from_block": 115460958,
+      "flow_to_block": 115468971,
+      "ibs_circulating_raw": "1042759188202738972219383",
+      "ibs_dead_raw": "3141161280382810310804",
+      "ibs_decimals": 18,
+      "ibs_is_token0": true,
+      "ibs_price_usdt": "25.098943746014134669121066798787373126936673617745387335440217263268948367998291",
+      "ibs_total_supply_raw": "1045900349483121782530187",
+      "lp_balance_usdt_raw": "10793472844214428778293660",
+      "lp_ibs_raw": "430036935157022218878572",
+      "lp_usdt_raw": "10793472844214428778293660",
+      "market_cap_usdt": "26172154.205339911362954348624916264718942776580915139485717093630400715951050504",
+      "protocol_addresses": [
+        "0x004202d0b1759bcdbd939bc5a2bfbceed9dd34b1",
+        "0x2a4b99a9c4544d35e8d266111c50b67fea01d53d",
+        "0x5bb0d5cb2276a054d933b14d023a2063cf8f28ce",
+        "0x6025fc9840cc4e282125a74f4b00dc5038a8058f",
+        "0x7266256440a32f5da2691b1ef98fffb5b655658a",
+        "0x89e6efd26af347fd7f1eb9846a21e4e85311cc30",
+        "0xac739056e611d639abeb0b9a87da38bd297ba00e",
+        "0xb83d56a4de0f080d9a0ccb7b67e747af68bbc655",
+        "0xc274041bf5d9487bab196e63e6609b6161ffcd7d",
+        "0xc407928502e0aa6d313494ec2ee224db55dcf1fc",
+        "0xcba922f6aff0ec8cb0703d44249456ef779a394c",
+        "0xd9f49fa9d8376041093dda76baaf02c3221f8702",
+        "0xe72a413864b8f795f2a1c2de4176e4be9bf56f34",
+        "0xe9a7c7bb2d4264940296d5d6c414d09dd37627f0",
+        "0xf3fc289abbff1f847649bc738a4e39d2ed365711"
+      ],
+      "protocol_config_changed": false,
+      "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
+      "protocol_usdt_raw": "11291544736574664296355243",
+      "rbs_usdt_raw": "298064701519235518061583",
+      "report_metrics": {
+        "ibs_net_issuance_24h_raw": "7507760775827507830233",
+        "rbs_runway_days": "0.82404353321545099804028383483008708697825939727569177350326895392677009882642700",
+        "sell_pressure_24h": {
+          "buy_event_count": 7061,
+          "buy_ibs_raw": "52797176439609509783595",
+          "buy_usdt_raw": "1329315843956082455871076",
+          "event_count": 7253,
+          "from_block": 115277032,
+          "net_sell_usdt_raw": "6813754072186721391841",
+          "sell_ibs_raw": "53333982666307845193273",
+          "sell_usdt_raw": "1336129598028269177262917",
+          "to_block": 115468971
+        },
+        "treasury_delta_24h_raw": "-369630359957875568663853",
+        "treasury_runway_days": "30.550378986932958186226833909616577833434558915445333277724749645620189963528117"
+      },
+      "safety_usdt_raw": "199991190336000000000000",
+      "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
+      "timestamp_utc": "2026-08-12T08:00:47.940394+00:00",
+      "total_usdt_raw": "11091537545733664296355243",
+      "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
+      "treasury_usdt_raw": "11291528736069664296355243",
+      "usdt_decimals": 18
     }
   ],
   "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
   "token_contract": "0x55d398326f99059ff775485246999027B3197955",
   "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
-  "updated_at_utc": "2026-08-12T07:00:41.336738+00:00",
+  "updated_at_utc": "2026-08-12T08:00:47.940394+00:00",
   "wallet": "0xCBA922f6aff0EC8CB0703D44249456Ef779A394C"
 }
