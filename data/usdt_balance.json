@@ -130,7 +130,7 @@
         "SELL": 0
       },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
-        "BUY": 47,
+        "BUY": 49,
         "SELL": 13
       },
       "0xfbb75012ba5b7018a0ed9ba1b9f6d762d31d6be7": {
@@ -152,9 +152,9 @@
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-12T00:00:42.602426+00:00",
-    "last_alert_block": 115403290,
-    "last_scanned_block": 115404969,
+    "last_alert_at_utc": "2026-08-12T01:00:40.611229+00:00",
+    "last_alert_block": 115409958,
+    "last_scanned_block": 115412964,
     "pending": [],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
@@ -258,7 +258,9 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc44472ad812fb143a53115564c4be88bd497e17d91edb43eb9e6f6577a508284:128",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xef4328c7b5a1cbfc1983fc6b498ed5f305e3fa327890b527a1725b4323a5634a:285",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x06d900cbd29044db861861dc563ddafd62c84a89531855ac2a3f7defcfd6adbf:202",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf0c15b385633c4c215f2d2fcdaba3652b0d87a2f1cd3adca7d6c157992729350:180"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf0c15b385633c4c215f2d2fcdaba3652b0d87a2f1cd3adca7d6c157992729350:180",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x394434b633dd77b0e5c51dae5d2b9949f4ffeeba0fb51fbeac4f708eacb5f7c0:381",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xea6ab0a9a6ee6855bb0626bb7f2c47ee261ed2974da701d174b294629a8049dd:349"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
