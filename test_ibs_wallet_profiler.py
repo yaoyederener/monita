@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from ibs_wallet_profiler import Trade, classify, fifo_holding_hours, round_trip_metrics
+from ibs_wallet_profiler import Trade, anomaly_alert_due, anomaly_reasons, classify, compact_pending_by_address, fifo_holding_hours, round_trip_metrics
 
 
 class WalletProfilerTests(unittest.TestCase):
@@ -62,6 +62,38 @@ class WalletProfilerTests(unittest.TestCase):
         metrics = round_trip_metrics(trades)
         self.assertEqual(100, metrics["matched_ibs_raw"])
         self.assertEqual(100, metrics["matched_pnl_raw"])
+
+    def test_ordinary_seller_does_not_trigger_anomaly_alert(self):
+        profile = {
+            "category": "普通交易地址", "buy_count": 1, "sell_count": 1,
+            "buy_usdt_raw": 1000, "sell_usdt_raw": 1100,
+            "protocol_sold_est_raw": 0, "protocol_sale_proceeds_est": 0,
+            "external_sold_est_raw": 0, "unpriced_sale_proceeds": 0,
+        }
+        self.assertEqual([], anomaly_reasons(profile, 18, 18))
+
+    def test_high_frequency_net_seller_is_anomaly(self):
+        scale = 10**18
+        profile = {
+            "category": "高频交易地址（未证实套利）", "buy_count": 10, "sell_count": 12,
+            "buy_usdt_raw": 10_000 * scale, "sell_usdt_raw": 12_000 * scale,
+            "protocol_sold_est_raw": 0, "protocol_sale_proceeds_est": 0,
+            "external_sold_est_raw": 0, "unpriced_sale_proceeds": 0,
+        }
+        reasons = anomaly_reasons(profile, 18, 18)
+        self.assertTrue(any("净USDT流出" in reason for reason in reasons))
+        self.assertTrue(anomaly_alert_due(profile, None, reasons, datetime.now(timezone.utc)))
+
+    def test_pending_sales_are_compacted_to_one_profile_per_address(self):
+        address = "0x1111111111111111111111111111111111111111"
+        pending = [
+            {"event_id": "a", "address": address, "block_number": 1, "log_index": 0, "tx_hash": "0xa", "ibs_raw": "1", "usdt_raw": "1"},
+            {"event_id": "b", "address": address, "block_number": 2, "log_index": 0, "tx_hash": "0xb", "ibs_raw": "2", "usdt_raw": "2"},
+        ]
+        compacted = compact_pending_by_address(pending)
+        self.assertEqual(1, len(compacted))
+        self.assertEqual("0xb", compacted[0]["tx_hash"])
+        self.assertEqual(["a", "b"], compacted[0]["event_ids"])
 
 
 if __name__ == "__main__":
