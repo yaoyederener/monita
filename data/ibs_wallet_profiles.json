@@ -56,27 +56,36 @@
       "external_out_raw": 0,
       "is_contract": false,
       "avg_holding_hours": "6.231641414141414525163636364"
+    },
+    "0xaccd1b7fb0d98929f8f62a3b0abd296a3d6db030": {
+      "address": "0xaCcd1b7Fb0D98929F8F62A3B0ABD296a3D6db030",
+      "category": "合约/聚合器地址",
+      "reasons": [
+        "地址存在合约代码，tx.from未必是最终受益人"
+      ],
+      "first_activity": "2026-06-12T02:56:53+00:00",
+      "first_buy": "2026-06-12T03:33:25+00:00",
+      "first_stake": "2026-06-12T03:36:33+00:00",
+      "buy_count": 15,
+      "sell_count": 22,
+      "buy_ibs_raw": 259962409057058949450,
+      "sell_ibs_raw": 487124828775000000000,
+      "buy_usdt_raw": 6576672038312708409961,
+      "sell_usdt_raw": 11943548729012116469384,
+      "avg_cost": "25.29855013333562283131755383",
+      "realized_usdt": "-202.795124478602375582228179",
+      "total_pnl": "9641.338046246209071399981580",
+      "pnl_confidence": "有限（存在转账/奖励或卖出量超过可见买入）",
+      "wallet_balance_raw": 57058949450,
+      "staked_est_raw": 180308000000000000000,
+      "protocol_in_raw": 412614400000000000000,
+      "external_in_raw": 213653600000000000000,
+      "external_out_raw": 0,
+      "is_contract": true,
+      "avg_holding_hours": "390.4374904214559387177586207"
     }
   },
   "pending": [
-    {
-      "event_id": "0x8c6a73cd93ef451fac4863fedbd64f7c7775ac4cd07be0da6e5700cd13c72cba:156",
-      "address": "0xaCcd1b7Fb0D98929F8F62A3B0ABD296a3D6db030",
-      "tx_hash": "0x8c6a73cd93ef451fac4863fedbd64f7c7775ac4cd07be0da6e5700cd13c72cba",
-      "block_number": 115609393,
-      "log_index": 156,
-      "ibs_raw": "34125000000000000000",
-      "usdt_raw": "809882409683168634967"
-    },
-    {
-      "event_id": "0x192b7f5ec23ccc446930c0f8ec7e1fd8a0ee823af4c03c96c48a02d15e4a33d5:178",
-      "address": "0xaCcd1b7Fb0D98929F8F62A3B0ABD296a3D6db030",
-      "tx_hash": "0x192b7f5ec23ccc446930c0f8ec7e1fd8a0ee823af4c03c96c48a02d15e4a33d5",
-      "block_number": 115609439,
-      "log_index": 178,
-      "ibs_raw": "28275000000000000000",
-      "usdt_raw": "671052536953268738787"
-    },
     {
       "event_id": "0x60a09661977687d82fe01f2196b7529729050bbdc0041b98d5801549de2ce703:347",
       "address": "0x45f6709101a09Fd39E4FDf2FEDFAaD66a4339162",
@@ -418,12 +427,50 @@
       "log_index": 368,
       "ibs_raw": "83100650392500000000",
       "usdt_raw": "1968683610608174617985"
+    },
+    {
+      "event_id": "0xa0d91bee8afe6a110aa8e7966cfc51e2fe8a9696622979edb1a6b38b2ae49c8f:149",
+      "address": "0xf9588CD6C2C2b93a47F689f2116f2d348b474aa1",
+      "tx_hash": "0xa0d91bee8afe6a110aa8e7966cfc51e2fe8a9696622979edb1a6b38b2ae49c8f",
+      "block_number": 115612241,
+      "log_index": 149,
+      "ibs_raw": "213710835000000000000",
+      "usdt_raw": "5059533362600006642935"
+    },
+    {
+      "event_id": "0x7e596e1af65ed46560468dcb50f5c5502ebbc4fed4980823478c710e08fc77fe:130",
+      "address": "0xaD92E5ADCdCFEe62826D5eF5e4Cf5f97c521739A",
+      "tx_hash": "0x7e596e1af65ed46560468dcb50f5c5502ebbc4fed4980823478c710e08fc77fe",
+      "block_number": 115612410,
+      "log_index": 130,
+      "ibs_raw": "43875000000000000000",
+      "usdt_raw": "1037922830175579036143"
+    },
+    {
+      "event_id": "0x0187fcecebceeec00b44aef35b52df2a5fd0584b28741eb78ddcfe31ba89d10a:360",
+      "address": "0xdE3e8eb0BE17ac92C96454F1804E4AD664888888",
+      "tx_hash": "0x0187fcecebceeec00b44aef35b52df2a5fd0584b28741eb78ddcfe31ba89d10a",
+      "block_number": 115612536,
+      "log_index": 360,
+      "ibs_raw": "58500000000000000000",
+      "usdt_raw": "1383953259713554907175"
+    },
+    {
+      "event_id": "0x9addb994588c814b9d232df58f63cf7825d5b652b499e592a7562b06851dbde7:174",
+      "address": "0xc132d787AAdc5fa718CdD0971a3351c480149eaD",
+      "tx_hash": "0x9addb994588c814b9d232df58f63cf7825d5b652b499e592a7562b06851dbde7",
+      "block_number": 115612878,
+      "log_index": 174,
+      "ibs_raw": "45825000000000000000",
+      "usdt_raw": "1083735598936749320800"
     }
   ],
   "seen": [
     "0xbecc33e5324bcdd0d41c69ae608b9fcff6b633dd930104dea9f55927542033b2:197",
-    "0xfedb375a5dc6f9e8805bfb4d4e76fff65107341f77ecba12639304b3d3f6461c:343"
+    "0xfedb375a5dc6f9e8805bfb4d4e76fff65107341f77ecba12639304b3d3f6461c:343",
+    "0x8c6a73cd93ef451fac4863fedbd64f7c7775ac4cd07be0da6e5700cd13c72cba:156",
+    "0x192b7f5ec23ccc446930c0f8ec7e1fd8a0ee823af4c03c96c48a02d15e4a33d5:178"
   ],
-  "last_scanned_block": 115612208,
-  "updated_at_utc": "2026-08-13T01:55:21.230972+00:00"
+  "last_scanned_block": 115612914,
+  "updated_at_utc": "2026-08-13T02:00:46.550605+00:00"
 }
