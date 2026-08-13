@@ -1,4 +1,4 @@
-name: IBS High Frequency Address Stats
+name: IBS Abnormal Account Stats
 
 on:
   workflow_dispatch:
@@ -37,12 +37,12 @@ jobs:
       - name: Run high-frequency statistics tests
         run: python -m unittest -v test_ibs_high_frequency_stats.py
 
-      - name: Scan and report high-frequency IBS addresses
+      - name: Scan and report abnormal IBS accounts
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           BSC_RPC: ${{ secrets.BSC_RPC }}
-          HF_WINDOW_HOURS: "24"
+          HF_WINDOW_HOURS: "6"
           HF_MIN_TOTAL_TRADES: "10"
           HF_MIN_SIDE_TRADES: "2"
           HF_MIN_ONE_WAY_TRADES: "8"
