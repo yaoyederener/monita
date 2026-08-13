@@ -143,8 +143,22 @@ def frequency_label(row: dict[str, Any]) -> str | None:
     return None
 
 
+def suspicion_label(row: dict[str, Any]) -> str | None:
+    """Keep only high-frequency behavior that is also draining USDT from the LP."""
+    behavior = frequency_label(row)
+    if row["net_sell_usdt_raw"] <= 0:
+        return None
+    if behavior == "🔄 高频双向周转":
+        return "🟠 疑似短周期套利"
+    if behavior == "🔁 高频双向交易":
+        return "🟠 高频净卖出待核查"
+    if behavior == "🔴 高频卖出":
+        return "🔴 高频单向卖出"
+    return None
+
+
 def qualifying_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [dict(row, label=label) for row in rows if (label := frequency_label(row))]
+    return [dict(row, label=label) for row in rows if (label := suspicion_label(row))]
 
 
 def fmt_short_address(address: str) -> str:
@@ -161,10 +175,10 @@ def build_summary(rows: list[dict[str, Any]], all_rows: list[dict[str, Any]], ib
     market_net = sum(x["net_sell_usdt_raw"] for x in all_rows)
     market_icon = "🔴" if market_net > 0 else "🟢"
     lines = [
-        f"📊 <b>IBS高频地址榜｜近{WINDOW_HOURS}小时</b>",
+        f"🚨 <b>IBS异常账户统计｜近{WINDOW_HOURS}小时</b>",
         f"全池成交：买 {total_buys} 笔 / 卖 {total_sells} 笔",
         f"{market_icon} 交易净抛压：<b>{amount(market_net, usdt_decimals):+,.2f} USDT</b>",
-        f"高频地址：<b>{len(rows)}</b> 个（双向≥{MIN_TOTAL_TRADES}笔；单边≥{MIN_ONE_WAY_TRADES}笔）",
+        f"高频且从LP净取走USDT：<b>{len(rows)}</b> 个（双向≥{MIN_TOTAL_TRADES}笔；单边≥{MIN_ONE_WAY_TRADES}笔）",
     ]
     if not rows:
         lines.extend(["", "当前没有达到高频门槛的地址。"])
@@ -183,7 +197,7 @@ def build_summary(rows: list[dict[str, Any]], all_rows: list[dict[str, Any]], ib
         ])
     lines.extend([
         "",
-        "说明：净卖出为该地址卖出获得USDT减去买入支付USDT；正数代表从LP净拿走USDT。高频仅描述交易行为，不等于套利或老鼠仓。",
+        "说明：只保留高频且对LP形成净USDT流出的地址。疑似套利仍需深度画像确认；协议来源异常变现也不能单凭链上行为定性为老鼠仓。",
         f"统计时间：{fmt_time(now_ts)} UTC",
     ])
     return "\n".join(lines)
@@ -194,7 +208,7 @@ def build_new_alert(row: dict[str, Any], ibs_decimals: int, usdt_decimals: int) 
     net = amount(row["net_sell_usdt_raw"], usdt_decimals)
     direction = f"净卖出 {net:+,.2f} USDT" if net >= 0 else f"净买入 {abs(net):,.2f} USDT"
     return "\n".join([
-        "⚡️ <b>新增IBS高频地址</b>",
+        "⚡️ <b>新增IBS异常账户</b>",
         f"类型：<b>{html.escape(row['label'])}</b>",
         f"地址：<code>{address}</code>",
         f"近{WINDOW_HOURS}小时：{row['total_count']}笔（买{row['buy_count']} / 卖{row['sell_count']}）",
@@ -202,7 +216,7 @@ def build_new_alert(row: dict[str, Any], ibs_decimals: int, usdt_decimals: int) 
         f"资金方向：<b>{direction}</b>",
         f"成交额：{amount(row['gross_usdt_raw'], usdt_decimals):,.2f} USDT",
         f'<a href="https://bscscan.com/address/{address}">查看地址</a> ｜ <a href="https://bscscan.com/tx/{row["last_tx_hash"]}">最新交易</a>',
-        "说明：达到高频统计门槛不代表套利；需结合独立卖家画像判断资金来源与真实盈亏。",
+        "说明：该地址同时满足高频和LP净USDT流出条件；是否套利或关联平台需结合独立卖家画像。",
     ])
 
 
