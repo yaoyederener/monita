@@ -57,12 +57,43 @@ class EffectiveMonitorTests(unittest.TestCase):
         now = datetime(2026, 8, 13, 12, 5, tzinfo=timezone.utc)
         previous = monitor.snapshot_record(make_snapshot(now - timedelta(minutes=5), 100))
         lp_only = make_snapshot(now, 200, lp=9_999_999)
-        due, _ = monitor.report_due(previous, lp_only, monitor.interval_change(previous, lp_only))
+        due, _ = monitor.report_due(
+            previous,
+            lp_only,
+            monitor.interval_change(previous, lp_only),
+            last_report_at=now - timedelta(minutes=5),
+        )
         self.assertFalse(due)
         rbs_change = make_snapshot(now, 200, rbs=1_399_999)
         due, reason = monitor.report_due(previous, rbs_change, monitor.interval_change(previous, rbs_change))
         self.assertTrue(due)
         self.assertIn("RBS", reason)
+
+    def test_missing_report_timestamp_sends_baseline_then_uses_hourly_clock(self):
+        now = datetime(2026, 8, 13, 12, 5, tzinfo=timezone.utc)
+        previous = monitor.snapshot_record(make_snapshot(now - timedelta(minutes=5), 100))
+        current = make_snapshot(now, 200)
+        change = monitor.interval_change(previous, current)
+
+        due, reason = monitor.report_due(previous, current, change, last_report_at=None)
+        self.assertTrue(due)
+        self.assertEqual(reason, "建立通知基线")
+
+        due, _ = monitor.report_due(
+            previous,
+            current,
+            change,
+            last_report_at=now - timedelta(minutes=59),
+        )
+        self.assertFalse(due)
+        due, reason = monitor.report_due(
+            previous,
+            current,
+            change,
+            last_report_at=now - timedelta(minutes=60),
+        )
+        self.assertTrue(due)
+        self.assertEqual(reason, "定时报告")
 
     def test_risk_is_high_when_treasury_falls_while_supply_grows(self):
         now = datetime(2026, 8, 13, 12, 5, tzinfo=timezone.utc)
