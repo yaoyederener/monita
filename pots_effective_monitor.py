@@ -310,10 +310,13 @@ def report_due(
     supply_threshold_raw = int(IMMEDIATE_SUPPLY_CHANGE_IBS * (Decimal(10) ** current.ibs_decimals))
     if change.supply_delta_raw >= supply_threshold_raw and change.lp_delta_raw < 0:
         return True, "IBS增发同时LP资金流出"
-    since_report = (
-        int((current.observed_at - last_report_at).total_seconds())
-        if last_report_at is not None else change.elapsed_seconds
-    )
+    # Older state files and the first run of this monitor have no successful
+    # Telegram report timestamp. Send once immediately to establish that
+    # baseline; using the observation interval here would reset the clock on
+    # every frequent check and could prevent the hourly report forever.
+    if last_report_at is None:
+        return True, "建立通知基线"
+    since_report = int((current.observed_at - last_report_at).total_seconds())
     if since_report >= REPORT_INTERVAL_MINUTES * 60:
         return True, "定时报告"
     return False, "尚未到报告时间且没有重要变化"
