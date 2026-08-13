@@ -185,27 +185,47 @@
       "cost_coverage": "73.73239696269069196780442306",
       "arbitrage_assessment": "需解析合约内部调用",
       "short_ratio": "87.9382889200561"
+    },
+    "0xf849353cb991f6d9ad001c09867dcf46c8ae6d98": {
+      "address": "0xf849353CB991f6D9Ad001c09867Dcf46c8Ae6D98",
+      "category": "协议来源IBS变现地址",
+      "reasons": [
+        "曾从质押/奖励/国库等协议地址收到IBS",
+        "累计卖出量超过本池可见买入量"
+      ],
+      "first_activity": "2026-06-10T17:38:02+00:00",
+      "first_buy": "2026-08-13T01:40:19+00:00",
+      "first_stake": null,
+      "buy_count": 2,
+      "sell_count": 8,
+      "buy_ibs_raw": 186918100000000000000,
+      "sell_ibs_raw": 206756257500000000000,
+      "buy_usdt_raw": 4462271567723709442849,
+      "sell_usdt_raw": 4965286211854123954669,
+      "avg_cost": "23.87287035190123076817600864",
+      "realized_usdt": "-23.251933909785767906866765",
+      "pnl_confidence": "仅88.1%卖出量可匹配本池买入成本",
+      "wallet_balance_raw": 0,
+      "staked_est_raw": 0,
+      "protocol_in_raw": 186918100000000000000,
+      "staking_return_raw": 0,
+      "protocol_source_raw": 186918100000000000000,
+      "external_in_raw": 26880100000000000000,
+      "external_out_raw": 1740500000000000000,
+      "is_contract": false,
+      "avg_holding_hours": "0.032465277777777778875",
+      "matched_ibs_raw": 182245147500000000000,
+      "unpriced_sold_raw": 24511110000000000000,
+      "unpriced_sale_proceeds": "588.6384189375247141263759458",
+      "protocol_sold_est_raw": 24511110000000000000,
+      "external_sold_est_raw": 0,
+      "protocol_sale_proceeds_est": "588.6384189375247141263759458",
+      "cost_coverage": "88.14492470681328713835904096",
+      "arbitrage_assessment": "更像奖励或解押变现，未证实套利",
+      "short_ratio": "100.0"
     }
   },
   "pending": [
-    {
-      "event_id": "0x0f8c916af4d1323589aed89bbd01e7f3c5af66e405464f1fbefb543eae69976c:350",
-      "address": "0x56E606ff082714DCf60b22c647642512Cdded0E1",
-      "tx_hash": "0x0f8c916af4d1323589aed89bbd01e7f3c5af66e405464f1fbefb543eae69976c",
-      "block_number": 115610192,
-      "log_index": 350,
-      "ibs_raw": "39975000000000000000",
-      "usdt_raw": "949362300020390093393"
-    },
-    {
-      "event_id": "0x21c4f2e88a07fb971be3c7f0dd7e12f3702f062dd76d23493f18293692cff29e:363",
-      "address": "0xf849353CB991f6D9Ad001c09867Dcf46c8Ae6D98",
-      "tx_hash": "0x21c4f2e88a07fb971be3c7f0dd7e12f3702f062dd76d23493f18293692cff29e",
-      "block_number": 115610303,
-      "log_index": 363,
-      "ibs_raw": "34125000000000000000",
-      "usdt_raw": "810781719942692626065"
-    },
     {
       "event_id": "0x816fe29d586fd84e5a2deac402bc8a279f577578bb87abcddca5cdc922c0f761:181",
       "address": "0x2f7B039B98a29eaC6501d58d00AAAe9635a05299",
@@ -1123,6 +1143,69 @@
       "log_index": 563,
       "ibs_raw": "34125000000000000000",
       "usdt_raw": "796996095128544916983"
+    },
+    {
+      "event_id": "0xeb5480488dd5c15b5f7e36117b48f75d279fc514893ca8ba29f8e2887737ba92:175",
+      "address": "0x3A0f0A5b3A02046c22d294362EC1D75f5149956a",
+      "tx_hash": "0xeb5480488dd5c15b5f7e36117b48f75d279fc514893ca8ba29f8e2887737ba92",
+      "block_number": 115619741,
+      "log_index": 175,
+      "ibs_raw": "53469000000000000000",
+      "usdt_raw": "1248625933385426040535"
+    },
+    {
+      "event_id": "0x7c57057d090b637565708fa5df73fd2c2ba0610bc251b7a4c65e25511a11eddb:334",
+      "address": "0x50A76798e6D69324c314674921ACed8C99659F88",
+      "tx_hash": "0x7c57057d090b637565708fa5df73fd2c2ba0610bc251b7a4c65e25511a11eddb",
+      "block_number": 115619752,
+      "log_index": 334,
+      "ibs_raw": "24375000000000000000",
+      "usdt_raw": "569536315637909666217"
+    },
+    {
+      "event_id": "0xed8675eb27682c29bdd1022669d601e7802cf3c56372b0fce028c44729a119e7:804",
+      "address": "0x6f5db0d2c1589afF1FDfd4109cb45ceD92F155C5",
+      "tx_hash": "0xed8675eb27682c29bdd1022669d601e7802cf3c56372b0fce028c44729a119e7",
+      "block_number": 115619935,
+      "log_index": 804,
+      "ibs_raw": "33317992500000000000",
+      "usdt_raw": "778381035468302592914"
+    },
+    {
+      "event_id": "0x757d8c885e8b846a2e6abfe936059677ab5396876f4f82ca223a365385c00f51:154",
+      "address": "0x6f7544432cD95933d316d1cf402Cac8E71AB297F",
+      "tx_hash": "0x757d8c885e8b846a2e6abfe936059677ab5396876f4f82ca223a365385c00f51",
+      "block_number": 115619973,
+      "log_index": 154,
+      "ibs_raw": "21508305000000000000",
+      "usdt_raw": "502975297432377248389"
+    },
+    {
+      "event_id": "0xb9a85bcac263b6f8c08391a45c51a32736ab9397526e5379cbe22f19a6508c22:182",
+      "address": "0xBfeB57E34f54658A7fE19842D69406Af97C0825a",
+      "tx_hash": "0xb9a85bcac263b6f8c08391a45c51a32736ab9397526e5379cbe22f19a6508c22",
+      "block_number": 115620074,
+      "log_index": 182,
+      "ibs_raw": "236437500000000000000",
+      "usdt_raw": "5525330277027899993872"
+    },
+    {
+      "event_id": "0x93d7ac451980fce4e0251a18aac4a5fe7c80d4a8237dcfe8e3ba91f108f3c9a5:218",
+      "address": "0xCCDE2d9f6e7941B88be62Df6f32cD8F3bC29104F",
+      "tx_hash": "0x93d7ac451980fce4e0251a18aac4a5fe7c80d4a8237dcfe8e3ba91f108f3c9a5",
+      "block_number": 115620127,
+      "log_index": 218,
+      "ibs_raw": "33599869582500000000",
+      "usdt_raw": "784797373033592065439"
+    },
+    {
+      "event_id": "0x3215704a96582b29b043063515454006533a74229dbe61ebae4d450586c910f8:226",
+      "address": "0x7E2b23CE2A7f160a58944B720E19dF45622E7A7B",
+      "tx_hash": "0x3215704a96582b29b043063515454006533a74229dbe61ebae4d450586c910f8",
+      "block_number": 115620167,
+      "log_index": 226,
+      "ibs_raw": "41497267500000000000",
+      "usdt_raw": "969125375838806567415"
     }
   ],
   "seen": [
@@ -1141,8 +1224,10 @@
     "0x484732e84117f99f6e26bd478d64a4e3a51a5a3c078f163aa7742660882c0329:177",
     "0x51acca4b7caea2312581467fe116baffb913cdaacea8baedb3ab63d7f52ea3e4:178",
     "0x45508921f363564268ce626cfd0b99c570bd74b0128d36f7028e4b441ada850b:153",
-    "0x23d972bfe1a2ca171372c07173a1c865a540bcc1695044dc0eaa5f59e85bda9f:267"
+    "0x23d972bfe1a2ca171372c07173a1c865a540bcc1695044dc0eaa5f59e85bda9f:267",
+    "0x0f8c916af4d1323589aed89bbd01e7f3c5af66e405464f1fbefb543eae69976c:350",
+    "0x21c4f2e88a07fb971be3c7f0dd7e12f3702f062dd76d23493f18293692cff29e:363"
   ],
-  "last_scanned_block": 115619660,
-  "updated_at_utc": "2026-08-13T02:51:56.903770+00:00"
+  "last_scanned_block": 115620215,
+  "updated_at_utc": "2026-08-13T02:55:57.248644+00:00"
 }
