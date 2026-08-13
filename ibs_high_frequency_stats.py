@@ -54,7 +54,8 @@ def save_state(state: dict[str, Any]) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at_utc"] = datetime.now(timezone.utc).isoformat()
     temp = STATE_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # This state changes frequently. Compact JSON keeps repository writes small.
+    temp.write_text(json.dumps(state, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
     temp.replace(STATE_FILE)
 
 
