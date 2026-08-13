@@ -247,7 +247,10 @@ def interval_change(previous: Optional[dict[str, Any]], current: CurrentSnapshot
         protocol_delta_raw=protocol_delta,
         supply_delta_raw=current.ibs_total_supply_raw - int(previous["ibs_total_supply_raw"]),
         circulating_delta_raw=current.ibs_circulating_raw - int(previous["ibs_circulating_raw"]),
-        lp_ibs_delta_raw=current.lp_ibs_raw - int(previous["lp_ibs_raw"]),
+        # Schema v1 did not store the LP IBS side. The first run after upgrade
+        # cannot classify a one-interval liquidity removal, so use the current
+        # reserve as its migration baseline and start measuring from this run.
+        lp_ibs_delta_raw=current.lp_ibs_raw - int(previous.get("lp_ibs_raw", current.lp_ibs_raw)),
     )
 
 
