@@ -40,14 +40,19 @@ jobs:
       - name: Run unit tests
         run: python -m unittest -v test_usdt_balance_monitor.py test_pots_effective_monitor.py
 
-      - name: Check POTS core funds
+      - name: Check POTS crash-risk signals
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           BSC_RPC: ${{ secrets.BSC_RPC }}
           REPORT_INTERVAL_MINUTES: ${{ vars.POTS_FLOW_REPORT_MINUTES || '60' }}
-          IMMEDIATE_TREASURY_CHANGE_USDT: ${{ vars.POTS_IMMEDIATE_TREASURY_USDT || '10000' }}
           IMMEDIATE_SUPPLY_CHANGE_IBS: ${{ vars.POTS_IMMEDIATE_SUPPLY_IBS || '1' }}
+          SHORT_TREND_MINUTES: "30"
+          SHORT_TREND_SLICES: "6"
+          WARNING_LP_DROP_PCT: "1"
+          CRITICAL_LP_DROP_PCT: "3"
+          LIQUIDITY_REMOVAL_PCT: "1"
+          CRITICAL_BACKUP_DROP_USDT: "100000"
           CONFIRMATION_BLOCKS: "3"
           PYTHONUNBUFFERED: "1"
         run: python -u pots_effective_monitor.py
