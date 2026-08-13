@@ -69,8 +69,8 @@ class EffectiveMonitorTests(unittest.TestCase):
         self.assertTrue(due)
         self.assertIn("RBS", reason)
 
-    def test_missing_report_timestamp_sends_baseline_then_uses_hourly_clock(self):
-        now = datetime(2026, 8, 13, 12, 5, tzinfo=timezone.utc)
+    def test_missing_report_timestamp_sends_baseline_then_uses_natural_hour(self):
+        now = datetime(2026, 8, 13, 12, 59, tzinfo=timezone.utc)
         previous = monitor.snapshot_record(make_snapshot(now - timedelta(minutes=5), 100))
         current = make_snapshot(now, 200)
         change = monitor.interval_change(previous, current)
@@ -91,6 +91,20 @@ class EffectiveMonitorTests(unittest.TestCase):
             current,
             change,
             last_report_at=now - timedelta(minutes=60),
+        )
+        self.assertTrue(due)
+        self.assertEqual(reason, "定时报告")
+
+        next_hour = make_snapshot(
+            datetime(2026, 8, 13, 17, 0, tzinfo=timezone.utc),
+            300,
+        )
+        next_change = monitor.interval_change(monitor.snapshot_record(current), next_hour)
+        due, reason = monitor.report_due(
+            monitor.snapshot_record(current),
+            next_hour,
+            next_change,
+            last_report_at=datetime(2026, 8, 13, 16, 34, tzinfo=timezone.utc),
         )
         self.assertTrue(due)
         self.assertEqual(reason, "定时报告")

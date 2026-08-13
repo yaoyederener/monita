@@ -316,8 +316,10 @@ def report_due(
     # every frequent check and could prevent the hourly report forever.
     if last_report_at is None:
         return True, "建立通知基线"
-    since_report = int((current.observed_at - last_report_at).total_seconds())
-    if since_report >= REPORT_INTERVAL_MINUTES * 60:
+    interval_seconds = REPORT_INTERVAL_MINUTES * 60
+    current_window = int(current.observed_at.timestamp()) // interval_seconds
+    last_report_window = int(last_report_at.timestamp()) // interval_seconds
+    if current_window > last_report_window:
         return True, "定时报告"
     return False, "尚未到报告时间且没有重要变化"
 
