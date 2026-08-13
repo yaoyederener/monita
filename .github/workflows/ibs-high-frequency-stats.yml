@@ -1,0 +1,73 @@
+name: IBS High Frequency Address Stats
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "4-59/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monita-repository-writer
+  cancel-in-progress: false
+
+jobs:
+  high-frequency-stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-wallet-profiler.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-wallet-profiler.txt
+
+      - name: Run high-frequency statistics tests
+        run: python -m unittest -v test_ibs_high_frequency_stats.py
+
+      - name: Scan and report high-frequency IBS addresses
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          BSC_RPC: ${{ secrets.BSC_RPC }}
+          HF_WINDOW_HOURS: "24"
+          HF_MIN_TOTAL_TRADES: "10"
+          HF_MIN_SIDE_TRADES: "2"
+          HF_MIN_ONE_WAY_TRADES: "8"
+          HF_REPORT_MINUTES: "60"
+          HF_TOP_LIMIT: "8"
+          PYTHONUNBUFFERED: "1"
+        run: python -u ibs_high_frequency_stats.py
+
+      - name: Save independent high-frequency statistics state
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ibs_high_frequency_stats.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Update IBS high-frequency stats [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 5))
+          done
+          exit 1
