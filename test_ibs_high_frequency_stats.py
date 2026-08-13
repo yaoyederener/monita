@@ -52,6 +52,17 @@ class HighFrequencyStatsTests(unittest.TestCase):
         events = [self.event(i, address, "SELL", 100, 1000, 100 + i) for i in range(1, 6)]
         row = stats.aggregate_addresses(events)[0]
         self.assertEqual("🔴 高频卖出", stats.frequency_label(row))
+        self.assertEqual("🔴 高频单向卖出", stats.suspicion_label(row))
+
+    def test_high_frequency_net_buyer_is_not_an_abnormal_sell_account(self):
+        address = "0x1111111111111111111111111111111111111111"
+        events = []
+        for index in range(6):
+            side = "BUY" if index % 2 == 0 else "SELL"
+            usdt = 1100 if side == "BUY" else 1000
+            events.append(self.event(index + 1, address, side, 100, usdt, 100 + index * 60))
+        row = stats.aggregate_addresses(events)[0]
+        self.assertIsNone(stats.suspicion_label(row))
 
     def test_trim_removes_old_and_duplicate_events(self):
         address = "0x1111111111111111111111111111111111111111"
@@ -66,12 +77,13 @@ class HighFrequencyStatsTests(unittest.TestCase):
         events = []
         for index in range(6):
             side = "BUY" if index % 2 == 0 else "SELL"
-            events.append(self.event(index + 1, address, side, 10**18, 25 * 10**18, 100 + index * 60))
+            usdt = 24 * 10**18 if side == "BUY" else 25 * 10**18
+            events.append(self.event(index + 1, address, side, 10**18, usdt, 100 + index * 60))
         all_rows = stats.aggregate_addresses(events)
         high_rows = stats.qualifying_rows(all_rows)
         message = stats.build_summary(high_rows, all_rows, 18, 18, int(datetime.now(timezone.utc).timestamp()))
-        self.assertIn("高频地址榜", message)
-        self.assertIn("不等于套利", message)
+        self.assertIn("异常账户统计", message)
+        self.assertIn("需深度画像确认", message)
         self.assertIn("交易 6 笔", message)
 
 
