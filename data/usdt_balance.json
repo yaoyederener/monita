@@ -1,17 +1,61 @@
 {
-  "block_number": 115605139,
+  "block_number": 115620996,
   "chain": "BNB Smart Chain",
   "created_at_utc": "2026-08-06T07:59:52.229948+00:00",
   "decimals": 18,
   "large_trade_alerts": {
     "address_side_counts": {
+      "0x01788f61ee932f61cd36059407824d992c2de0d8": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0x0489307df5207f0345b527f5b0c9b7f62d1c8aa2": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x0496eeb0e368f77b159e6556dd0dd8ecdcc9b04f": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x06a5de4e84f6ffddd275e6b0c8042f4588702c90": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x06b74b8b3e154527a50470cefde0e976e1530f9a": {
         "BUY": 1,
         "SELL": 0
       },
+      "0x111d48228a3320e1db9a629f9867da655bf78f18": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x11238dec99caed2da6dc280f74e2be77732751c4": {
+        "BUY": 1,
+        "SELL": 2
+      },
+      "0x12d6abc53c507e7b37d50abfd4fcf2e3cd59ff89": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x14a7a37bb8b0f44c7a8cd002f2b6ec0d4ea6ea78": {
+        "BUY": 1,
+        "SELL": 2
+      },
+      "0x176361282b4fe1ac72dd3524db1ceb5c9a1d1341": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x1d0b12640f85e3b2f0c7a71989219e7a64824f44": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x1d679496a0efeadc3d2c04771fbdb8a4dd067fdd": {
         "BUY": 1,
         "SELL": 2
+      },
+      "0x1dfa561e38341b096677146d792fbbdc3a00ea7b": {
+        "BUY": 1,
+        "SELL": 0
       },
       "0x1e740027527170263d8bb8294e2f5ef2b8017170": {
         "BUY": 1,
@@ -21,6 +65,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x20ea4c3136f231a4eedb11c6a0eda088ee714ab8": {
+        "BUY": 1,
+        "SELL": 2
+      },
       "0x210ad8be174cc182a3c10de742ebe686d8eb46d5": {
         "BUY": 0,
         "SELL": 1
@@ -29,12 +77,28 @@
         "BUY": 0,
         "SELL": 1
       },
+      "0x2512c88bbbf55061c32f1a8f11c57cecb9882776": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x2595a44524e8c91a96ea063fb4066d8ac8d204a3": {
+        "BUY": 1,
+        "SELL": 1
+      },
       "0x292be68ca35e696238b03984a9c70ce567be9b3c": {
         "BUY": 1,
         "SELL": 0
       },
+      "0x29d6179309c93f77af790963197af86f1642389f": {
+        "BUY": 1,
+        "SELL": 1
+      },
       "0x2a61ada1868c2d46b7ccaf8f44a99ed9c2988d3e": {
         "BUY": 0,
+        "SELL": 1
+      },
+      "0x2ad31880aade7a23fa728369fa1e4a181f902301": {
+        "BUY": 1,
         "SELL": 1
       },
       "0x2ba6b15888cc74c175537aebd5491ac735b9cb59": {
@@ -49,6 +113,14 @@
         "BUY": 0,
         "SELL": 1
       },
+      "0x321c99961327e6f88a329eb0f644d0f9ede44b8a": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x32c6a5a9baa958b7bc028d096d28f91db0a17267": {
+        "BUY": 1,
+        "SELL": 1
+      },
       "0x335b90ce553a6d29aa73090ae9105161e6dce18c": {
         "BUY": 0,
         "SELL": 1
@@ -61,7 +133,15 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x34c835181bfde6ff40962f284982194acf70fe6b": {
+        "BUY": 2,
+        "SELL": 2
+      },
       "0x352c69157bce9868aa2960426d618af08f71da8a": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x36860d9403c7ceb3485220769104f0ff7d56ec44": {
         "BUY": 0,
         "SELL": 1
       },
@@ -71,6 +151,10 @@
       },
       "0x37925a33e081ed23058f2fd12e69609afe51e589": {
         "BUY": 0,
+        "SELL": 1
+      },
+      "0x3a0f0a5b3a02046c22d294362ec1d75f5149956a": {
+        "BUY": 1,
         "SELL": 1
       },
       "0x3a7dd082fb5944bca25f9d0f289df6d7743e0cb2": {
@@ -87,7 +171,15 @@
       },
       "0x40879a6c566a0611f898bce15747b2f013d6599d": {
         "BUY": 0,
+        "SELL": 2
+      },
+      "0x430e21896b631cd614760c4ccf3693682339cbf0": {
+        "BUY": 0,
         "SELL": 1
+      },
+      "0x4331a2edf49be2fbedcb7a6c2880558dd3b6776c": {
+        "BUY": 1,
+        "SELL": 0
       },
       "0x4366dd7a0bcbf3f64819c25cbf60d98de055fc6c": {
         "BUY": 0,
@@ -95,7 +187,7 @@
       },
       "0x43b57c71c5e958bcf87701bf0cc17f8d400ff55f": {
         "BUY": 1,
-        "SELL": 2
+        "SELL": 3
       },
       "0x45f6709101a09fd39e4fdf2fedfaad66a4339162": {
         "BUY": 1,
@@ -104,6 +196,26 @@
       "0x4b35b508f393f2489606ae3c8b03bb1392bbd379": {
         "BUY": 1,
         "SELL": 0
+      },
+      "0x4bc7521063f31a2f4a7ea76a464ed9bcf07477ff": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x4ec64ea1dcb99bb2b5dd6ec9e6c5bd6d325dd3ce": {
+        "BUY": 1,
+        "SELL": 2
+      },
+      "0x4f9160ba28e4f677a43ef3435968436d5de05dd9": {
+        "BUY": 1,
+        "SELL": 0
+      },
+      "0x4f93763ece864b9f1164ef721df00f8a5a35dcd6": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x50a76798e6d69324c314674921aced8c99659f88": {
+        "BUY": 1,
+        "SELL": 1
       },
       "0x50c0dc6bf897516b1730183ab8e0549c0914fec8": {
         "BUY": 1,
@@ -121,11 +233,27 @@
         "BUY": 1,
         "SELL": 2
       },
+      "0x57747537d900220e04c79e88d01cd55aea92dbdc": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x58161b33924304495fc096c7a2898e7a7f88e31d": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0x5866e200da22e3027cae41471a5a1cfa9a37ea47": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0x593671c56e7882b2316b28651fffd50d493c9904": {
         "BUY": 0,
         "SELL": 1
       },
       "0x595643a90c9a8b9c3c0ff7ccbab9817e7800750a": {
+        "BUY": 1,
+        "SELL": 0
+      },
+      "0x5a9ed9a78688c15f01a49e3dca24f7a093ff595d": {
         "BUY": 1,
         "SELL": 0
       },
@@ -141,6 +269,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x5ee79b7d0b70ccee19c9f961e9cc5e526292c6bc": {
+        "BUY": 1,
+        "SELL": 1
+      },
       "0x6352319414393c245cd01dcb30bf4318661ae129": {
         "BUY": 0,
         "SELL": 1
@@ -153,7 +285,23 @@
         "BUY": 0,
         "SELL": 1
       },
+      "0x65663f21535ecabaf9eb24026a5c718345a87c9e": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x675190237cc2a73f143a724c4294b28d51b7d6d1": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x67ec6918af71a528ba61241b4f6cb9acc1864615": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x686f19538ab232101e502b0fc0bd0c781ca0ea25": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x6aa82bfb8f2a326a323f9166ff7319a1def275cd": {
         "BUY": 0,
         "SELL": 1
       },
@@ -162,6 +310,14 @@
         "SELL": 0
       },
       "0x6c3484f6a307356caf5daa25e0bc710182a6fef5": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0x6f5db0d2c1589aff1fdfd4109cb45ced92f155c5": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0x6f7544432cd95933d316d1cf402cac8e71ab297f": {
         "BUY": 0,
         "SELL": 1
       },
@@ -181,9 +337,29 @@
         "BUY": 0,
         "SELL": 1
       },
+      "0x767e969fc8fb697e04ac5061eace8ca021d49437": {
+        "BUY": 1,
+        "SELL": 1
+      },
       "0x7817881c96ee16eb4f1511a299b0bf5cae999420": {
         "BUY": 1,
         "SELL": 0
+      },
+      "0x78d0a1f2f675688d687f0158cd066ac1f23e9500": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0x7cfc1eead5ea1d4c67d16934e2d507347e61ca3f": {
+        "BUY": 1,
+        "SELL": 0
+      },
+      "0x7e2b23ce2a7f160a58944b720e19df45622e7a7b": {
+        "BUY": 3,
+        "SELL": 3
+      },
+      "0x7e815f3cbff2e9ef4c6f63b1970557d1199072bc": {
+        "BUY": 1,
+        "SELL": 2
       },
       "0x7f2cc9d1450afd6a76f9dbdcd655a4f35f51ec68": {
         "BUY": 1,
@@ -205,6 +381,10 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x8700a3cb694ef203ade53e66a663a488a4a8e6b6": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x89715cb3057604989485eebb5eb18856be47c32c": {
         "BUY": 1,
         "SELL": 0
@@ -213,7 +393,15 @@
         "BUY": 1,
         "SELL": 1
       },
+      "0x8b7656950d8c1309acd96817fd367e3a6559f8ed": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x8da0f7cca52888a352c7fab0948f5d0ef036ec06": {
+        "BUY": 0,
+        "SELL": 2
+      },
+      "0x8f450f6455a32af9354f5b0b67fbe00fa615ad97": {
         "BUY": 0,
         "SELL": 1
       },
@@ -221,9 +409,25 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0x92b526c494f7e31ab8f7bb66e07215941968ec42": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0x92f60a0ab69c8714e0739501fc9810104834b51f": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0x966b87c6ca612c1f25919557241d47d8e44c179c": {
         "BUY": 1,
         "SELL": 0
+      },
+      "0x98f0ad3589830914fe2cc2f5bbe976849814a8a9": {
+        "BUY": 0,
+        "SELL": 2
+      },
+      "0x9e61a563752442d55c0d68289cb05a49ac5eaf92": {
+        "BUY": 0,
+        "SELL": 2
       },
       "0xa30f413ac0414b100615f4eab8535b9e4d7d735d": {
         "BUY": 1,
@@ -233,9 +437,17 @@
         "BUY": 1,
         "SELL": 0
       },
+      "0xa5d505509f7f688185eedce56bbc17e03ae4bde5": {
+        "BUY": 1,
+        "SELL": 0
+      },
       "0xa7b3413a28df6bec1c136802bb8d0df3c6c902b4": {
         "BUY": 1,
         "SELL": 0
+      },
+      "0xa8720f0c3d022b8f54197c1f7c9cfce0cf927554": {
+        "BUY": 0,
+        "SELL": 2
       },
       "0xaccd1b7fb0d98929f8f62a3b0abd296a3d6db030": {
         "BUY": 0,
@@ -261,6 +473,14 @@
         "BUY": 0,
         "SELL": 1
       },
+      "0xb2b243df046b9a57f89976f420cb749a1aca111a": {
+        "BUY": 1,
+        "SELL": 0
+      },
+      "0xb3bfe635ec26992b2d370e41fc34081c89e62c88": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0xb41e6f27f629a67d7cfb7e8e7ad52a25fb2a527d": {
         "BUY": 0,
         "SELL": 1
@@ -272,6 +492,10 @@
       "0xb657c25d69e9f5454bf031c673eb54750fec19ea": {
         "BUY": 2,
         "SELL": 2
+      },
+      "0xb741abf363f08fd0d9dca94c1b0a0d49096f4577": {
+        "BUY": 1,
+        "SELL": 1
       },
       "0xb76f56a6d9840f301e843fd4e71569374509ce98": {
         "BUY": 0,
@@ -301,13 +525,33 @@
         "BUY": 0,
         "SELL": 1
       },
-      "0xc132d787aadc5fa718cdd0971a3351c480149ead": {
+      "0xbfeb57e34f54658a7fe19842d69406af97c0825a": {
         "BUY": 1,
-        "SELL": 2
+        "SELL": 1
+      },
+      "0xc0638976a3f67760f37b064de24b2f3fe70c90d4": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0xc132d787aadc5fa718cdd0971a3351c480149ead": {
+        "BUY": 7,
+        "SELL": 9
+      },
+      "0xc19b786169b5b63e0274d764270c5dc155784042": {
+        "BUY": 3,
+        "SELL": 3
+      },
+      "0xc1cdda24a3fe0cda4a46261e2a720493418df397": {
+        "BUY": 1,
+        "SELL": 0
       },
       "0xc1d0d462c1cba72d2346233e4bdabf5a1d63a821": {
         "BUY": 1,
         "SELL": 0
+      },
+      "0xc4a5d2746611ad31ea03c25d3ea59a638e5d9b60": {
+        "BUY": 0,
+        "SELL": 1
       },
       "0xc61d5429be5e197f446dc58da16b55abe8e48ab5": {
         "BUY": 1,
@@ -321,6 +565,18 @@
         "BUY": 4,
         "SELL": 6
       },
+      "0xcc81c1371ad7cb7c5aaea2dff78a54d2505dddb8": {
+        "BUY": 1,
+        "SELL": 2
+      },
+      "0xccde2d9f6e7941b88be62df6f32cd8f3bc29104f": {
+        "BUY": 1,
+        "SELL": 3
+      },
+      "0xd077b8f1afde7110a8d472cc7333084b5ad8f121": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0xd3194a6c2369ad213493373f9a7af9831936ed99": {
         "BUY": 1,
         "SELL": 1
@@ -329,13 +585,37 @@
         "BUY": 0,
         "SELL": 1
       },
+      "0xd5f0c16eb018e5ba57c1bef935b52406a3eb9af3": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0xd7f63f0b701dee473925084bdb6edc5b829885a6": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0xd95e959cd12fbdd4e6c04a54f83e4f0c3efc470b": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0xde3e8eb0be17ac92c96454f1804e4ad664888888": {
         "BUY": 1,
+        "SELL": 1
+      },
+      "0xdf5256e4f28a09fa7a63c49b68451e8d936a3513": {
+        "BUY": 0,
         "SELL": 1
       },
       "0xe329b859c9670a271eed83ab1e7ef1154a4e1b24": {
         "BUY": 1,
         "SELL": 0
+      },
+      "0xe6115266875eacbf8c6eb67e1bac5a4ccf7e23e5": {
+        "BUY": 0,
+        "SELL": 1
+      },
+      "0xe6996f41ec1188ecec5b9acf6c4ca31af1adbc94": {
+        "BUY": 0,
+        "SELL": 1
       },
       "0xe6b59e7816ae4002de81fdf1fa96755a2ae5520f": {
         "BUY": 1,
@@ -343,19 +623,43 @@
       },
       "0xe79db52e77d275464bbca39d0a731cd32d170bfd": {
         "BUY": 1,
+        "SELL": 2
+      },
+      "0xe9e945dc63abff7727b2766339635d9d393024a8": {
+        "BUY": 0,
         "SELL": 1
+      },
+      "0xea563aa8b3bd3bad65d72127905375c2a9b2dea5": {
+        "BUY": 0,
+        "SELL": 3
       },
       "0xead4e1eab79dbb80dd666db3c3f0fbb341569fed": {
         "BUY": 1,
         "SELL": 0
       },
+      "0xed277ab43ed4f03dd26caf19c180907f95eb9d30": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0xed8b85788e15305c59de904fcaac0f2c9c4bd41b": {
         "BUY": 94,
         "SELL": 15
       },
+      "0xedd01f814392af5c938d76ccdc0563b8abb787b6": {
+        "BUY": 1,
+        "SELL": 1
+      },
+      "0xef65153709786aae47099f33f42ed777e08d6036": {
+        "BUY": 1,
+        "SELL": 0
+      },
+      "0xef9c5f73ed2d84f268004e15a83f019c106da44e": {
+        "BUY": 0,
+        "SELL": 1
+      },
       "0xf1dad94cf0c66505dc872da6a77f1f5d32684da8": {
         "BUY": 1,
-        "SELL": 2
+        "SELL": 3
       },
       "0xf2c09278ff007973bdab5692cebaacc3a1e00c44": {
         "BUY": 0,
@@ -396,10 +700,455 @@
     },
     "address_tracking_started_at_utc": "2026-08-10T03:26:48.254901+00:00",
     "address_tracking_started_block": 115037152,
-    "last_alert_at_utc": "2026-08-13T02:01:19.975048+00:00",
-    "last_alert_block": 115612878,
-    "last_scanned_block": 115613009,
-    "pending": [],
+    "last_alert_at_utc": "2026-08-13T03:01:15.391436+00:00",
+    "last_alert_block": 115619264,
+    "last_scanned_block": 115620996,
+    "pending": [
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619322,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x57b52a1753d8174311bc1d64faf06f7a586ede260aed989b87ba66e844c1d7f5:250",
+        "ibs_raw": "35000000000000000000",
+        "log_index": 250,
+        "side": "BUY",
+        "trader_address": "0x2Ad31880aaDe7a23fa728369Fa1e4a181F902301",
+        "transaction_hash": "0x57b52a1753d8174311bc1d64faf06f7a586ede260aed989b87ba66e844c1d7f5",
+        "transaction_index": 32,
+        "usdt_raw": "821988658512115853516"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619344,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1f128a7aee3fbb53b98d1369937accff3247f9d3b4ea8ff2480ad670823130cc:487",
+        "ibs_raw": "27235065000000000000",
+        "log_index": 487,
+        "side": "SELL",
+        "trader_address": "0x6Aa82bFb8f2a326A323F9166FF7319a1deF275Cd",
+        "transaction_hash": "0x1f128a7aee3fbb53b98d1369937accff3247f9d3b4ea8ff2480ad670823130cc",
+        "transaction_index": 71,
+        "usdt_raw": "636447766983558130371"
+      },
+      {
+        "address_side_sequence": 2,
+        "block_number": 115619565,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x72487d99cdc8fae87948925bf5ec3aa648dd18e7ebf46047cceaef63d9a65144:222",
+        "ibs_raw": "80785282500000000000",
+        "log_index": 222,
+        "side": "SELL",
+        "trader_address": "0x7E2b23CE2A7f160a58944B720E19dF45622E7A7B",
+        "transaction_hash": "0x72487d99cdc8fae87948925bf5ec3aa648dd18e7ebf46047cceaef63d9a65144",
+        "transaction_index": 39,
+        "usdt_raw": "1887232100362704196072"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619570,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xb87867dba7b2b56c5fed553f67bea5846af320269aa43fb3f4036e069a388f03:563",
+        "ibs_raw": "34125000000000000000",
+        "log_index": 563,
+        "side": "SELL",
+        "trader_address": "0x2Ad31880aaDe7a23fa728369Fa1e4a181F902301",
+        "transaction_hash": "0xb87867dba7b2b56c5fed553f67bea5846af320269aa43fb3f4036e069a388f03",
+        "transaction_index": 59,
+        "usdt_raw": "796996095128544916983"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619682,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x47389f7d2c797a3a9d4d6798c92a8f11b96e4457cda295bc9e4dacc9b360c949:328",
+        "ibs_raw": "54840000000000000000",
+        "log_index": 328,
+        "side": "BUY",
+        "trader_address": "0x3A0f0A5b3A02046c22d294362EC1D75f5149956a",
+        "transaction_hash": "0x47389f7d2c797a3a9d4d6798c92a8f11b96e4457cda295bc9e4dacc9b360c949",
+        "transaction_index": 38,
+        "usdt_raw": "1287142637242031129754"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619741,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xeb5480488dd5c15b5f7e36117b48f75d279fc514893ca8ba29f8e2887737ba92:175",
+        "ibs_raw": "53469000000000000000",
+        "log_index": 175,
+        "side": "SELL",
+        "trader_address": "0x3A0f0A5b3A02046c22d294362EC1D75f5149956a",
+        "transaction_hash": "0xeb5480488dd5c15b5f7e36117b48f75d279fc514893ca8ba29f8e2887737ba92",
+        "transaction_index": 28,
+        "usdt_raw": "1248625933385426040535"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619751,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1426cada453af64f0e4ab82449608d171534092d898859caa4db4908f74190a4:211",
+        "ibs_raw": "165067000000000000000",
+        "log_index": 211,
+        "side": "BUY",
+        "trader_address": "0x58161B33924304495FC096c7a2898E7A7f88E31D",
+        "transaction_hash": "0x1426cada453af64f0e4ab82449608d171534092d898859caa4db4908f74190a4",
+        "transaction_index": 35,
+        "usdt_raw": "3875016709452765690217"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619752,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x7c57057d090b637565708fa5df73fd2c2ba0610bc251b7a4c65e25511a11eddb:334",
+        "ibs_raw": "24375000000000000000",
+        "log_index": 334,
+        "side": "SELL",
+        "trader_address": "0x50A76798e6D69324c314674921ACed8C99659F88",
+        "transaction_hash": "0x7c57057d090b637565708fa5df73fd2c2ba0610bc251b7a4c65e25511a11eddb",
+        "transaction_index": 38,
+        "usdt_raw": "569536315637909666217"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619824,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0bb99107b19250fe5bd71ae574bcf08d55977c7fc0c143647e34a23e72e30ef8:67",
+        "ibs_raw": "27962500000000000000",
+        "log_index": 67,
+        "side": "BUY",
+        "trader_address": "0x6f5db0d2c1589afF1FDfd4109cb45ceD92F155C5",
+        "transaction_hash": "0x0bb99107b19250fe5bd71ae574bcf08d55977c7fc0c143647e34a23e72e30ef8",
+        "transaction_index": 18,
+        "usdt_raw": "656583640906820287631"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619935,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xed8675eb27682c29bdd1022669d601e7802cf3c56372b0fce028c44729a119e7:804",
+        "ibs_raw": "33317992500000000000",
+        "log_index": 804,
+        "side": "SELL",
+        "trader_address": "0x6f5db0d2c1589afF1FDfd4109cb45ceD92F155C5",
+        "transaction_hash": "0xed8675eb27682c29bdd1022669d601e7802cf3c56372b0fce028c44729a119e7",
+        "transaction_index": 97,
+        "usdt_raw": "778381035468302592914"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619945,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x50d9bc3c81c7c8d6c1810ced14f8750cd69094610a57aad30153641abdbea837:211",
+        "ibs_raw": "242500000000000000000",
+        "log_index": 211,
+        "side": "BUY",
+        "trader_address": "0xBfeB57E34f54658A7fE19842D69406Af97C0825a",
+        "transaction_hash": "0x50d9bc3c81c7c8d6c1810ced14f8750cd69094610a57aad30153641abdbea837",
+        "transaction_index": 27,
+        "usdt_raw": "5696438712183376538286"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115619973,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x757d8c885e8b846a2e6abfe936059677ab5396876f4f82ca223a365385c00f51:154",
+        "ibs_raw": "21508305000000000000",
+        "log_index": 154,
+        "side": "SELL",
+        "trader_address": "0x6f7544432cD95933d316d1cf402Cac8E71AB297F",
+        "transaction_hash": "0x757d8c885e8b846a2e6abfe936059677ab5396876f4f82ca223a365385c00f51",
+        "transaction_index": 24,
+        "usdt_raw": "502975297432377248389"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620074,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xb9a85bcac263b6f8c08391a45c51a32736ab9397526e5379cbe22f19a6508c22:182",
+        "ibs_raw": "236437500000000000000",
+        "log_index": 182,
+        "side": "SELL",
+        "trader_address": "0xBfeB57E34f54658A7fE19842D69406Af97C0825a",
+        "transaction_hash": "0xb9a85bcac263b6f8c08391a45c51a32736ab9397526e5379cbe22f19a6508c22",
+        "transaction_index": 31,
+        "usdt_raw": "5525330277027899993872"
+      },
+      {
+        "address_side_sequence": 3,
+        "block_number": 115620087,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x56f32809832aa568fa5883a3fa809e763da6262c8d306b213aa936f06ae8d551:68",
+        "ibs_raw": "42561300000000000000",
+        "log_index": 68,
+        "side": "BUY",
+        "trader_address": "0x7E2b23CE2A7f160a58944B720E19dF45622E7A7B",
+        "transaction_hash": "0x56f32809832aa568fa5883a3fa809e763da6262c8d306b213aa936f06ae8d551",
+        "transaction_index": 29,
+        "usdt_raw": "999181006987604559736"
+      },
+      {
+        "address_side_sequence": 2,
+        "block_number": 115620127,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x93d7ac451980fce4e0251a18aac4a5fe7c80d4a8237dcfe8e3ba91f108f3c9a5:218",
+        "ibs_raw": "33599869582500000000",
+        "log_index": 218,
+        "side": "SELL",
+        "trader_address": "0xCCDE2d9f6e7941B88be62Df6f32cD8F3bC29104F",
+        "transaction_hash": "0x93d7ac451980fce4e0251a18aac4a5fe7c80d4a8237dcfe8e3ba91f108f3c9a5",
+        "transaction_index": 28,
+        "usdt_raw": "784797373033592065439"
+      },
+      {
+        "address_side_sequence": 3,
+        "block_number": 115620167,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x3215704a96582b29b043063515454006533a74229dbe61ebae4d450586c910f8:226",
+        "ibs_raw": "41497267500000000000",
+        "log_index": 226,
+        "side": "SELL",
+        "trader_address": "0x7E2b23CE2A7f160a58944B720E19dF45622E7A7B",
+        "transaction_hash": "0x3215704a96582b29b043063515454006533a74229dbe61ebae4d450586c910f8",
+        "transaction_index": 34,
+        "usdt_raw": "969125375838806567415"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620268,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x287d8547dad616313861e759b19fcdacae13b80b88988556e6d918e780fbda45:94",
+        "ibs_raw": "53000000000000000000",
+        "log_index": 94,
+        "side": "BUY",
+        "trader_address": "0x34c835181BFDe6fF40962F284982194aCF70fe6B",
+        "transaction_hash": "0x287d8547dad616313861e759b19fcdacae13b80b88988556e6d918e780fbda45",
+        "transaction_index": 20,
+        "usdt_raw": "1243809769165797185167"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620412,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x7552f962949da92325e4a93ed337e901aea12e4c4b8e7b56a0a86979aefde69d:306",
+        "ibs_raw": "70200000000000000000",
+        "log_index": 306,
+        "side": "SELL",
+        "trader_address": "0xE6115266875EACbF8C6eb67e1Bac5A4CCF7e23e5",
+        "transaction_hash": "0x7552f962949da92325e4a93ed337e901aea12e4c4b8e7b56a0a86979aefde69d",
+        "transaction_index": 35,
+        "usdt_raw": "1639180860015242915841"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620424,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x6d0cbf6814f13c251a4d9716427ebde49ad6f1660a6266183ed58bdc8d7d9358:109",
+        "ibs_raw": "149951880000000000000",
+        "log_index": 109,
+        "side": "SELL",
+        "trader_address": "0x2512C88bBBf55061c32f1A8f11c57cEcB9882776",
+        "transaction_hash": "0x6d0cbf6814f13c251a4d9716427ebde49ad6f1660a6266183ed58bdc8d7d9358",
+        "transaction_index": 23,
+        "usdt_raw": "3499672591384778880537"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620460,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd89943110b305faee41f5533d7d979120621b4e43a0d69fa03938a333bf4aec6:233",
+        "ibs_raw": "25212500000000000000",
+        "log_index": 233,
+        "side": "BUY",
+        "trader_address": "0xB2b243dF046b9a57f89976F420cb749A1acA111A",
+        "transaction_hash": "0xd89943110b305faee41f5533d7d979120621b4e43a0d69fa03938a333bf4aec6",
+        "transaction_index": 30,
+        "usdt_raw": "591171902828861937979"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620461,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc671e626f04f0e315ec8cb83244814ad5dd6df1d859c277e7dee2a65383ab09b:262",
+        "ibs_raw": "50596400000000000000",
+        "log_index": 262,
+        "side": "BUY",
+        "trader_address": "0x5866e200Da22E3027CAe41471A5A1CFA9A37EA47",
+        "transaction_hash": "0xc671e626f04f0e315ec8cb83244814ad5dd6df1d859c277e7dee2a65383ab09b",
+        "transaction_index": 48,
+        "usdt_raw": "1186564754840877837826"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620534,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x52d6b3b59d4557f623c7a41c15807da94b38e9704d4546133be78260dad60704:319",
+        "ibs_raw": "51675000000000000000",
+        "log_index": 319,
+        "side": "SELL",
+        "trader_address": "0x34c835181BFDe6fF40962F284982194aCF70fe6B",
+        "transaction_hash": "0x52d6b3b59d4557f623c7a41c15807da94b38e9704d4546133be78260dad60704",
+        "transaction_index": 60,
+        "usdt_raw": "1205832999366677197218"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620547,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc22308748fdc8a124ef333f26e1ee1874949063eafc96ac30f254f7b16921d9c:553",
+        "ibs_raw": "49331490000000000000",
+        "log_index": 553,
+        "side": "SELL",
+        "trader_address": "0x5866e200Da22E3027CAe41471A5A1CFA9A37EA47",
+        "transaction_hash": "0xc22308748fdc8a124ef333f26e1ee1874949063eafc96ac30f254f7b16921d9c",
+        "transaction_index": 53,
+        "usdt_raw": "1150886729473739728457"
+      },
+      {
+        "address_side_sequence": 3,
+        "block_number": 115620554,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9926ba72da73e4d957b2a6c65981a04e6e7af825809b160694b7c7a4a403ff60:113",
+        "ibs_raw": "117975000000000000000",
+        "log_index": 113,
+        "side": "SELL",
+        "trader_address": "0xf1dAd94cF0C66505dC872da6a77F1F5D32684da8",
+        "transaction_hash": "0x9926ba72da73e4d957b2a6c65981a04e6e7af825809b160694b7c7a4a403ff60",
+        "transaction_index": 21,
+        "usdt_raw": "2751315291435691398830"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620555,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9deac403bfa0975649e92df3de9a55df808099c1250343a51c8aba074455cabd:106",
+        "ibs_raw": "22258100000000000000",
+        "log_index": 106,
+        "side": "BUY",
+        "trader_address": "0x5A9eD9A78688C15f01a49E3DcA24f7A093FF595d",
+        "transaction_hash": "0x9deac403bfa0975649e92df3de9a55df808099c1250343a51c8aba074455cabd",
+        "transaction_index": 36,
+        "usdt_raw": "521578140778732913808"
+      },
+      {
+        "address_side_sequence": 3,
+        "block_number": 115620570,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x8f92333ccd6a7eaf627288eb1ae1f7858ed831a7e4b8f08c47c4cbe5820c34ee:138",
+        "ibs_raw": "32090334315000000000",
+        "log_index": 138,
+        "side": "SELL",
+        "trader_address": "0xCCDE2d9f6e7941B88be62Df6f32cD8F3bC29104F",
+        "transaction_hash": "0x8f92333ccd6a7eaf627288eb1ae1f7858ed831a7e4b8f08c47c4cbe5820c34ee",
+        "transaction_index": 23,
+        "usdt_raw": "748131059553392056741"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620574,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x11d6d84eff8784b6e2e8e6f482de0917146bd1df28b099064c29a19987ad0e07:204",
+        "ibs_raw": "176490307500000000000",
+        "log_index": 204,
+        "side": "SELL",
+        "trader_address": "0x4bC7521063F31a2F4a7ea76A464Ed9BCF07477FF",
+        "transaction_hash": "0x11d6d84eff8784b6e2e8e6f482de0917146bd1df28b099064c29a19987ad0e07",
+        "transaction_index": 36,
+        "usdt_raw": "4112411925345755798312"
+      },
+      {
+        "address_side_sequence": 2,
+        "block_number": 115620610,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa7271d8e6652f4380678662423a72cbc5e4eeec2d0cde4de619b9a989045c4bd:161",
+        "ibs_raw": "26584900000000000000",
+        "log_index": 161,
+        "side": "BUY",
+        "trader_address": "0x34c835181BFDe6fF40962F284982194aCF70fe6B",
+        "transaction_hash": "0xa7271d8e6652f4380678662423a72cbc5e4eeec2d0cde4de619b9a989045c4bd",
+        "transaction_index": 25,
+        "usdt_raw": "622412696953897173781"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620635,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd5a5e11b97821d0656489b0dc6bd7f2bdd979328c34d4f84bbdd15349a30b7fd:128",
+        "ibs_raw": "108483570000000000000",
+        "log_index": 128,
+        "side": "SELL",
+        "trader_address": "0x36860d9403C7CeB3485220769104F0ff7D56eC44",
+        "transaction_hash": "0xd5a5e11b97821d0656489b0dc6bd7f2bdd979328c34d4f84bbdd15349a30b7fd",
+        "transaction_index": 25,
+        "usdt_raw": "2526463533173077263566"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620659,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x3ca08e6c0816c790f249b65cec8bcf71a0001f0d8e09deeeb0820d5d03326678:88",
+        "ibs_raw": "74197500000000000000",
+        "log_index": 88,
+        "side": "SELL",
+        "trader_address": "0x92F60a0AB69c8714e0739501fC9810104834b51f",
+        "transaction_hash": "0x3ca08e6c0816c790f249b65cec8bcf71a0001f0d8e09deeeb0820d5d03326678",
+        "transaction_index": 26,
+        "usdt_raw": "1727250696058087731371"
+      },
+      {
+        "address_side_sequence": 2,
+        "block_number": 115620691,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa50577576a55a58d9cf11e7c2211104e39b1b80c76a3d554ad38686c7925280f:321",
+        "ibs_raw": "253007235000000000000",
+        "log_index": 321,
+        "side": "SELL",
+        "trader_address": "0x40879a6c566a0611f898bCe15747B2F013d6599d",
+        "transaction_hash": "0xa50577576a55a58d9cf11e7c2211104e39b1b80c76a3d554ad38686c7925280f",
+        "transaction_index": 45,
+        "usdt_raw": "5885156552330039860177"
+      },
+      {
+        "address_side_sequence": 2,
+        "block_number": 115620700,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x303e1a062dc94e7210a6d9d56f073abe9bf7b22817339392dbbbd04356a02c22:153",
+        "ibs_raw": "25920277500000000000",
+        "log_index": 153,
+        "side": "SELL",
+        "trader_address": "0x34c835181BFDe6fF40962F284982194aCF70fe6B",
+        "transaction_hash": "0x303e1a062dc94e7210a6d9d56f073abe9bf7b22817339392dbbbd04356a02c22",
+        "transaction_index": 24,
+        "usdt_raw": "602571816828271929924"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620828,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x62bbe4d8a5011bb206638193abf83ef6c972f77f6002cd1033d65a1f27314d11:330",
+        "ibs_raw": "185101117500000000000",
+        "log_index": 330,
+        "side": "SELL",
+        "trader_address": "0xDf5256e4F28A09fa7a63C49b68451E8D936a3513",
+        "transaction_hash": "0x62bbe4d8a5011bb206638193abf83ef6c972f77f6002cd1033d65a1f27314d11",
+        "transaction_index": 36,
+        "usdt_raw": "4300152714255421712322"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620934,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x8c0baf5c619c816104422613a727d693d586874d3850c8a5cc81add3ae525e3e:304",
+        "ibs_raw": "22969257382500000000",
+        "log_index": 304,
+        "side": "SELL",
+        "trader_address": "0x12D6Abc53c507E7B37d50AbFd4FcF2e3cd59FF89",
+        "transaction_hash": "0x8c0baf5c619c816104422613a727d693d586874d3850c8a5cc81add3ae525e3e",
+        "transaction_index": 43,
+        "usdt_raw": "533333543496227819879"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620936,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x6d6d2ff1dbe26d4aca5b8e6eb2e45fc7b3a062574c9eb8b0df2e6c67be5ccd1d:46",
+        "ibs_raw": "56550000000000000000",
+        "log_index": 46,
+        "side": "SELL",
+        "trader_address": "0x686f19538Ab232101e502b0fC0bd0c781ca0Ea25",
+        "transaction_hash": "0x6d6d2ff1dbe26d4aca5b8e6eb2e45fc7b3a062574c9eb8b0df2e6c67be5ccd1d",
+        "transaction_index": 5,
+        "usdt_raw": "1312826629985655594910"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620972,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa5f75fe7e4841266c8f5602231fc5804340b80705214f8d8e5d56c8e630f78db:375",
+        "ibs_raw": "92058807555000000000",
+        "log_index": 375,
+        "side": "SELL",
+        "trader_address": "0x57747537D900220e04c79e88D01CD55AEA92DbdC",
+        "transaction_hash": "0xa5f75fe7e4841266c8f5602231fc5804340b80705214f8d8e5d56c8e630f78db",
+        "transaction_index": 78,
+        "usdt_raw": "2136519029336886486052"
+      },
+      {
+        "address_side_sequence": 1,
+        "block_number": 115620996,
+        "event_id": "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2c60efc233fdee6b0553965c61f90ae372b74bf95a70485ab4d925314b01d900:262",
+        "ibs_raw": "59475000000000000000",
+        "log_index": 262,
+        "side": "SELL",
+        "trader_address": "0x65663F21535eCABaF9eB24026A5C718345a87C9e",
+        "transaction_hash": "0x2c60efc233fdee6b0553965c61f90ae372b74bf95a70485ab4d925314b01d900",
+        "transaction_index": 21,
+        "usdt_raw": "1379711346520802623722"
+      }
+    ],
     "seen_event_ids": [
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0c85324e24a8d90f17d6e47d56afec4e32221a979d2be3a8352837e6160d9bb8:306",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x5ffc9ff2eff8b738b2e7c9ad7a80367009335cf3e3228bcdb5d0a8318a4f71f3:478",
@@ -667,30 +1416,138 @@
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x7e596e1af65ed46560468dcb50f5c5502ebbc4fed4980823478c710e08fc77fe:130",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x45a10fe0d056827e883c8d2fbb116998c5ed37033123cb54239106c852cbb601:137",
       "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0187fcecebceeec00b44aef35b52df2a5fd0584b28741eb78ddcfe31ba89d10a:360",
-      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9addb994588c814b9d232df58f63cf7825d5b652b499e592a7562b06851dbde7:174"
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9addb994588c814b9d232df58f63cf7825d5b652b499e592a7562b06851dbde7:174",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x18a8d178ea3ee3d273c851ad9674de5d4c405ca880c0b576cabc9d19b940be13:373",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xe4cc3f10c32ae7f3e20007a8f6dd425a024c11880acd59195c7bca9a5d7beb34:126",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf78c1c50e977cfa9986580ef84425ab96d459ee72dfd570c929739c163b15d9d:201",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x308351bb683102dee7cf26becd19f5ec74da18019fd8e67c0a2afb612691e098:128",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x65814edd39fae34afb754169dff0cf1390ba6935a5164b4642635adbd754fcff:332",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0fc8a7a15b00b5aaadef6fa66d48bf017bfc317094ddfbbcea3aae804202d64d:185",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd6e6e76ba78d1e26a5296692d2dde466fb79b7da4d407266c252a209b0d82a73:201",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x941f98a45b9d3306247b073291b57bc648429a2c5c9506d8a15381eb34da0eba:12",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xdbec1b44e16463d10fe1e0066e8417ed3f854c0286b97d15b0f879e42e583ee2:174",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xadf32381cb10719a6298342b691fe610012b102222b136b3f2a1051d550c2d8a:213",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf72fd822db6fb4fe15104a91c668178ae5b39a84287b26333cb42990e763e211:226",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xbf5c34a172f0ccb86727356b475c2d6c26cef2fe74c1a9f25c4c380bfbc5eed5:115",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc757cd6cd89b7f81c636c2bb15d0147361224fc2955480c6c5e43d7f3b120f2c:153",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1bf04db0e9cb25fb49adb08b46306412fe7feb35023d92040f7ac0d5cfee39bb:107",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x8b487ea0d8c4761d9528ba8aa7093a6cbc06024b776f90697e015d68afc0f32d:249",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9a4dddad13d3ddad4ae560b1d567dbaf452e1a4d9177db0a15d8bee77a9742c1:288",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa7e503ac1a8c6549ea713634f0ad85a24d03ea0723734bab7c865dbde6b31bea:199",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf32ed650c585b1f14d7f0a262f81ff8c46d504866b18f8eeff6413dd50b8e8c1:372",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x12c2639fdf1f3b1ad8afee8eb03427175bc3de2cf4f9598b742a8c4af4367a44:239",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x5afb622a06b876f6afa5189940af79912942de6cfff2c6ce8a107265899f83bb:395",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x98b8343e82c43e83717dfdac348860b287263599caba757c3019687bc9de39ce:218",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4e987c3e1586e9e7b100d545592462593eb40a8ec7df97981e9ac232ce2515db:138",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2d907aa2387660312e285fc633832d81f0ac3482d524329b8f7afca7417e64e4:190",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x67814655c61b23fd978037273224fb70780bd75a2d97caa67b4693a3e310efb4:150",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4f9eb5c8b002ef560bbc51c003c394dd7e87e15f05aad3d32bfbec15b6523239:55",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x316484657c9517f3c591568ba2b4c50cbab2873b7407da7ff5d91fd90953bfb6:155",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xab15676c561cc147655cf120c99f95b05b84bfaf2cabf9a39fbe464fa760e4b2:155",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2e8e6063cf5e604e6e1e064758ec9b5c291eb487b813109a6739947d455fae73:427",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x51b722350e62e13f842124ce83c01418dfa2f8a03e9869bb8cfe7b194f4134d2:203",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0a32db03e46c019a9c4722d84bf4b54498f3c77c7c2d18057fa0f8db8bd077d7:249",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x92aa46d6d0503e21b5e20e036bc90dc09d7e7c37f9e7e757a4db4926c43e520d:429",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x511ca3ae118a2a8736007bd2322fd6e86ee97b460e862142b10d77f543dc9e44:370",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xe1da25d102c1575010fe1998258fe6b609387cb6f4a9e089ce855c7e1d445d22:648",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x89d46517f2191bae641599339eab4fd71d4447e504b9ce8f2fd779ccc833ab3a:98",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xb9629aabbd24cabd128d1e018186a6c3493562b5ee89e21a79ee30f1cd3cf2d4:177",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4cb1bcc49e57fdc91d4555e6e356aacd53081ce858444096688d7344c99c987d:168",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x544247e4f057c60e3f097bce1a098305fec542d9bf5e7ed98f443144396c4156:157",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1eafeb1e81ae419e0e19a089e2bbf510b92331f826eec7cfa0f6da98976ada8b:155",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc04a508f3ca7f11dabc9abd7b52f0f3253fbc34e7fc98126c1f744c9dc605397:477",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2d9344dd50bead126c01380b5c459599a9f6446dcf193fe0109e216180cb6854:324",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xb9b3b4bdce7f95763a3efeb53e2a3838676fd1686b603488db976aeb8100ab51:273",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf00aeb8ce09e1d17a9e43770183e3bcd9071634b604f142d9e5ba4a9d77c1de6:170",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x742744e311f2f7946310ae4db6c12b69552176a76e0e5e7f1fa14422b964be70:1100",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf319b9351f705bc740b8b7d62c6145843bcc1ba8845ec32a0ca16b7e5218ce33:158",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf500e89c444de68fa93b422f57c69b5752a381ac5eeae1082123b1098f32ed21:153",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2ead7add6c00144ae9b794543c1736297f43e204fbb8b211fa184e24f51300c2:313",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf5fa3353022a5eb84a7b18b37b053816ed2bffd02531589b529efda68a9050b5:397",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9bc0605dc9dfbb64d1c7e7d103fc62f30afc835e26fc9b4911cf008c0b67440a:113",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4a07d0a5a32d48c560cd1d717db1b6a43f7ea377163b4337bb0cd180b6a3a423:177",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2679313098f59d43847fce2d808c8cc0a42488f68b7d5f443993398cbb9583e4:88",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf3e634259e531d0ef42c8ae4fa9cdfa1f7e575f4fbe5df3e22664e14cbfa9853:195",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x409cf3224aeacd22a0a160de2cad12d5536e7e841e9ca43a96e209ed796bc2c4:267",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4677298bc138e03c892400c980de6e46a088cbe6d12774d09c3182553986d459:310",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x794d9b570b23a8638e7520b3b30bcc5f968069b72b70d93f44527403f8e70aa6:229",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xbb17bba745ea68948aaa3e7f82ecfecbbf3d822d04626b334d7810a3ee991eb0:146",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd7a767ccb626db1ceedf1f1d60308f674d9d8074f537f2641a619e0a8c958ee9:247",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x2e327fb3409be4460bce2ab6683d70f22612449a1abf3aed64790cff9aa4098a:298",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd17c59d2d5c848cefdebde2c73bd585c2cfb3df2bc70c44ed1c6252f86c8db02:354",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0af43de34d4526feabb94161eb4cb8f6e779da658c33fbd0ca2fc1dade9f37ee:184",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc891a7ab335ce6cc2909abeb11538aab61dbf7c2a1f3303585de4c9e95736231:571",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x318ce9d9ccf2887c8220dd3764434b4f5f6cd9e3add2080360326bc401f1b09b:244",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x067245da62938c0c17e3aa180866a2145306f0735c8ba67ed3f97fa9cda41c92:190",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc0402fb22aa6fa6a81b6da5f2181cf70e47974b649fa0fd00fc69b55cd96bb4d:271",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xdf5d97c23e7e1c1764235e8d38e94fac1de9bf763710027fe95afd133499427d:361",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf3cbe3543a335eef053e96754cb8868dce1f5e9d1a544e78bf072025c2ce7793:224",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x473d28c04fa269d0bcd86cf6c343b7b613790e1a58987c5de76d577ba5d83b13:172",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4f87ecc26a1649b9b8cbaefc01daf22d3bf12a68dd2e558070a9d59babcc93b9:223",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0eb73b4c637529697d04910ac0189b4f7a574d14d50b10f7fa43f6e1eb44a554:203",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xefd36a73a440b3d704bbdf5386334b56db7c7e2c3788fee1fecc484c0e6df1b4:123",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1c76576ba0e2adce7383e3d9336b5226f2316cf778b8b6d13bd18dc866cbb4d4:230",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1260b1554c0c58156989ca0f7bd225d0c4cfe9b8436c77a1ffa3948d1f973976:210",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x810758cda8e953343311a4553fc5c15617043178209915ae156acb86b1f4f884:107",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x98be6a34d92775106348b182016683740bad81abb5e42f80a274e8ad3bb41193:174",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd6c3fbb361b1e3147fc5d215d93dfa52dd4ef9500a8bfe40249aac6c9b053cd7:299",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd04d987490001c1c4ddd22e04dfece756828418315fb2421ce4f25c2de8ea66d:213",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd9b54f99d971de39e0b6c014b5983c17c3c25e4a4e608a75b63b2d177b57cd2c:148",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x97d03afa969cc0e01e597a94362434ac912d261f291915a929dffdd197c95176:254",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xe23f529c1405943ba8d35dfdbcbcdf2fde540edc379032317f473daeb49866a1:327",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x44ba340b633db0195f721cada5e13d4ce48d2a5e4f3640528c70980a6a0a1689:154",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd24a8f0343d2f89a9d63d1b707e92c196605761f49bec750af06928c7c1a5ac9:185",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x1123b62fc493e6e1db989fa581fdaf97279508df97a8264de7b418202b2e752c:61",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xe14a0dc538581f22a0e85445297f5824f8f536a7bf801958315987839aed2a90:250",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x3eb72469ec5c18e48c84f01e72958d0737fa329f93522284536eda1a368a5c13:310",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4146b862e67b4c8fec9af1dcdca1ba51a9732d9c80d4eae4b738dc3f230a1d4d:195",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x3a9f2fe76c6a5a50d8166b33955993918dc62f7b827e76428f48023668bfd6f4:348",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xbfd29230327c9eca3b86203cceedb5bbb3b20d1b2b4ee538913ffa790d90479d:250",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x24a0a68bbcbb1fcb21af6948015d22469205adae9c49165d0f63ee5cdb55cc39:178",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0634a88147410b1eb79f5b74a9427d29ca4014510ac6e312194dfbde552b5cb1:364",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xc1685ad521c40b13e86e2bcf3f7b19def1ff736591546a42e0640beaaf5d2be9:167",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xd556fc9a35416cbe572403e7bbbaadd92920d181433d7aec728bc777585ba2b9:716",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x8e229b5c01402f57cde4a41839f857935b62427f5ead4eb0cb07336b5aa9d69d:300",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x24029820a2c78c8e082575af2a2a8f820aaeeb6c0aafbfd45d80e735bd8374dd:142",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x0aa5af98fbbc15c75c9c33b451cebf25c4fa0e477c02af55d297037c1526d44f:244",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xdd5b397d6d3f5173001d62971d412e72a99d47e70dd11265ff4e84c35b179b89:228",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xbe93427028d11317de932c597d27d582a70c6495b12c7f425a87d2b104562bfb:217",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xf06640deb2ab7e07eb448f64572937edc20374c4be2318ad31f6d5458187089b:159",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x4711af798f1b7fa98878ce4ef94fdb16bbcaadfd6fe80118d33bd43a33f15e69:174",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa1b6df399d9888704d0f8880b19957aa035f1af05ec7da3426f47b9a8335ef43:117",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x19ded01bf87ce6ac03ca5b9fbd8e3f38134dcff5dd27a1002d780b3f23ea2046:109",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xdefb518db5c3a80f023d20fa461e014e4e37208ea79f342243b5a4067096cb60:126",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x41f490e7788c5a67855a85dbaa24618e9581fda0fc69453253308e0b82bc19bb:299",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x85b734f7749f70f0e61ca05008d5a3b8a18ee1295c5ac84174ca2ed07bc73cb1:767",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xa999d1c196b889eb58a7e19b294838259f44815f8148173df79df9f4688dd19c:164",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x9b419fa34ae8b4de1dbb43d2698db9bf740078b5a4cd76d9cfe383e9550a0182:326",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x515c999431856e50b11ac7d15845f64e0df600ab6ee41399fab11adaefcedd43:574",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0x3736549bd342015dff2c52a1bd0870d19631e79ef8bb0de12e6211eaae8de27c:313",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xe4dd833213e6fa49187fab7887e476d8b8227bf715f07906725df94bad1d9470:353",
+      "56:0x2a4b99a9c4544d35e8d266111c50b67fea01d53d:0xb7656b246e6a82cf49d4380c4b98f6999d75aafedaa9fcce840d210c589c253b:93"
     ],
     "tracking_started_at_utc": "2026-08-10T01:00:38.393912+00:00",
     "tracking_started_block": 115029129
   },
   "latest": {
-    "backing_per_ibs": "10.199186569800507406306351379126975690389856931079178275456625318965811721825950",
-    "block_number": 115605139,
-    "block_time_utc": "2026-08-13T01:02:14+00:00",
-    "external_net_raw": "-80205254087975160710928",
+    "backing_per_ibs": "10.062581510651778097084450764665379848754574169527132897845621124919136190512847",
+    "block_number": 115620996,
+    "block_time_utc": "2026-08-13T03:01:12+00:00",
+    "external_net_raw": "-143831867020468059667094",
     "flow_complete": true,
     "flow_event_count": 0,
-    "flow_from_block": 115596932,
-    "flow_to_block": 115605139,
+    "flow_from_block": 115605140,
+    "flow_to_block": 115620996,
     "ibs_circulating_raw": "1052902929926413151517495",
     "ibs_dead_raw": "3141161280382810310804",
     "ibs_decimals": 18,
     "ibs_is_token0": true,
-    "ibs_price_usdt": "23.904165839762639537196351935130971690480877262294835894716635122671825619839502",
+    "ibs_price_usdt": "23.253398886698329102730087574192298105938790818336400029961302701637786593136137",
     "ibs_total_supply_raw": "1056044091206795961828299",
-    "lp_balance_usdt_raw": "10535479239890521090306649",
-    "lp_ibs_raw": "440738209001445536974675",
-    "lp_usdt_raw": "10535479239890521090306649",
-    "market_cap_usdt": "25168766.250132961443496597687593439340754454314100522379893694736789047798354315",
+    "lp_balance_usdt_raw": "10391647372870053030639555",
+    "lp_ibs_raw": "446887245322850419777198",
+    "lp_usdt_raw": "10391647372870053030639555",
+    "market_cap_usdt": "24483571.818552264397790059810660710436114844984805432822339630855497978778383869",
     "protocol_addresses": [
       "0x004202d0b1759bcdbd939bc5a2bfbceed9dd34b1",
       "0x2a4b99a9c4544d35e8d266111c50b67fea01d53d",
@@ -710,31 +1567,31 @@
     ],
     "protocol_config_changed": false,
     "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
-    "protocol_usdt_raw": "10738769422714077766829948",
+    "protocol_usdt_raw": "10594937555693609707162854",
     "rbs_usdt_raw": "3282991982556676523299",
     "report_metrics": {
-      "ibs_net_issuance_24h_raw": "3039621205064985259435",
-      "rbs_runway_days": "0.0066522730366530093460371490792508551564350452849449436260050436832138953744507744",
+      "ibs_net_issuance_24h_raw": "5177345198107665292567",
+      "rbs_runway_days": "0.0074991383607154724229130421695238304817072633384072015508951732033901873163164938",
       "sell_pressure_24h": {
-        "buy_event_count": 7480,
-        "buy_ibs_raw": "66255638121718519285896",
-        "buy_usdt_raw": "1661969923952096261245246",
-        "event_count": 7999,
-        "from_block": 115420961,
-        "net_sell_usdt_raw": "256600153790582957620198",
-        "sell_ibs_raw": "77092884567337333462902",
-        "sell_usdt_raw": "1918570077742679218865444",
-        "to_block": 115605139
+        "buy_event_count": 7701,
+        "buy_ibs_raw": "66709578306433460879810",
+        "buy_usdt_raw": "1663853216900528315507311",
+        "event_count": 8307,
+        "from_block": 115436953,
+        "net_sell_usdt_raw": "397535173080608269154691",
+        "sell_ibs_raw": "83549362197314081817948",
+        "sell_usdt_raw": "2061388389981136584662002",
+        "to_block": 115620996
       },
-      "treasury_delta_24h_raw": "-731564361301667184467226",
-      "treasury_runway_days": "14.083893904291666156665615786354844169876311857568970546812531078724328044274040"
+      "treasury_delta_24h_raw": "-818729440540616533236407",
+      "treasury_runway_days": "12.407100363480710328570857619195245722153236121274299201067661699725089787395779"
     },
     "safety_usdt_raw": "199991190336000000000000",
     "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
-    "timestamp_utc": "2026-08-13T01:02:17.253601+00:00",
-    "total_usdt_raw": "10538762231873077766829948",
+    "timestamp_utc": "2026-08-13T03:01:15.391436+00:00",
+    "total_usdt_raw": "10394930364852609707162854",
     "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
-    "treasury_usdt_raw": "10738753422209077766829948",
+    "treasury_usdt_raw": "10594921555188609707162854",
     "usdt_decimals": 18
   },
   "legacy_rbs_raw_balance": "1558964938440708297433494",
@@ -6637,11 +7494,76 @@
       "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
       "treasury_usdt_raw": "10738753422209077766829948",
       "usdt_decimals": 18
+    },
+    {
+      "backing_per_ibs": "10.062581510651778097084450764665379848754574169527132897845621124919136190512847",
+      "block_number": 115620996,
+      "block_time_utc": "2026-08-13T03:01:12+00:00",
+      "external_net_raw": "-143831867020468059667094",
+      "flow_complete": true,
+      "flow_event_count": 0,
+      "flow_from_block": 115605140,
+      "flow_to_block": 115620996,
+      "ibs_circulating_raw": "1052902929926413151517495",
+      "ibs_dead_raw": "3141161280382810310804",
+      "ibs_decimals": 18,
+      "ibs_is_token0": true,
+      "ibs_price_usdt": "23.253398886698329102730087574192298105938790818336400029961302701637786593136137",
+      "ibs_total_supply_raw": "1056044091206795961828299",
+      "lp_balance_usdt_raw": "10391647372870053030639555",
+      "lp_ibs_raw": "446887245322850419777198",
+      "lp_usdt_raw": "10391647372870053030639555",
+      "market_cap_usdt": "24483571.818552264397790059810660710436114844984805432822339630855497978778383869",
+      "protocol_addresses": [
+        "0x004202d0b1759bcdbd939bc5a2bfbceed9dd34b1",
+        "0x2a4b99a9c4544d35e8d266111c50b67fea01d53d",
+        "0x5bb0d5cb2276a054d933b14d023a2063cf8f28ce",
+        "0x6025fc9840cc4e282125a74f4b00dc5038a8058f",
+        "0x7266256440a32f5da2691b1ef98fffb5b655658a",
+        "0x89e6efd26af347fd7f1eb9846a21e4e85311cc30",
+        "0xac739056e611d639abeb0b9a87da38bd297ba00e",
+        "0xb83d56a4de0f080d9a0ccb7b67e747af68bbc655",
+        "0xc274041bf5d9487bab196e63e6609b6161ffcd7d",
+        "0xc407928502e0aa6d313494ec2ee224db55dcf1fc",
+        "0xcba922f6aff0ec8cb0703d44249456ef779a394c",
+        "0xd9f49fa9d8376041093dda76baaf02c3221f8702",
+        "0xe72a413864b8f795f2a1c2de4176e4be9bf56f34",
+        "0xe9a7c7bb2d4264940296d5d6c414d09dd37627f0",
+        "0xf3fc289abbff1f847649bc738a4e39d2ed365711"
+      ],
+      "protocol_config_changed": false,
+      "protocol_config_hash": "7020a89c335f8b92df620ebf84bd0eddaa9bf9e3f2d0453b1b5174b9910d1737",
+      "protocol_usdt_raw": "10594937555693609707162854",
+      "rbs_usdt_raw": "3282991982556676523299",
+      "report_metrics": {
+        "ibs_net_issuance_24h_raw": "5177345198107665292567",
+        "rbs_runway_days": "0.0074991383607154724229130421695238304817072633384072015508951732033901873163164938",
+        "sell_pressure_24h": {
+          "buy_event_count": 7701,
+          "buy_ibs_raw": "66709578306433460879810",
+          "buy_usdt_raw": "1663853216900528315507311",
+          "event_count": 8307,
+          "from_block": 115436953,
+          "net_sell_usdt_raw": "397535173080608269154691",
+          "sell_ibs_raw": "83549362197314081817948",
+          "sell_usdt_raw": "2061388389981136584662002",
+          "to_block": 115620996
+        },
+        "treasury_delta_24h_raw": "-818729440540616533236407",
+        "treasury_runway_days": "12.407100363480710328570857619195245722153236121274299201067661699725089787395779"
+      },
+      "safety_usdt_raw": "199991190336000000000000",
+      "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
+      "timestamp_utc": "2026-08-13T03:01:15.391436+00:00",
+      "total_usdt_raw": "10394930364852609707162854",
+      "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
+      "treasury_usdt_raw": "10594921555188609707162854",
+      "usdt_decimals": 18
     }
   ],
   "tax_treasury_address": "0xD9F49Fa9d8376041093DDA76Baaf02c3221f8702",
   "token_contract": "0x55d398326f99059ff775485246999027B3197955",
   "treasury_address": "0xac739056e611d639aBEb0B9a87Da38Bd297Ba00E",
-  "updated_at_utc": "2026-08-13T01:02:17.253601+00:00",
+  "updated_at_utc": "2026-08-13T03:01:15.391436+00:00",
   "wallet": "0xCBA922f6aff0EC8CB0703D44249456Ef779A394C"
 }
