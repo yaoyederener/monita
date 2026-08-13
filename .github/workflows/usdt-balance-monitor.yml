@@ -1,4 +1,4 @@
-name: POTS Core Funds Monitor
+name: POTS Effective Funds Monitor
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
           pip install -r requirements-usdt.txt
 
       - name: Run unit tests
-        run: python -m unittest -v test_usdt_balance_monitor.py
+        run: python -m unittest -v test_usdt_balance_monitor.py test_pots_effective_monitor.py
 
       - name: Check POTS core funds
         env:
@@ -46,12 +46,11 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           BSC_RPC: ${{ secrets.BSC_RPC }}
           REPORT_INTERVAL_MINUTES: ${{ vars.POTS_FLOW_REPORT_MINUTES || '60' }}
-          IMMEDIATE_TOTAL_CHANGE_USDT: ${{ vars.POTS_FLOW_IMMEDIATE_ALERT_USDT || '100000' }}
-          CRITICAL_OUTFLOW_USDT: ${{ vars.POTS_CRITICAL_OUTFLOW_USDT || '100000' }}
-          LARGE_TRADE_THRESHOLD_IBS: ${{ vars.POTS_LARGE_TRADE_THRESHOLD_IBS || '200' }}
+          IMMEDIATE_TREASURY_CHANGE_USDT: ${{ vars.POTS_IMMEDIATE_TREASURY_USDT || '10000' }}
+          IMMEDIATE_SUPPLY_CHANGE_IBS: ${{ vars.POTS_IMMEDIATE_SUPPLY_IBS || '1' }}
           CONFIRMATION_BLOCKS: "3"
           PYTHONUNBUFFERED: "1"
-        run: python -u usdt_balance_monitor.py
+        run: python -u pots_effective_monitor.py
 
       - name: Save updated flow state and history
         shell: bash
@@ -61,10 +60,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data/usdt_balance.json
-          if [ -f data/usdt_flow_history.csv ]; then
-            git add data/usdt_flow_history.csv
-          fi
+          git add data/pots_effective_state.json
 
           if git diff --cached --quiet; then
             echo "尚未到报告时间，状态无需提交"
