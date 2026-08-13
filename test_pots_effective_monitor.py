@@ -23,7 +23,7 @@ class EffectiveMonitorTests(unittest.TestCase):
         self.assertEqual(change.treasury_delta_raw, -15_000 * USDT_SCALE)
         self.assertEqual(change.supply_delta_raw, 1_000 * IBS_SCALE)
 
-    def test_runway_annualizes_this_interval_only(self):
+    def test_runway_annualizes_stable_short_trend(self):
         days = monitor.runway_days(1_000_000 * USDT_SCALE, -10_000 * USDT_SCALE, 6 * 3600)
         self.assertEqual(days, monitor.Decimal("25"))
         self.assertIsNone(monitor.runway_days(1_000_000, 1, 300))
@@ -45,13 +45,13 @@ class EffectiveMonitorTests(unittest.TestCase):
         self.assertEqual(metrics.visible_backing_price, monitor.Decimal("13.333333333333333333333333333333333333333333333333333333333333333333333333333333"))
         self.assertAlmostEqual(float(metrics.spot_coverage_ratio), 12_000_000 / 10_000_000)
 
-    def test_report_is_immediate_for_rbs_or_supply_but_not_lp_noise(self):
+    def test_report_is_immediate_for_large_backup_drop_but_not_lp_noise(self):
         now = datetime(2026, 8, 13, 12, 5, tzinfo=timezone.utc)
         previous = monitor.snapshot_record(make_snapshot(now - timedelta(minutes=5), 100))
         lp_only = make_snapshot(now, 200, lp=9_999_999)
         due, _ = monitor.report_due(previous, lp_only, monitor.interval_change(previous, lp_only))
         self.assertFalse(due)
-        rbs_change = make_snapshot(now, 200, rbs=1_499_999)
+        rbs_change = make_snapshot(now, 200, rbs=1_399_999)
         due, reason = monitor.report_due(previous, rbs_change, monitor.interval_change(previous, rbs_change))
         self.assertTrue(due)
         self.assertIn("RBS", reason)
@@ -61,22 +61,81 @@ class EffectiveMonitorTests(unittest.TestCase):
         previous = monitor.snapshot_record(make_snapshot(now - timedelta(minutes=5), 100))
         current = make_snapshot(now, 200, lp=9_900_000, supply=1_001_000)
         change = monitor.interval_change(previous, current)
-        solvency = monitor.calculate_solvency(current)
-        label, reasons = monitor.classify_risk(current, change, solvency)
+        trend = monitor.ShortTrend(
+            elapsed_seconds=1800,
+            sample_intervals=6,
+            lp_decrease_intervals=6,
+            lp_delta_raw=-100_000 * USDT_SCALE,
+            lp_delta_pct=monitor.Decimal("-1"),
+            lp_ibs_delta_raw=4_000 * IBS_SCALE,
+            rbs_delta_raw=0,
+            safety_delta_raw=0,
+            treasury_delta_raw=-100_000 * USDT_SCALE,
+            supply_delta_raw=1_000 * IBS_SCALE,
+        )
+        label, reasons = monitor.classify_risk(current, change, trend)
         self.assertEqual(label, "🔴 高风险")
-        self.assertIn("资金减少与增发同时发生", reasons)
+        self.assertIn("IBS增发同时LP资金减少", reasons)
 
-    def test_message_has_no_24h_or_ordinary_trade_statistics(self):
+    def test_message_is_simple_usdt_only(self):
         now = datetime(2026, 8, 13, 12, 5, tzinfo=timezone.utc)
         previous = monitor.snapshot_record(make_snapshot(now - timedelta(minutes=5), 100))
         current = make_snapshot(now, 200, lp=9_990_000, supply=1_001_000)
-        message = monitor.build_message(current, monitor.interval_change(previous, current))
-        self.assertIn("与上次报告间隔", message)
-        self.assertIn("全部池外IBS一次卖入现有LP", message)
-        self.assertIn("按现价可完全覆盖", message)
+        observations = []
+        for index in range(6):
+            snap = make_snapshot(
+                now - timedelta(minutes=30 - index * 5),
+                100 + index,
+                lp=10_020_000 - index * 5_000,
+            )
+            observations.append(monitor.snapshot_record(snap))
+        trend = monitor.calculate_short_trend(observations, current)
+        message = monitor.build_message(current, monitor.interval_change(previous, current), trend)
+        self.assertIn("POTS资金安全监控", message)
+        self.assertIn("可以退出的资金", message)
+        self.assertIn("全部可见USDT", message)
+        self.assertIn("短期趋势", message)
+        self.assertNotIn("全部池外IBS", message)
+        self.assertNotIn("清算价", message)
+        self.assertNotIn("覆盖率", message)
         self.assertNotIn("24h", message)
         self.assertNotIn("大额买卖", message)
         self.assertNotIn("毛卖压", message)
+
+    def test_short_trend_counts_each_observation_and_uses_30_minutes(self):
+        now = datetime(2026, 8, 13, 12, 30, tzinfo=timezone.utc)
+        records = []
+        for index in range(6):
+            snap = make_snapshot(
+                now - timedelta(minutes=30 - index * 5),
+                100 + index,
+                lp=10_000_000 - index * 10_000,
+            )
+            records.append(monitor.snapshot_record(snap))
+        current = make_snapshot(now, 200, lp=9_940_000)
+        trend = monitor.calculate_short_trend(records, current)
+        self.assertIsNotNone(trend)
+        self.assertEqual(trend.sample_intervals, 6)
+        self.assertEqual(trend.lp_decrease_intervals, 6)
+        self.assertEqual(trend.lp_delta_raw, -60_000 * USDT_SCALE)
+
+    def test_liquidity_removal_requires_both_reserves_to_fall_similarly(self):
+        now = datetime(2026, 8, 13, 12, 30, tzinfo=timezone.utc)
+        current = make_snapshot(now, 200, lp=9_000_000)
+        current = current.__class__(**{**current.__dict__, "lp_ibs_raw": 450_000 * IBS_SCALE})
+        trend = monitor.ShortTrend(
+            elapsed_seconds=1800,
+            sample_intervals=6,
+            lp_decrease_intervals=6,
+            lp_delta_raw=-1_000_000 * USDT_SCALE,
+            lp_delta_pct=monitor.Decimal("-10"),
+            lp_ibs_delta_raw=-50_000 * IBS_SCALE,
+            rbs_delta_raw=0,
+            safety_delta_raw=0,
+            treasury_delta_raw=-1_000_000 * USDT_SCALE,
+            supply_delta_raw=0,
+        )
+        self.assertTrue(monitor.liquidity_removal_suspected(trend, current))
 
 
 if __name__ == "__main__":

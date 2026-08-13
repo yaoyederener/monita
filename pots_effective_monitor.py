@@ -32,8 +32,13 @@ STATE_FILE = Path(os.getenv("POTS_EFFECTIVE_STATE_FILE", "data/pots_effective_st
 TELEGRAM_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_TIMEOUT_SECONDS", "20"))
 AMM_FEE_MULTIPLIER = Decimal(os.getenv("AMM_FEE_MULTIPLIER", "0.9975"))
 REPORT_INTERVAL_MINUTES = int(os.getenv("REPORT_INTERVAL_MINUTES", "60"))
-IMMEDIATE_TREASURY_CHANGE_USDT = Decimal(os.getenv("IMMEDIATE_TREASURY_CHANGE_USDT", "10000"))
 IMMEDIATE_SUPPLY_CHANGE_IBS = Decimal(os.getenv("IMMEDIATE_SUPPLY_CHANGE_IBS", "1"))
+SHORT_TREND_MINUTES = int(os.getenv("SHORT_TREND_MINUTES", "30"))
+SHORT_TREND_SLICES = int(os.getenv("SHORT_TREND_SLICES", "6"))
+WARNING_LP_DROP_PCT = Decimal(os.getenv("WARNING_LP_DROP_PCT", "1"))
+CRITICAL_LP_DROP_PCT = Decimal(os.getenv("CRITICAL_LP_DROP_PCT", "3"))
+LIQUIDITY_REMOVAL_PCT = Decimal(os.getenv("LIQUIDITY_REMOVAL_PCT", "1"))
+CRITICAL_BACKUP_DROP_USDT = Decimal(os.getenv("CRITICAL_BACKUP_DROP_USDT", "100000"))
 
 
 @dataclass(frozen=True)
@@ -46,6 +51,7 @@ class IntervalChange:
     protocol_delta_raw: Optional[int]
     supply_delta_raw: int
     circulating_delta_raw: int
+    lp_ibs_delta_raw: int
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,32 @@ class SolvencyMetrics:
     spot_funding_gap_usdt: Decimal
     lp_full_exit_usdt: Decimal
     lp_full_exit_price: Decimal
+
+
+@dataclass(frozen=True)
+class SimpleSnapshot:
+    timestamp_utc: datetime
+    block_number: int
+    lp_usdt_raw: int
+    lp_ibs_raw: int
+    rbs_usdt_raw: int
+    safety_usdt_raw: int
+    treasury_usdt_raw: int
+    ibs_total_supply_raw: int
+
+
+@dataclass(frozen=True)
+class ShortTrend:
+    elapsed_seconds: int
+    sample_intervals: int
+    lp_decrease_intervals: int
+    lp_delta_raw: int
+    lp_delta_pct: Decimal
+    lp_ibs_delta_raw: int
+    rbs_delta_raw: int
+    safety_delta_raw: int
+    treasury_delta_raw: int
+    supply_delta_raw: int
 
 
 def now_utc() -> datetime:
@@ -79,10 +111,14 @@ def parse_time(value: Any) -> Optional[datetime]:
 
 def load_state() -> dict[str, Any]:
     if not STATE_FILE.exists():
-        return {"schema_version": 1, "latest": None}
+        return {"schema_version": 2, "latest": None, "observations": [], "last_report_at_utc": None}
     state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    state.setdefault("schema_version", 1)
+    state["schema_version"] = 2
     state.setdefault("latest", None)
+    state.setdefault("observations", [])
+    state.setdefault("last_report_at_utc", None)
+    if not state["observations"] and state["latest"]:
+        state["observations"] = [state["latest"]]
     return state
 
 
@@ -100,6 +136,7 @@ def snapshot_record(current: CurrentSnapshot) -> dict[str, Any]:
         "usdt_decimals": current.usdt_decimals,
         "ibs_decimals": current.ibs_decimals,
         "lp_usdt_raw": str(current.lp_usdt_raw),
+        "lp_ibs_raw": str(current.lp_ibs_raw),
         "rbs_usdt_raw": str(current.rbs_usdt_raw),
         "safety_usdt_raw": str(current.safety_usdt_raw),
         "treasury_usdt_raw": str(current.treasury_usdt_raw),
@@ -110,6 +147,81 @@ def snapshot_record(current: CurrentSnapshot) -> dict[str, Any]:
         "ibs_price_usdt": str(current.ibs_price_usdt),
         "backing_per_ibs": str(current.backing_per_ibs),
     }
+
+
+def simple_snapshot(record: dict[str, Any]) -> Optional[SimpleSnapshot]:
+    observed_at = parse_time(record.get("timestamp_utc"))
+    required = (
+        "block_number", "lp_usdt_raw", "lp_ibs_raw", "rbs_usdt_raw",
+        "safety_usdt_raw", "treasury_usdt_raw", "ibs_total_supply_raw",
+    )
+    if observed_at is None or any(record.get(key) is None for key in required):
+        return None
+    return SimpleSnapshot(
+        timestamp_utc=observed_at,
+        block_number=int(record["block_number"]),
+        lp_usdt_raw=int(record["lp_usdt_raw"]),
+        lp_ibs_raw=int(record["lp_ibs_raw"]),
+        rbs_usdt_raw=int(record["rbs_usdt_raw"]),
+        safety_usdt_raw=int(record["safety_usdt_raw"]),
+        treasury_usdt_raw=int(record["treasury_usdt_raw"]),
+        ibs_total_supply_raw=int(record["ibs_total_supply_raw"]),
+    )
+
+
+def append_observation(state: dict[str, Any], current: CurrentSnapshot) -> None:
+    record = snapshot_record(current)
+    observations = [
+        item for item in state.get("observations", [])
+        if int(item.get("block_number", -1)) != current.block_number
+    ]
+    observations.append(record)
+    cutoff = current.observed_at.timestamp() - 48 * 3600
+    state["observations"] = [
+        item for item in observations
+        if (parse_time(item.get("timestamp_utc")) or current.observed_at).timestamp() >= cutoff
+    ][-600:]
+    state["latest"] = record
+    state["updated_at_utc"] = now_utc().isoformat()
+
+
+def calculate_short_trend(
+    records: list[dict[str, Any]], current: CurrentSnapshot
+) -> Optional[ShortTrend]:
+    current_record = snapshot_record(current)
+    snapshots = [simple_snapshot(item) for item in records]
+    valid = [item for item in snapshots if item is not None and item.block_number < current.block_number]
+    cutoff = current.observed_at.timestamp() - SHORT_TREND_MINUTES * 60
+    recent = [item for item in valid if item.timestamp_utc.timestamp() >= cutoff]
+    if not recent:
+        return None
+    current_simple = simple_snapshot(current_record)
+    assert current_simple is not None
+    series = recent[-SHORT_TREND_SLICES:] + [current_simple]
+    if len(series) < 2:
+        return None
+    start = series[0]
+    lp_drop_count = sum(
+        1 for previous, following in zip(series, series[1:])
+        if following.lp_usdt_raw < previous.lp_usdt_raw
+    )
+    lp_delta = current_simple.lp_usdt_raw - start.lp_usdt_raw
+    lp_pct = (
+        Decimal(lp_delta) / Decimal(start.lp_usdt_raw) * 100
+        if start.lp_usdt_raw > 0 else Decimal(0)
+    )
+    return ShortTrend(
+        elapsed_seconds=max(1, int((current_simple.timestamp_utc - start.timestamp_utc).total_seconds())),
+        sample_intervals=len(series) - 1,
+        lp_decrease_intervals=lp_drop_count,
+        lp_delta_raw=lp_delta,
+        lp_delta_pct=lp_pct,
+        lp_ibs_delta_raw=current_simple.lp_ibs_raw - start.lp_ibs_raw,
+        rbs_delta_raw=current_simple.rbs_usdt_raw - start.rbs_usdt_raw,
+        safety_delta_raw=current_simple.safety_usdt_raw - start.safety_usdt_raw,
+        treasury_delta_raw=current_simple.treasury_usdt_raw - start.treasury_usdt_raw,
+        supply_delta_raw=current_simple.ibs_total_supply_raw - start.ibs_total_supply_raw,
+    )
 
 
 def interval_change(previous: Optional[dict[str, Any]], current: CurrentSnapshot) -> Optional[IntervalChange]:
@@ -135,6 +247,7 @@ def interval_change(previous: Optional[dict[str, Any]], current: CurrentSnapshot
         protocol_delta_raw=protocol_delta,
         supply_delta_raw=current.ibs_total_supply_raw - int(previous["ibs_total_supply_raw"]),
         circulating_delta_raw=current.ibs_circulating_raw - int(previous["ibs_circulating_raw"]),
+        lp_ibs_delta_raw=current.lp_ibs_raw - int(previous["lp_ibs_raw"]),
     )
 
 
@@ -171,20 +284,34 @@ def calculate_solvency(current: CurrentSnapshot) -> SolvencyMetrics:
     )
 
 
-def report_due(previous: Optional[dict[str, Any]], current: CurrentSnapshot, change: Optional[IntervalChange]) -> tuple[bool, str]:
+def report_due(
+    previous: Optional[dict[str, Any]],
+    current: CurrentSnapshot,
+    change: Optional[IntervalChange],
+    trend: Optional[ShortTrend] = None,
+    last_report_at: Optional[datetime] = None,
+) -> tuple[bool, str]:
     if previous is None or change is None:
         return True, "建立基线"
-    if change.rbs_delta_raw != 0:
-        return True, "RBS资金库发生变化"
-    if change.safety_delta_raw != 0:
-        return True, "Safety资金库发生变化"
-    treasury_threshold_raw = int(IMMEDIATE_TREASURY_CHANGE_USDT * (Decimal(10) ** current.usdt_decimals))
-    if abs(change.treasury_delta_raw) >= treasury_threshold_raw:
-        return True, "国库变化达到即时门槛"
+    backup_threshold = int(CRITICAL_BACKUP_DROP_USDT * (Decimal(10) ** current.usdt_decimals))
+    if change.rbs_delta_raw <= -backup_threshold:
+        return True, "RBS备用金大额减少"
+    if change.safety_delta_raw <= -backup_threshold:
+        return True, "Safety备用金大额减少"
+    if interval_liquidity_removal_suspected(change, current):
+        return True, "疑似撤出流动性"
+    if liquidity_removal_suspected(trend, current):
+        return True, "疑似撤出流动性"
+    if trend is not None and trend.lp_delta_pct <= -CRITICAL_LP_DROP_PCT:
+        return True, "LP短期大幅减少"
     supply_threshold_raw = int(IMMEDIATE_SUPPLY_CHANGE_IBS * (Decimal(10) ** current.ibs_decimals))
-    if abs(change.supply_delta_raw) >= supply_threshold_raw:
-        return True, "IBS供给发生重要变化"
-    if change.elapsed_seconds >= REPORT_INTERVAL_MINUTES * 60:
+    if change.supply_delta_raw >= supply_threshold_raw and change.lp_delta_raw < 0:
+        return True, "IBS增发同时LP资金流出"
+    since_report = (
+        int((current.observed_at - last_report_at).total_seconds())
+        if last_report_at is not None else change.elapsed_seconds
+    )
+    if since_report >= REPORT_INTERVAL_MINUTES * 60:
         return True, "定时报告"
     return False, "尚未到报告时间且没有重要变化"
 
@@ -222,94 +349,148 @@ def fmt_change(delta_raw: int, decimals: int) -> str:
     return f"{icon} {fmt_amount(abs(delta_raw), decimals)}"
 
 
-def classify_risk(current: CurrentSnapshot, change: Optional[IntervalChange], solvency: SolvencyMetrics) -> tuple[str, list[str]]:
-    if change is None:
-        return "🔵 建立即时基线", ["从下一次运行开始显示每次变化"]
+def liquidity_removal_suspected(trend: Optional[ShortTrend], current: CurrentSnapshot) -> bool:
+    if trend is None or trend.lp_delta_raw >= 0 or trend.lp_ibs_delta_raw >= 0:
+        return False
+    start_usdt = current.lp_usdt_raw - trend.lp_delta_raw
+    start_ibs = current.lp_ibs_raw - trend.lp_ibs_delta_raw
+    if start_usdt <= 0 or start_ibs <= 0:
+        return False
+    usdt_drop_pct = Decimal(-trend.lp_delta_raw) / Decimal(start_usdt) * 100
+    ibs_drop_pct = Decimal(-trend.lp_ibs_delta_raw) / Decimal(start_ibs) * 100
+    if usdt_drop_pct < LIQUIDITY_REMOVAL_PCT or ibs_drop_pct < LIQUIDITY_REMOVAL_PCT:
+        return False
+    ratio = usdt_drop_pct / ibs_drop_pct
+    return Decimal("0.75") <= ratio <= Decimal("1.25")
+
+
+def interval_liquidity_removal_suspected(change: IntervalChange, current: CurrentSnapshot) -> bool:
+    if change.lp_delta_raw >= 0 or change.lp_ibs_delta_raw >= 0:
+        return False
+    start_usdt = current.lp_usdt_raw - change.lp_delta_raw
+    start_ibs = current.lp_ibs_raw - change.lp_ibs_delta_raw
+    if start_usdt <= 0 or start_ibs <= 0:
+        return False
+    usdt_drop_pct = Decimal(-change.lp_delta_raw) / Decimal(start_usdt) * 100
+    ibs_drop_pct = Decimal(-change.lp_ibs_delta_raw) / Decimal(start_ibs) * 100
+    if usdt_drop_pct < LIQUIDITY_REMOVAL_PCT or ibs_drop_pct < LIQUIDITY_REMOVAL_PCT:
+        return False
+    ratio = usdt_drop_pct / ibs_drop_pct
+    return Decimal("0.75") <= ratio <= Decimal("1.25")
+
+
+def classify_risk(
+    current: CurrentSnapshot,
+    change: Optional[IntervalChange],
+    trend: Optional[ShortTrend],
+) -> tuple[str, list[str]]:
+    if change is None or trend is None:
+        return "🔵 建立资金基线", ["正在积累约30分钟趋势数据"]
     reasons: list[str] = []
-    treasury_runway = runway_days(current.treasury_usdt_raw, change.treasury_delta_raw, change.elapsed_seconds)
-    if change.treasury_delta_raw < 0:
-        reasons.append("国库USDT减少")
-    if change.rbs_delta_raw < 0:
-        reasons.append("RBS资金库减少")
-    if change.supply_delta_raw > 0:
-        reasons.append("IBS继续增发")
-    if change.treasury_delta_raw < 0 and change.supply_delta_raw > 0:
-        reasons.append("资金减少与增发同时发生")
-    if solvency.spot_coverage_ratio < Decimal("0.25"):
-        reasons.append("按池内现价的USDT覆盖不足25%")
-    if treasury_runway is not None and treasury_runway <= 7:
-        reasons.append("按本次速度国库可支撑不足7天")
-    if "资金减少与增发同时发生" in reasons or (treasury_runway is not None and treasury_runway <= 7):
+    persistent = trend.sample_intervals >= 4 and trend.lp_decrease_intervals * 3 >= trend.sample_intervals * 2
+    lp_outflow = trend.lp_delta_raw < 0
+    backup_drop = trend.rbs_delta_raw < 0 or trend.safety_delta_raw < 0
+    supply_cashout = trend.supply_delta_raw > 0 and lp_outflow
+    removal = liquidity_removal_suspected(trend, current)
+    runway = runway_days(current.treasury_usdt_raw, trend.treasury_delta_raw, trend.elapsed_seconds)
+    backup_threshold = int(CRITICAL_BACKUP_DROP_USDT * (Decimal(10) ** current.usdt_decimals))
+    critical_backup = trend.rbs_delta_raw <= -backup_threshold or trend.safety_delta_raw <= -backup_threshold
+    if lp_outflow:
+        reasons.append(f"短期LP资金净流出{abs(trend.lp_delta_pct):.2f}%")
+    if persistent:
+        reasons.append(f"最近{trend.sample_intervals}次检查有{trend.lp_decrease_intervals}次下降")
+    if backup_drop:
+        reasons.append("备用资金正在减少")
+    if supply_cashout:
+        reasons.append("IBS增发同时LP资金减少")
+    if removal:
+        reasons.append("LP两侧储备同比例下降，疑似撤出流动性")
+    if runway is not None and runway <= 7 and persistent:
+        reasons.append("按稳定短期流速可支撑不足7天")
+    if removal or critical_backup or trend.lp_delta_pct <= -CRITICAL_LP_DROP_PCT or (
+        supply_cashout and persistent
+    ) or (runway is not None and runway <= 7 and persistent):
         return "🔴 高风险", reasons
-    if change.treasury_delta_raw < 0 or change.rbs_delta_raw < 0 or change.supply_delta_raw > 0:
+    if (persistent and trend.lp_delta_pct <= -WARNING_LP_DROP_PCT) or backup_drop or supply_cashout:
         return "🟠 资金承压", reasons
-    if change.treasury_delta_raw > 0 and change.supply_delta_raw <= 0:
-        return "🟢 资金改善", ["国库USDT增加且IBS未增发"]
-    return "🟡 暂时稳定", reasons or ["本次核心资金与IBS总量基本不变"]
+    if trend.treasury_delta_raw > 0 and not backup_drop:
+        return "🟢 资金改善", ["短期全部可见USDT增加"]
+    return "🟡 暂时稳定", reasons or ["短期USDT没有持续异常流出"]
 
 
-def build_message(current: CurrentSnapshot, change: Optional[IntervalChange]) -> str:
-    solvency = calculate_solvency(current)
-    risk, reasons = classify_risk(current, change, solvency)
-    udec, idec = current.usdt_decimals, current.ibs_decimals
+def build_message(
+    current: CurrentSnapshot,
+    change: Optional[IntervalChange],
+    trend: Optional[ShortTrend] = None,
+) -> str:
+    risk, reasons = classify_risk(current, change, trend)
+    udec = current.usdt_decimals
     if change is None:
         delta_lp = delta_rbs = delta_safety = delta_treasury = "等待下一次"
         interval = "基线"
-        issuance = "等待下一次"
-        treasury_runway = rbs_runway = "等待下一次"
-        daily_treasury = "等待下一次"
-        protocol_flow = "等待下一次"
     else:
         interval = fmt_interval(change.elapsed_seconds)
         delta_lp = fmt_change(change.lp_delta_raw, udec)
         delta_rbs = fmt_change(change.rbs_delta_raw, udec)
         delta_safety = fmt_change(change.safety_delta_raw, udec)
         delta_treasury = fmt_change(change.treasury_delta_raw, udec)
-        issuance_ibs = token_amount(change.supply_delta_raw, idec)
-        issuance_value = issuance_ibs * current.ibs_price_usdt
-        issuance = f"{issuance_ibs:+,.4f} IBS（现价约 {issuance_value:+,.2f} USDT）"
-        tr = runway_days(current.treasury_usdt_raw, change.treasury_delta_raw, change.elapsed_seconds)
-        rr = runway_days(current.rbs_usdt_raw, change.rbs_delta_raw, change.elapsed_seconds)
-        treasury_runway = fmt_runway(tr, change.treasury_delta_raw)
-        rbs_runway = fmt_runway(rr, change.rbs_delta_raw)
-        daily = daily_outflow_raw(change.treasury_delta_raw, change.elapsed_seconds)
-        daily_treasury = "本次没有净消耗" if daily is None else f"约 {token_amount(int(daily), udec):,.2f} USDT/天"
-        protocol_flow = "地址边界变化，重新建立基线" if change.protocol_delta_raw is None else fmt_signed_amount(change.protocol_delta_raw, udec)
 
     reasons_text = "；".join(html.escape(x) for x in reasons)
-    coverage_pct = solvency.spot_coverage_ratio * 100
-    covered_pct = solvency.fully_covered_ratio * 100
+    if trend is None:
+        trend_interval = "积累中"
+        trend_change = "等待约30分钟数据"
+        trend_frequency = "积累中"
+        burn_rate = "暂不计算"
+        runway_text = "暂不计算"
+        cause = "正在积累趋势数据"
+    else:
+        trend_interval = fmt_interval(trend.elapsed_seconds)
+        trend_change = f"{fmt_change(trend.treasury_delta_raw, udec)} USDT"
+        trend_frequency = f"{trend.lp_decrease_intervals}/{trend.sample_intervals}次下降"
+        persistent = trend.sample_intervals >= 4 and trend.lp_decrease_intervals * 3 >= trend.sample_intervals * 2
+        daily = daily_outflow_raw(trend.treasury_delta_raw, trend.elapsed_seconds) if persistent else None
+        runway = runway_days(current.treasury_usdt_raw, trend.treasury_delta_raw, trend.elapsed_seconds) if persistent else None
+        burn_rate = f"约 {token_amount(int(daily), udec):,.2f} USDT/天" if daily is not None else "资金有涨有跌，暂不外推"
+        runway_text = fmt_runway(runway, trend.treasury_delta_raw) if persistent else "暂不计算"
+        if liquidity_removal_suspected(trend, current):
+            cause = "疑似撤出流动性（LP两侧储备同步下降）"
+        elif trend.supply_delta_raw > 0 and trend.lp_delta_raw < 0:
+            cause = "IBS增发期间LP资金流出，需核查是否套现"
+        elif trend.lp_delta_raw < 0 and trend.lp_ibs_delta_raw > 0:
+            cause = "以用户卖出IBS造成的市场抛压为主"
+        elif trend.lp_delta_raw > 0 and trend.lp_ibs_delta_raw < 0:
+            cause = "以用户买入IBS带来的资金流入为主"
+        elif trend.rbs_delta_raw < 0 or trend.safety_delta_raw < 0:
+            backup_drop = -(min(0, trend.rbs_delta_raw) + min(0, trend.safety_delta_raw))
+            if trend.lp_delta_raw > 0 and Decimal(trend.lp_delta_raw) >= Decimal(backup_drop) * Decimal("0.8"):
+                cause = "备用资金减少、LP同步增加，疑似内部补充流动性"
+            else:
+                cause = "备用资金减少且未进入LP，属于真实资金外流"
+        else:
+            cause = "未发现明确异常资金动作"
     lines = [
-        f"<b>{risk}｜POTS有效资金监控</b>",
-        f"与上次报告间隔：{interval} ｜ 依据：{reasons_text}",
+        f"<b>{risk}｜POTS资金安全监控</b>",
+        f"判断：{reasons_text}",
         "",
-        "💵 <b>只看USDT资产</b>",
-        f"LP：<b>{fmt_amount(current.lp_usdt_raw, udec)} USDT</b> ｜ 本次{delta_lp}",
-        f"RBS：<b>{fmt_amount(current.rbs_usdt_raw, udec)} USDT</b> ｜ 本次{delta_rbs}",
-        f"Safety：<b>{fmt_amount(current.safety_usdt_raw, udec)} USDT</b> ｜ 本次{delta_safety}",
-        f"国库合计：<b>{fmt_amount(current.treasury_usdt_raw, udec)} USDT</b> ｜ 本次{delta_treasury}",
-        f"已知协议边界净变化：{protocol_flow} USDT",
+        "💵 <b>1. 可以退出的资金</b>",
+        f"LP：<b>{fmt_amount(current.lp_usdt_raw, udec)} USDT</b>",
+        f"距上次检查（{interval}）：{delta_lp} USDT",
         "",
-        "⏳ <b>按本次减少速度静态外推</b>",
-        f"国库消耗速度：{daily_treasury} ｜ 可支撑 {treasury_runway}",
-        f"RBS可支撑：{rbs_runway}",
+        "🏦 <b>2. 备用资金</b>",
+        f"RBS：{fmt_amount(current.rbs_usdt_raw, udec)} USDT ｜ {delta_rbs} USDT",
+        f"Safety：{fmt_amount(current.safety_usdt_raw, udec)} USDT ｜ {delta_safety} USDT",
         "",
-        "🪙 <b>IBS供给与真实退出价格</b>",
-        f"总量：{fmt_amount(current.ibs_total_supply_raw, idec, 4)} IBS",
-        f"流通量代理：{fmt_amount(current.ibs_circulating_raw, idec, 4)} IBS",
-        f"池外可退出量：{solvency.external_circulating_ibs:,.4f} IBS",
-        f"本次增发：<b>{issuance}</b>",
-        f"池内小额现价：<b>{current.ibs_price_usdt:,.4f} USDT/IBS</b>",
-        f"全部池外IBS一次卖入现有LP：理论取出 <b>{solvency.lp_full_exit_usdt:,.2f} USDT</b>",
-        f"对应平均清算价：<b>{solvency.lp_full_exit_price:,.4f} USDT/IBS</b>",
+        "💰 <b>3. 全部可见USDT</b>",
+        f"合计：<b>{fmt_amount(current.treasury_usdt_raw, udec)} USDT</b>",
+        f"距上次检查：{delta_treasury} USDT",
         "",
-        "🛡 <b>USDT偿付能力</b>",
-        f"每枚IBS可见USDT支撑：<b>{solvency.visible_backing_price:,.4f} USDT</b>",
-        f"按当前池价计价的覆盖率：<b>{coverage_pct:.2f}%</b>",
-        f"按现价可完全覆盖：{solvency.fully_covered_ibs:,.2f} IBS（{covered_pct:.2f}%池外流通量）",
-        f"按现价完全兑付资金缺口：<b>{solvency.spot_funding_gap_usdt:,.2f} USDT</b>",
+        f"📉 <b>4. 短期趋势（{trend_interval}）</b>",
+        f"全部资金：{trend_change} ｜ LP：{trend_frequency}",
+        f"减少速度：{burn_rate}",
+        f"按稳定短期速度可支撑：<b>{runway_text}</b>",
+        f"主要原因：{cause}",
         "",
-        "说明：池内现价只适合小额成交；平均清算价按池外IBS全部卖入恒定乘积AMM估算。国库合计仅含LP、RBS、Safety里的USDT，不把IBS自身当资产。可支撑天数是假设本次报告间隔内的消耗速度持续，不是保证。",
+        "说明：这里只统计LP、RBS、Safety里的USDT，不把IBS当资产。支撑天数只在资金连续下降时估算，用于预警，不是保证。",
         f"确认区块：<code>{current.block_number}</code>",
     ]
     if current.lp_balance_usdt_raw != current.lp_usdt_raw:
@@ -341,14 +522,23 @@ def main() -> None:
     chat_id = require_env("CHAT_ID")
     current = read_current_snapshot(connect_web3(rpc_url))
     state = load_state()
-    change = interval_change(state.get("latest"), current)
-    due, trigger = report_due(state.get("latest"), current, change)
+    previous = state.get("latest")
+    change = interval_change(previous, current)
+    trend = calculate_short_trend(state.get("observations", []), current)
+    due, trigger = report_due(
+        previous,
+        current,
+        change,
+        trend,
+        parse_time(state.get("last_report_at_utc")),
+    )
+    append_observation(state, current)
     if not due:
+        save_state(state)
         print(f"有效资金监控：{trigger}；区块{current.block_number}")
         return
-    send_telegram(token, chat_id, build_message(current, change))
-    state["latest"] = snapshot_record(current)
-    state["updated_at_utc"] = now_utc().isoformat()
+    send_telegram(token, chat_id, build_message(current, change, trend))
+    state["last_report_at_utc"] = current.observed_at.isoformat()
     save_state(state)
     print(f"有效资金监控成功：区块{current.block_number}，触发={trigger}，变化区间={'基线' if change is None else fmt_interval(change.elapsed_seconds)}")
 
