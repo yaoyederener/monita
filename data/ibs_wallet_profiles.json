@@ -1231,27 +1231,83 @@
       "cost_coverage": "71.65152371067325514471492579",
       "arbitrage_assessment": "需解析合约内部调用",
       "short_ratio": "68.87417218543047"
+    },
+    "0xb3bfe635ec26992b2d370e41fc34081c89e62c88": {
+      "address": "0xB3BfE635eC26992B2d370E41Fc34081C89E62C88",
+      "category": "协议来源IBS变现地址",
+      "reasons": [
+        "曾从质押/奖励/国库等协议地址收到IBS"
+      ],
+      "first_activity": "2026-06-16T06:29:17+00:00",
+      "first_buy": "2026-06-16T06:29:17+00:00",
+      "first_stake": "2026-06-16T06:30:37+00:00",
+      "buy_count": 2,
+      "sell_count": 1,
+      "buy_ibs_raw": 49667465864823141167,
+      "sell_ibs_raw": 21140988375000000000,
+      "buy_usdt_raw": 1255318883444929338151,
+      "sell_usdt_raw": 498937350829195386999,
+      "avg_cost": "25.27447015036871061121305196",
+      "realized_usdt": "-53.0890851624933757609855101",
+      "pnl_confidence": "较高",
+      "wallet_balance_raw": 864823141167,
+      "staked_est_raw": 32292000000000000000,
+      "protocol_in_raw": 17375100000000000000,
+      "staking_return_raw": 0,
+      "protocol_source_raw": 17375100000000000000,
+      "external_in_raw": 4307600000000000000,
+      "external_out_raw": 0,
+      "is_contract": false,
+      "avg_holding_hours": "1387.8191666666667",
+      "matched_ibs_raw": 21140988375000000000,
+      "unpriced_sold_raw": 0,
+      "unpriced_sale_proceeds": "0",
+      "protocol_sold_est_raw": 0,
+      "external_sold_est_raw": 0,
+      "protocol_sale_proceeds_est": "0",
+      "cost_coverage": "100",
+      "arbitrage_assessment": "更像奖励或解押变现，未证实套利",
+      "short_ratio": "0.0"
+    },
+    "0x4f93763ece864b9f1164ef721df00f8a5a35dcd6": {
+      "address": "0x4F93763ECE864b9f1164EF721dF00f8a5a35DCd6",
+      "category": "合约/聚合器地址",
+      "reasons": [
+        "地址存在合约代码，tx.from未必是最终受益人"
+      ],
+      "first_activity": "2026-08-07T13:10:44+00:00",
+      "first_buy": "2026-08-07T13:10:44+00:00",
+      "first_stake": null,
+      "buy_count": 9,
+      "sell_count": 11,
+      "buy_ibs_raw": 161404800000000000000,
+      "sell_ibs_raw": 276580785000000000000,
+      "buy_usdt_raw": 4004572192135053183631,
+      "sell_usdt_raw": 6831967079770293846334,
+      "avg_cost": "24.81073792188988917077435120",
+      "realized_usdt": "-20.495359742880269739540611",
+      "pnl_confidence": "仅58.0%卖出量可匹配本池买入成本",
+      "wallet_balance_raw": 0,
+      "staked_est_raw": 0,
+      "protocol_in_raw": 283672600000000000000,
+      "staking_return_raw": 0,
+      "protocol_source_raw": 283672600000000000000,
+      "external_in_raw": 0,
+      "external_out_raw": 0,
+      "is_contract": true,
+      "avg_holding_hours": "1.643790849673202552",
+      "matched_ibs_raw": 160426375000000000000,
+      "unpriced_sold_raw": 116154410000000000000,
+      "unpriced_sale_proceeds": "2869.191022399265434319873063",
+      "protocol_sold_est_raw": 116154410000000000000,
+      "external_sold_est_raw": 0,
+      "protocol_sale_proceeds_est": "2869.191022399265434319873063",
+      "cost_coverage": "58.00344192384875905244104358",
+      "arbitrage_assessment": "需解析合约内部调用",
+      "short_ratio": "100.0"
     }
   },
   "pending": [
-    {
-      "event_id": "0x0a32db03e46c019a9c4722d84bf4b54498f3c77c7c2d18057fa0f8db8bd077d7:249",
-      "address": "0xB3BfE635eC26992B2d370E41Fc34081C89E62C88",
-      "tx_hash": "0x0a32db03e46c019a9c4722d84bf4b54498f3c77c7c2d18057fa0f8db8bd077d7",
-      "block_number": 115615294,
-      "log_index": 249,
-      "ibs_raw": "21140988375000000000",
-      "usdt_raw": "498937350829195386999"
-    },
-    {
-      "event_id": "0x92aa46d6d0503e21b5e20e036bc90dc09d7e7c37f9e7e757a4db4926c43e520d:429",
-      "address": "0x4F93763ECE864b9f1164EF721dF00f8a5a35DCd6",
-      "tx_hash": "0x92aa46d6d0503e21b5e20e036bc90dc09d7e7c37f9e7e757a4db4926c43e520d",
-      "block_number": 115615315,
-      "log_index": 429,
-      "ibs_raw": "27300000000000000000",
-      "usdt_raw": "644214107067431363072"
-    },
     {
       "event_id": "0x511ca3ae118a2a8736007bd2322fd6e86ee97b460e862142b10d77f543dc9e44:370",
       "address": "0xc132d787AAdc5fa718CdD0971a3351c480149eaD",
@@ -3861,6 +3917,69 @@
       "log_index": 162,
       "ibs_raw": "43875000000000000000",
       "usdt_raw": "985050771614000737442"
+    },
+    {
+      "event_id": "0xffe788a7f5b7492137552e8702bda624557b8b8d8e045d716eb85af26619ad00:368",
+      "address": "0x12De52a898C8a5bB57DC6Ae4A9BdcB2CdAF8F3d8",
+      "tx_hash": "0xffe788a7f5b7492137552e8702bda624557b8b8d8e045d716eb85af26619ad00",
+      "block_number": 115634947,
+      "log_index": 368,
+      "ibs_raw": "23087947740000000000",
+      "usdt_raw": "518286653111800269748"
+    },
+    {
+      "event_id": "0x0252080e7914e5a3c06ffee32cc7cc5ce87e758e3c753e12bb56114cc1de21be:278",
+      "address": "0x95012e96212DE7bAD384453d770E7fC5f9F0B377",
+      "tx_hash": "0x0252080e7914e5a3c06ffee32cc7cc5ce87e758e3c753e12bb56114cc1de21be",
+      "block_number": 115634964,
+      "log_index": 278,
+      "ibs_raw": "27516840000000000000",
+      "usdt_raw": "617610872734826656242"
+    },
+    {
+      "event_id": "0x3b5e23c90b7fdcdecfebe31e280c0a5b6fbba69b3c0587bc9dac6b5b600ab4b1:116",
+      "address": "0xCf8545441b7CbF441A8De44785c96cc0C6815EC9",
+      "tx_hash": "0x3b5e23c90b7fdcdecfebe31e280c0a5b6fbba69b3c0587bc9dac6b5b600ab4b1",
+      "block_number": 115635237,
+      "log_index": 116,
+      "ibs_raw": "65325000000000000000",
+      "usdt_raw": "1466495190084912340853"
+    },
+    {
+      "event_id": "0x7c89d9761054cf0caaee1d5742df87058c05990116e2b911d7f6fcc356c3639b:63",
+      "address": "0xafdb973a5be9Cb30c9295dc0a5E16E1205525De1",
+      "tx_hash": "0x7c89d9761054cf0caaee1d5742df87058c05990116e2b911d7f6fcc356c3639b",
+      "block_number": 115635254,
+      "log_index": 63,
+      "ibs_raw": "59464665000000000000",
+      "usdt_raw": "1334558651965679053216"
+    },
+    {
+      "event_id": "0x8be218fa65a3eed59089e8636f6fbca3a035e9417513e09cd26e3ebb53d6d7b0:68",
+      "address": "0x8E2a766292DD773F0C0e74e1Be6fB90dCe22D8BC",
+      "tx_hash": "0x8be218fa65a3eed59089e8636f6fbca3a035e9417513e09cd26e3ebb53d6d7b0",
+      "block_number": 115635273,
+      "log_index": 68,
+      "ibs_raw": "28342860000000000000",
+      "usdt_raw": "635972731340688776067"
+    },
+    {
+      "event_id": "0xc136cae4a0fe0c538f77bc8caff12a27cd10ed37c7f071191ed14cd357a11463:153",
+      "address": "0x1741F67150c35970B16230fdECa8AD2233fFB9d7",
+      "tx_hash": "0xc136cae4a0fe0c538f77bc8caff12a27cd10ed37c7f071191ed14cd357a11463",
+      "block_number": 115635328,
+      "log_index": 153,
+      "ibs_raw": "22081410000000000000",
+      "usdt_raw": "495428493703718764656"
+    },
+    {
+      "event_id": "0x0b02760a8417000d90969d572dc9eb9063d847bd4e05de78ec96d7a76cfb24c4:70",
+      "address": "0x3D357B3732FdF0bb663206DD4B0f3463122F07BF",
+      "tx_hash": "0x0b02760a8417000d90969d572dc9eb9063d847bd4e05de78ec96d7a76cfb24c4",
+      "block_number": 115635421,
+      "log_index": 70,
+      "ibs_raw": "49883730000000000000",
+      "usdt_raw": "1118988396305789787384"
     }
   ],
   "seen": [
@@ -3925,8 +4044,10 @@
     "0x4e987c3e1586e9e7b100d545592462593eb40a8ec7df97981e9ac232ce2515db:138",
     "0x4f9eb5c8b002ef560bbc51c003c394dd7e87e15f05aad3d32bfbec15b6523239:55",
     "0xab15676c561cc147655cf120c99f95b05b84bfaf2cabf9a39fbe464fa760e4b2:155",
-    "0x51b722350e62e13f842124ce83c01418dfa2f8a03e9869bb8cfe7b194f4134d2:203"
+    "0x51b722350e62e13f842124ce83c01418dfa2f8a03e9869bb8cfe7b194f4134d2:203",
+    "0x0a32db03e46c019a9c4722d84bf4b54498f3c77c7c2d18057fa0f8db8bd077d7:249",
+    "0x92aa46d6d0503e21b5e20e036bc90dc09d7e7c37f9e7e757a4db4926c43e520d:429"
   ],
-  "last_scanned_block": 115634878,
-  "updated_at_utc": "2026-08-13T04:45:35.718813+00:00"
+  "last_scanned_block": 115635574,
+  "updated_at_utc": "2026-08-13T04:50:38.112515+00:00"
 }
