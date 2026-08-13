@@ -489,24 +489,6 @@
   },
   "pending": [
     {
-      "event_id": "0x258fbb75604aa6a4d09f5f1b340a03c0cc024f9e0f13bcfefa557159805a603e:138",
-      "address": "0xf849353CB991f6D9Ad001c09867Dcf46c8Ae6D98",
-      "tx_hash": "0x258fbb75604aa6a4d09f5f1b340a03c0cc024f9e0f13bcfefa557159805a603e",
-      "block_number": 115610786,
-      "log_index": 138,
-      "ibs_raw": "26325000000000000000",
-      "usdt_raw": "624814526300667269820"
-    },
-    {
-      "event_id": "0xbd0de46b8e12f2fb17f0554e37c61e0d3254f867ad8e21f040b73db0e5aed558:326",
-      "address": "0xf849353CB991f6D9Ad001c09867Dcf46c8Ae6D98",
-      "tx_hash": "0xbd0de46b8e12f2fb17f0554e37c61e0d3254f867ad8e21f040b73db0e5aed558",
-      "block_number": 115610817,
-      "log_index": 326,
-      "ibs_raw": "24295147500000000000",
-      "usdt_raw": "576575521681328298699"
-    },
-    {
       "event_id": "0xd6da17efa8710e1c65eb4e577789b2c8e8528e7d4ecf75d3c4a089aaf959e6bf:111",
       "address": "0x2a61aDa1868C2D46b7CcAf8f44A99ED9C2988D3e",
       "tx_hash": "0xd6da17efa8710e1c65eb4e577789b2c8e8528e7d4ecf75d3c4a089aaf959e6bf",
@@ -2341,6 +2323,150 @@
       "log_index": 268,
       "ibs_raw": "57525000000000000000",
       "usdt_raw": "1311091309341344055929"
+    },
+    {
+      "event_id": "0xa317fde4fde61f64695fb4cc479f792c683603cdd4eb982e6ddbd8b54bac261a:291",
+      "address": "0x154Eb124D36A8d403EF058018D5D13aF34846413",
+      "tx_hash": "0xa317fde4fde61f64695fb4cc479f792c683603cdd4eb982e6ddbd8b54bac261a",
+      "block_number": 115624216,
+      "log_index": 291,
+      "ibs_raw": "108628992420000000000",
+      "usdt_raw": "2474792461799341420226"
+    },
+    {
+      "event_id": "0x25f36f9d42b1c89ef32e3826eb98f7394ebc644141214d6ad07a34fc5bbef448:163",
+      "address": "0x979DfdBc01507578d132A448D2230Daa2669245A",
+      "tx_hash": "0x25f36f9d42b1c89ef32e3826eb98f7394ebc644141214d6ad07a34fc5bbef448",
+      "block_number": 115624246,
+      "log_index": 163,
+      "ibs_raw": "84476925000000000000",
+      "usdt_raw": "1924311339071973831660"
+    },
+    {
+      "event_id": "0xf437135cc0c1a28a2108084d627f66b4d0420d9f755a0413bb08021fb01bcd74:136",
+      "address": "0x67B12621E063aff48D384c45f4081E6A45FE913e",
+      "tx_hash": "0xf437135cc0c1a28a2108084d627f66b4d0420d9f755a0413bb08021fb01bcd74",
+      "block_number": 115624277,
+      "log_index": 136,
+      "ibs_raw": "21450000000000000000",
+      "usdt_raw": "488524849519049358271"
+    },
+    {
+      "event_id": "0xd201a31d08f2f5d57f6a08c9aa72fb1502c1da25113652d347858747f3482b1d:345",
+      "address": "0xc650B22630303074271C1335f112Bf1Ca3BDb94b",
+      "tx_hash": "0xd201a31d08f2f5d57f6a08c9aa72fb1502c1da25113652d347858747f3482b1d",
+      "block_number": 115624286,
+      "log_index": 345,
+      "ibs_raw": "78324967500000000000",
+      "usdt_raw": "1783507410533507294340"
+    },
+    {
+      "event_id": "0xd63a64fd4c919d3fab4c58d46a3c4f5c8b70b8732f91f61a7101e316b6c1dd9c:266",
+      "address": "0x02E25AdAB99675c4db707092712cDB756f00B01A",
+      "tx_hash": "0xd63a64fd4c919d3fab4c58d46a3c4f5c8b70b8732f91f61a7101e316b6c1dd9c",
+      "block_number": 115624361,
+      "log_index": 266,
+      "ibs_raw": "30114435000000000000",
+      "usdt_raw": "685608727813809015700"
+    },
+    {
+      "event_id": "0x86e58963c6a4547aa7bc123269cbe40964efe57fb58eac8c69d51addd29c07c4:284",
+      "address": "0x6BF9f5a8243607bF6b9a82A2a5aF7DeB2EA5195C",
+      "tx_hash": "0x86e58963c6a4547aa7bc123269cbe40964efe57fb58eac8c69d51addd29c07c4",
+      "block_number": 115624403,
+      "log_index": 284,
+      "ibs_raw": "28676212500000000000",
+      "usdt_raw": "652774769090812316898"
+    },
+    {
+      "event_id": "0x7ede234bdd6f15a8dc65ab34808222beff33923bd82f37cf0396c8853498df34:187",
+      "address": "0x59b95A6053309CE6128d99c77588ec81662131F9",
+      "tx_hash": "0x7ede234bdd6f15a8dc65ab34808222beff33923bd82f37cf0396c8853498df34",
+      "block_number": 115624428,
+      "log_index": 187,
+      "ibs_raw": "54112500000000000000",
+      "usdt_raw": "1231929993954668203745"
+    },
+    {
+      "event_id": "0x8020fc27c4694b6c160608ce4a006df9897b86564a40da583e85ed56c886bad0:110",
+      "address": "0x8e329FE7c08C8c87B8777CF18f7425Ecee615791",
+      "tx_hash": "0x8020fc27c4694b6c160608ce4a006df9897b86564a40da583e85ed56c886bad0",
+      "block_number": 115624530,
+      "log_index": 110,
+      "ibs_raw": "62775728632500000000",
+      "usdt_raw": "1429121899616186122604"
+    },
+    {
+      "event_id": "0x8fc37134f9bf363ff78f033e8f5c9bfd80194667fd6d96a506e323e873d96897:216",
+      "address": "0x59b95A6053309CE6128d99c77588ec81662131F9",
+      "tx_hash": "0x8fc37134f9bf363ff78f033e8f5c9bfd80194667fd6d96a506e323e873d96897",
+      "block_number": 115624573,
+      "log_index": 216,
+      "ibs_raw": "21840000000000000000",
+      "usdt_raw": "497146255145380141506"
+    },
+    {
+      "event_id": "0x1d8d741cf248be6086afa1a5750cf24eebc6d1853f4b230b5ff52b23c7c520b3:199",
+      "address": "0x94cD76EF855Ef1D3d2C39f3A55533EE51989b0a5",
+      "tx_hash": "0x1d8d741cf248be6086afa1a5750cf24eebc6d1853f4b230b5ff52b23c7c520b3",
+      "block_number": 115624666,
+      "log_index": 199,
+      "ibs_raw": "28275000000000000000",
+      "usdt_raw": "643722788431674672338"
+    },
+    {
+      "event_id": "0x10e5a77721005f5191b3370f80fa23d6f8ee3efa2bea34f60a7af958b29c68ea:233",
+      "address": "0xB26bbEcB4311C074f3ad023B924b6D41Cb2BF703",
+      "tx_hash": "0x10e5a77721005f5191b3370f80fa23d6f8ee3efa2bea34f60a7af958b29c68ea",
+      "block_number": 115624673,
+      "log_index": 233,
+      "ibs_raw": "46749322522500000000",
+      "usdt_raw": "1064283459459561005609"
+    },
+    {
+      "event_id": "0xdb812f0e576990b4ce0da24c7d028d585646d44531d7e6b028cecda6317edb8b:211",
+      "address": "0x06F6cDEFdB19b5D9Bd0D1AcBCF43a28E4110591f",
+      "tx_hash": "0xdb812f0e576990b4ce0da24c7d028d585646d44531d7e6b028cecda6317edb8b",
+      "block_number": 115624718,
+      "log_index": 211,
+      "ibs_raw": "29250000000000000000",
+      "usdt_raw": "665797823167885001990"
+    },
+    {
+      "event_id": "0x157c2962d87471058c4f8d7bdaa8a43ee9babc52225b26267f921155231c6eeb:119",
+      "address": "0x328297685430eFD7f1860E89505bA1404165d6a8",
+      "tx_hash": "0x157c2962d87471058c4f8d7bdaa8a43ee9babc52225b26267f921155231c6eeb",
+      "block_number": 115624748,
+      "log_index": 119,
+      "ibs_raw": "51675000000000000000",
+      "usdt_raw": "1175984761626756239600"
+    },
+    {
+      "event_id": "0xdc637927d7ec58a2beac6ed9f4a1cd191639427fbfa1d50de2d4cca26c2f3a80:597",
+      "address": "0x43B57c71C5E958bCF87701BF0cC17f8d400FF55F",
+      "tx_hash": "0xdc637927d7ec58a2beac6ed9f4a1cd191639427fbfa1d50de2d4cca26c2f3a80",
+      "block_number": 115624776,
+      "log_index": 597,
+      "ibs_raw": "104984100000000000000",
+      "usdt_raw": "2388222023616739245138"
+    },
+    {
+      "event_id": "0xd885e7c5f5a13afdfab8816c39f75c6532db3542a3013c51ba7375b20138968c:1621",
+      "address": "0xaCf5d60d7b17883E45AA85Afda16ee5187040C28",
+      "tx_hash": "0xd885e7c5f5a13afdfab8816c39f75c6532db3542a3013c51ba7375b20138968c",
+      "block_number": 115624859,
+      "log_index": 1621,
+      "ibs_raw": "20561380125000000000",
+      "usdt_raw": "467916421574330066825"
+    },
+    {
+      "event_id": "0xcd8ec02e67fe8cc214190f5af1d56006e64c3e705a7f2e40ed492b1c3c0b1519:584",
+      "address": "0xdA9c9bBaE9238DE58DB50fF785862907c7064f24",
+      "tx_hash": "0xcd8ec02e67fe8cc214190f5af1d56006e64c3e705a7f2e40ed492b1c3c0b1519",
+      "block_number": 115624882,
+      "log_index": 584,
+      "ibs_raw": "68250000000000000000",
+      "usdt_raw": "1552940268069523901805"
     }
   ],
   "seen": [
@@ -2373,8 +2499,10 @@
     "0xe3ca0bdb2fa38328702c0b473a32ce4f01bd8f5c1ee3de596bbc55fab1fc4d00:142",
     "0x96adc124fccb415d01f04519ef7fbf8e870cd15fdbedb71c8f67716cef64b651:198",
     "0xfce870369360f719594aa4fde68ca7e862a4e53ee40d80b153bf86c55830c02a:136",
-    "0xa5dc0c5968fab95af2ca1cc9eb836da8f830ce3a06ecab7c433bec8e2c560bbe:79"
+    "0xa5dc0c5968fab95af2ca1cc9eb836da8f830ce3a06ecab7c433bec8e2c560bbe:79",
+    "0x258fbb75604aa6a4d09f5f1b340a03c0cc024f9e0f13bcfefa557159805a603e:138",
+    "0xbd0de46b8e12f2fb17f0554e37c61e0d3254f867ad8e21f040b73db0e5aed558:326"
   ],
-  "last_scanned_block": 115624204,
-  "updated_at_utc": "2026-08-13T03:25:23.622911+00:00"
+  "last_scanned_block": 115624887,
+  "updated_at_utc": "2026-08-13T03:30:30.185436+00:00"
 }
