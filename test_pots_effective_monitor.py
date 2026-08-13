@@ -23,6 +23,14 @@ class EffectiveMonitorTests(unittest.TestCase):
         self.assertEqual(change.treasury_delta_raw, -15_000 * USDT_SCALE)
         self.assertEqual(change.supply_delta_raw, 1_000 * IBS_SCALE)
 
+    def test_interval_migrates_state_without_lp_ibs(self):
+        now = datetime(2026, 8, 13, 12, 5, tzinfo=timezone.utc)
+        previous = monitor.snapshot_record(make_snapshot(now - timedelta(minutes=5), 100))
+        previous.pop("lp_ibs_raw")
+        current = make_snapshot(now, 200, lp=9_990_000)
+        change = monitor.interval_change(previous, current)
+        self.assertEqual(change.lp_ibs_delta_raw, 0)
+
     def test_runway_annualizes_stable_short_trend(self):
         days = monitor.runway_days(1_000_000 * USDT_SCALE, -10_000 * USDT_SCALE, 6 * 3600)
         self.assertEqual(days, monitor.Decimal("25"))
