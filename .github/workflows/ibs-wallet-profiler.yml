@@ -38,6 +38,81 @@ jobs:
       - name: Run wallet profiler tests
         run: python -m unittest -v test_ibs_wallet_profiler.py
 
+      - name: Detect abnormal IBS seller accounts
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          BSC_RPC: ${{ secrets.BSC_RPC }}
+          SELL_THRESHOLD_IBS: "20"
+          ANOMALY_MIN_TRADES: "12"
+          ANOMALY_MIN_NET_OUTFLOW_USDT: "1000"
+          ANOMALY_MIN_PROTOCOL_PROCEEDS_USDT: "1000"
+          ANOMALY_REPEAT_HOURS: "24"
+          ANOMALY_NEW_SELLS: "10"
+          CONFIRMATION_BLOCKS: "3"
+          PYTHONUNBUFFERED: "1"
+        run: python -u ibs_wallet_profiler.py
+
+      - name: Save independent wallet profile state
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ibs_wallet_profiles.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Update IBS wallet profiles [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 5))
+          done
+          exit 1
+name: IBS Seller Wallet Profiler
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "2-59/5 * * * *"
+
+permissions:
+  contents: write
+
+# This is a separate monitor, while repository state writes remain serialized.
+concurrency:
+  group: monita-repository-writer
+  cancel-in-progress: false
+
+jobs:
+  profile-sellers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-wallet-profiler.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-wallet-profiler.txt
+
+      - name: Run wallet profiler tests
+        run: python -m unittest -v test_ibs_wallet_profiler.py
+
       - name: Profile IBS sellers over 20 IBS
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
