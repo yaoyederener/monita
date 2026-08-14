@@ -193,8 +193,16 @@ def calculate_short_trend(
     valid = [item for item in snapshots if item is not None and item.block_number < current.block_number]
     cutoff = current.observed_at.timestamp() - SHORT_TREND_MINUTES * 60
     recent = [item for item in valid if item.timestamp_utc.timestamp() >= cutoff]
-    if not recent:
+    if not valid:
         return None
+    # Prefer the configured short window when it contains enough samples to
+    # judge persistence. External schedulers can run only once per hour; in
+    # that case a strict 30-minute filter would discard every prior sample and
+    # leave the trend in "accumulating" forever. Fall back to the latest
+    # observations and report their real elapsed span in the message.
+    minimum_samples = min(4, len(valid))
+    if len(recent) < minimum_samples:
+        recent = valid[-SHORT_TREND_SLICES:]
     current_simple = simple_snapshot(current_record)
     assert current_simple is not None
     series = recent[-SHORT_TREND_SLICES:] + [current_simple]
