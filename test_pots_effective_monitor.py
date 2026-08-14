@@ -172,6 +172,26 @@ class EffectiveMonitorTests(unittest.TestCase):
         self.assertEqual(trend.lp_decrease_intervals, 6)
         self.assertEqual(trend.lp_delta_raw, -60_000 * USDT_SCALE)
 
+    def test_short_trend_falls_back_to_latest_samples_when_runs_are_hourly(self):
+        now = datetime(2026, 8, 14, 3, 0, tzinfo=timezone.utc)
+        records = []
+        for index in range(6):
+            snap = make_snapshot(
+                now - timedelta(hours=6 - index),
+                100 + index,
+                lp=10_000_000 - index * 10_000,
+            )
+            records.append(monitor.snapshot_record(snap))
+        current = make_snapshot(now, 200, lp=9_940_000)
+
+        trend = monitor.calculate_short_trend(records, current)
+
+        self.assertIsNotNone(trend)
+        self.assertEqual(trend.sample_intervals, 6)
+        self.assertEqual(trend.lp_decrease_intervals, 6)
+        self.assertEqual(trend.elapsed_seconds, 6 * 3600)
+        self.assertEqual(trend.lp_delta_raw, -60_000 * USDT_SCALE)
+
     def test_liquidity_removal_requires_both_reserves_to_fall_similarly(self):
         now = datetime(2026, 8, 13, 12, 30, tzinfo=timezone.utc)
         current = make_snapshot(now, 200, lp=9_000_000)
