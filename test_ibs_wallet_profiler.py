@@ -1,7 +1,41 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from ibs_wallet_profiler import Trade, anomaly_alert_due, anomaly_reasons, classify, compact_pending_by_address, fifo_holding_hours, round_trip_metrics
+from hexbytes import HexBytes
+from web3 import Web3
+
+from ibs_wallet_profiler import (
+    IBS_ADDRESS,
+    PAIR_ADDRESS,
+    TRANSFER_TOPIC,
+    USDT_ADDRESS,
+    Trade,
+    anomaly_alert_due,
+    anomaly_reasons,
+    classify,
+    compact_pending_by_address,
+    fifo_holding_hours,
+    receipt_flow_attribution,
+    round_trip_metrics,
+)
+
+
+def address_topic(address):
+    return HexBytes("0x" + "0" * 24 + address.lower().removeprefix("0x"))
+
+
+class ReceiptWeb3:
+    class Eth:
+        @staticmethod
+        def get_transaction_receipt(_tx_hash):
+            source = "0x1111111111111111111111111111111111111111"
+            recipient = "0x2222222222222222222222222222222222222222"
+            return {"logs": [
+                {"address": IBS_ADDRESS, "topics": [HexBytes(TRANSFER_TOPIC), address_topic(source), address_topic(PAIR_ADDRESS)], "data": HexBytes((100).to_bytes(32, "big"))},
+                {"address": USDT_ADDRESS, "topics": [HexBytes(TRANSFER_TOPIC), address_topic(PAIR_ADDRESS), address_topic(recipient)], "data": HexBytes((2500).to_bytes(32, "big"))},
+            ]}
+
+    eth = Eth()
 
 
 class WalletProfilerTests(unittest.TestCase):
@@ -94,6 +128,30 @@ class WalletProfilerTests(unittest.TestCase):
         self.assertEqual(1, len(compacted))
         self.assertEqual("0xb", compacted[0]["tx_hash"])
         self.assertEqual(["a", "b"], compacted[0]["event_ids"])
+
+    def test_many_external_sources_are_only_team_leader_suspicion(self):
+        start = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        trades = [
+            Trade(f"0xs{i}", i, 1, "SELL", 100, 1000, start + timedelta(hours=i))
+            for i in range(3)
+        ]
+        category, reasons, assessment = classify(
+            "0x1111111111111111111111111111111111111111",
+            False,
+            trades,
+            0,
+            300,
+            None,
+            external_sender_count=5,
+        )
+        self.assertEqual("团队长/归集地址疑似", category)
+        self.assertTrue(any("5个外部地址" in reason for reason in reasons))
+        self.assertIn("链外身份佐证", assessment)
+
+    def test_receipt_attribution_keeps_direct_flow_addresses(self):
+        source, recipient = receipt_flow_attribution(ReceiptWeb3(), "0xabc")
+        self.assertEqual(Web3.to_checksum_address("0x1111111111111111111111111111111111111111"), source)
+        self.assertEqual(Web3.to_checksum_address("0x2222222222222222222222222222222222222222"), recipient)
 
 
 if __name__ == "__main__":
