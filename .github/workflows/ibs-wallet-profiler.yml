@@ -51,6 +51,7 @@ jobs:
           ANOMALY_REPEAT_HOURS: "24"
           ANOMALY_NEW_SELLS: "10"
           CONFIRMATION_BLOCKS: "3"
+          TELEGRAM_TEST: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
           PYTHONUNBUFFERED: "1"
         run: python -u ibs_wallet_profiler.py
 

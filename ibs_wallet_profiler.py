@@ -602,8 +602,13 @@ def build_message(profile: dict[str, Any], trigger: Trade, ibs_decimals: int, us
 def send_telegram(token: str, chat_id: str, message: str) -> None:
     response = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": message, "parse_mode": "HTML", "disable_web_page_preview": True}, timeout=TELEGRAM_TIMEOUT_SECONDS)
     response.raise_for_status()
-    if not response.json().get("ok"):
+    payload = response.json()
+    if not payload.get("ok"):
         raise RuntimeError(f"Telegram发送失败：{response.text}")
+    result = payload.get("result", {})
+    chat = result.get("chat", {})
+    target = chat.get("title") or chat.get("username") or chat.get("first_name") or "未知会话"
+    print(f"Telegram已发送：目标={target}（{chat.get('type', 'unknown')}），message_id={result.get('message_id', 'unknown')}", flush=True)
 
 
 def current_pair_meta(web3: Web3) -> tuple[bool, int, int, Decimal, int, int]:
@@ -622,6 +627,12 @@ def current_pair_meta(web3: Web3) -> tuple[bool, int, int, Decimal, int, int]:
 
 def main() -> None:
     rpc_url, bot_token, chat_id = require_env("BSC_RPC"), require_env("BOT_TOKEN"), require_env("CHAT_ID")
+    if os.getenv("TELEGRAM_TEST", "").strip().lower() in {"1", "true", "yes", "on"}:
+        send_telegram(
+            bot_token,
+            chat_id,
+            "✅ <b>IBS/USDT监控测试成功</b>\n机器人与目标会话连接正常；正式告警会发送到这里。",
+        )
     web3 = connect_web3(rpc_url)
     ibs_is_token0, ibs_decimals, usdt_decimals, current_price, lp_ibs_raw, lp_usdt_raw = current_pair_meta(web3)
     add_dynamic_protocol_labels(web3)

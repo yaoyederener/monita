@@ -227,8 +227,13 @@ def send_telegram(token: str, chat_id: str, message: str) -> None:
         timeout=TELEGRAM_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    if not response.json().get("ok"):
+    payload = response.json()
+    if not payload.get("ok"):
         raise RuntimeError(f"Telegram发送失败：{response.text}")
+    result = payload.get("result", {})
+    chat = result.get("chat", {})
+    target = chat.get("title") or chat.get("username") or chat.get("first_name") or "未知会话"
+    print(f"Telegram已发送：目标={target}（{chat.get('type', 'unknown')}），message_id={result.get('message_id', 'unknown')}", flush=True)
 
 
 def require_env(name: str) -> str:
