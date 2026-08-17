@@ -1,0 +1,72 @@
+name: IBS Daily Funds Ledger
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "7-59/15 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monita-repository-writer
+  cancel-in-progress: false
+
+jobs:
+  daily-funds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-wallet-profiler.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-wallet-profiler.txt
+
+      - name: Run daily funds ledger tests
+        run: python -m unittest -v test_ibs_daily_funds_monitor.py
+
+      - name: Update IBS daily funds ledger
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          BSC_RPC: ${{ secrets.BSC_RPC }}
+          LOCAL_TIMEZONE: "Asia/Shanghai"
+          DAILY_REPORT_HOUR: "0"
+          DAILY_REPORT_MINUTE: "10"
+          DAILY_FUNDS_FORCE_REPORT: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          CONFIRMATION_BLOCKS: "3"
+          PYTHONUNBUFFERED: "1"
+        run: python -u ibs_daily_funds_monitor.py
+
+      - name: Save daily funds state
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ibs_daily_funds_state.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Update IBS daily funds ledger [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 5))
+          done
+          exit 1
