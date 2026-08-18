@@ -34,7 +34,6 @@ STATE_FILE = Path(os.getenv("DAILY_FUNDS_STATE_FILE", "data/ibs_daily_funds_stat
 LOCAL_TZ = ZoneInfo(os.getenv("LOCAL_TIMEZONE", "Asia/Shanghai"))
 REPORT_HOUR = int(os.getenv("DAILY_REPORT_HOUR", "0"))
 REPORT_MINUTE = int(os.getenv("DAILY_REPORT_MINUTE", "10"))
-CURRENT_REPORT_INTERVAL_MINUTES = int(os.getenv("CURRENT_REPORT_INTERVAL_MINUTES", "60"))
 MAX_SCAN_BLOCKS = int(os.getenv("DAILY_FUNDS_MAX_SCAN_BLOCKS", "220000"))
 LOG_CHUNK_SIZE = int(os.getenv("DAILY_FUNDS_LOG_CHUNK_SIZE", "3000"))
 TELEGRAM_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_TIMEOUT_SECONDS", "20"))
@@ -84,6 +83,7 @@ def default_state() -> dict[str, Any]:
         "daily": {},
         "last_reported_date": None,
         "last_current_report_ts": None,
+        "last_current_report_slot": None,
     }
 
 
@@ -393,8 +393,7 @@ def report_due(state: dict[str, Any], now: datetime) -> str | None:
 
 
 def current_report_due(state: dict[str, Any], now: datetime) -> bool:
-    last_report = state.get("last_current_report_ts")
-    return last_report is None or int(now.timestamp()) - int(last_report) >= CURRENT_REPORT_INTERVAL_MINUTES * 60
+    return state.get("last_current_report_slot") != now.strftime("%Y-%m-%dT%H%z")
 
 
 def main() -> None:
@@ -434,6 +433,7 @@ def main() -> None:
         today = local_now.date().isoformat()
         send_telegram(bot_token, chat_id, build_report(today, ensure_bucket(state, today), ibs_decimals, usdt_decimals, partial=True))
         state["last_current_report_ts"] = int(local_now.timestamp())
+        state["last_current_report_slot"] = local_now.strftime("%Y-%m-%dT%H%z")
     save_state(state)
 
 

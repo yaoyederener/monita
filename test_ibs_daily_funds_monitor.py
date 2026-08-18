@@ -75,8 +75,8 @@ class DailyFundsMonitorTests(unittest.TestCase):
     def test_current_report_is_due_hourly(self):
         now = datetime(2026, 8, 18, 2, 0, tzinfo=timezone.utc)
         self.assertTrue(current_report_due({}, now))
-        self.assertFalse(current_report_due({"last_current_report_ts": int(now.timestamp()) - 3599}, now))
-        self.assertTrue(current_report_due({"last_current_report_ts": int(now.timestamp()) - 3600}, now))
+        self.assertFalse(current_report_due({"last_current_report_slot": "2026-08-18T02+0000"}, now))
+        self.assertTrue(current_report_due({"last_current_report_slot": "2026-08-18T01+0000"}, now))
 
 
 if __name__ == "__main__":
