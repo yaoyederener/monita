@@ -1,7 +1,9 @@
 import unittest
+from datetime import datetime, timezone
 
 from ibs_daily_funds_monitor import (
     build_report,
+    current_report_due,
     default_bucket,
     default_state,
     ensure_bucket,
@@ -69,6 +71,12 @@ class DailyFundsMonitorTests(unittest.TestCase):
         self.assertIn("交易净流量：<b>-50.00 USDT</b>", message)
         self.assertIn("LP实际变化：<b>-60.00 USDT</b>", message)
         self.assertIn("项目总净消耗：<b>70.00 USDT</b>", message)
+
+    def test_current_report_is_due_hourly(self):
+        now = datetime(2026, 8, 18, 2, 0, tzinfo=timezone.utc)
+        self.assertTrue(current_report_due({}, now))
+        self.assertFalse(current_report_due({"last_current_report_ts": int(now.timestamp()) - 3599}, now))
+        self.assertTrue(current_report_due({"last_current_report_ts": int(now.timestamp()) - 3600}, now))
 
 
 if __name__ == "__main__":
