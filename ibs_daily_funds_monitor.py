@@ -34,6 +34,7 @@ STATE_FILE = Path(os.getenv("DAILY_FUNDS_STATE_FILE", "data/ibs_daily_funds_stat
 LOCAL_TZ = ZoneInfo(os.getenv("LOCAL_TIMEZONE", "Asia/Shanghai"))
 REPORT_HOUR = int(os.getenv("DAILY_REPORT_HOUR", "0"))
 REPORT_MINUTE = int(os.getenv("DAILY_REPORT_MINUTE", "10"))
+CURRENT_REPORT_INTERVAL_MINUTES = int(os.getenv("CURRENT_REPORT_INTERVAL_MINUTES", "60"))
 MAX_SCAN_BLOCKS = int(os.getenv("DAILY_FUNDS_MAX_SCAN_BLOCKS", "220000"))
 LOG_CHUNK_SIZE = int(os.getenv("DAILY_FUNDS_LOG_CHUNK_SIZE", "3000"))
 TELEGRAM_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_TIMEOUT_SECONDS", "20"))
@@ -82,6 +83,7 @@ def default_state() -> dict[str, Any]:
         "coverage_start_ts": None,
         "daily": {},
         "last_reported_date": None,
+        "last_current_report_ts": None,
     }
 
 
@@ -390,6 +392,11 @@ def report_due(state: dict[str, Any], now: datetime) -> str | None:
     return target
 
 
+def current_report_due(state: dict[str, Any], now: datetime) -> bool:
+    last_report = state.get("last_current_report_ts")
+    return last_report is None or int(now.timestamp()) - int(last_report) >= CURRENT_REPORT_INTERVAL_MINUTES * 60
+
+
 def main() -> None:
     rpc_url = require_env("BSC_RPC")
     bot_token = require_env("BOT_TOKEN")
@@ -419,13 +426,14 @@ def main() -> None:
         return
     reconstruct_balances(state, current_balances(web3))
     force_report = os.getenv("DAILY_FUNDS_FORCE_REPORT", "").strip().lower() in {"1", "true", "yes", "on"}
-    if force_report:
-        today = local_now.date().isoformat()
-        send_telegram(bot_token, chat_id, build_report(today, ensure_bucket(state, today), ibs_decimals, usdt_decimals, partial=True))
     target = report_due(state, local_now)
     if target is not None:
         send_telegram(bot_token, chat_id, build_report(target, ensure_bucket(state, target), ibs_decimals, usdt_decimals))
         state["last_reported_date"] = target
+    if force_report or (target is None and current_report_due(state, local_now)):
+        today = local_now.date().isoformat()
+        send_telegram(bot_token, chat_id, build_report(today, ensure_bucket(state, today), ibs_decimals, usdt_decimals, partial=True))
+        state["last_current_report_ts"] = int(local_now.timestamp())
     save_state(state)
 
 

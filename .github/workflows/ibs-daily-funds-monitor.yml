@@ -45,6 +45,7 @@ jobs:
           LOCAL_TIMEZONE: "Asia/Shanghai"
           DAILY_REPORT_HOUR: "0"
           DAILY_REPORT_MINUTE: "10"
+          CURRENT_REPORT_INTERVAL_MINUTES: "60"
           DAILY_FUNDS_FORCE_REPORT: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
           CONFIRMATION_BLOCKS: "3"
           PYTHONUNBUFFERED: "1"

@@ -15,9 +15,10 @@ the project's configured treasury and RBS contracts.
 - Internal transfers between monitored addresses, kept separate so they are not
   counted twice as project spending.
 
-The workflow scans every 15 minutes and sends the completed previous-day report
-after 00:10 Asia/Shanghai. A manual workflow run sends an immediate report for
-the current day to verify Telegram delivery and the accounting output.
+The workflow scans every 15 minutes, sends a cumulative current-day update once
+per hour, and sends the completed previous-day report after 00:10 Asia/Shanghai.
+A manual workflow run sends an immediate current-day report to verify Telegram
+delivery and the accounting output.
 
 ## Accounting definitions
 
