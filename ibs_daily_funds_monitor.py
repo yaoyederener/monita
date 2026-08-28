@@ -86,6 +86,7 @@ def default_state() -> dict[str, Any]:
         "schema_version": 2,
         "last_scanned_block": None,
         "last_btcb_scanned_block": None,
+        "btcb_coverage_start_ts": None,
         "coverage_start_ts": None,
         "daily": {},
         "last_reported_date": None,
@@ -541,8 +542,17 @@ def main() -> None:
             f"相关USDT转账 {len(transfer_logs)}笔",
             flush=True,
         )
+    if state.get("btcb_coverage_start_ts") is None:
+        # BTCB tracking was added after the USDT ledger had accumulated weeks of
+        # history. Only yesterday and today are needed for the next complete and
+        # current reports; scanning the entire legacy window delays Telegram for
+        # many scheduled runs.
+        btcb_start_ts = local_midnight_ts(local_now.date() - timedelta(days=1))
+        state["btcb_coverage_start_ts"] = btcb_start_ts
+        state["last_btcb_scanned_block"] = None
+    else:
+        btcb_start_ts = int(state["btcb_coverage_start_ts"])
     if state.get("last_btcb_scanned_block") is None:
-        btcb_start_ts = int(state.get("coverage_start_ts") or local_midnight_ts(local_now.date()))
         btcb_start = find_block_at_or_after(web3, btcb_start_ts, confirmed_block)
     else:
         btcb_start = int(state["last_btcb_scanned_block"]) + 1
