@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Daily IBS/USDT pool, treasury, and RBS USDT ledger."""
+"""Daily IBS/USDT pool, treasury (USDT + BTCB), and RBS ledger."""
 
 from __future__ import annotations
 
 import bisect
-import html
 import json
 import os
 from datetime import date, datetime, time, timedelta, timezone
@@ -37,7 +36,11 @@ REPORT_MINUTE = int(os.getenv("DAILY_REPORT_MINUTE", "10"))
 MAX_SCAN_BLOCKS = int(os.getenv("DAILY_FUNDS_MAX_SCAN_BLOCKS", "220000"))
 LOG_CHUNK_SIZE = int(os.getenv("DAILY_FUNDS_LOG_CHUNK_SIZE", "3000"))
 TELEGRAM_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_TIMEOUT_SECONDS", "20"))
-LARGE_EXTERNAL_OUTFLOW_USDT = Decimal(os.getenv("LARGE_EXTERNAL_OUTFLOW_USDT", "10000"))
+
+BTCB_ADDRESS = Web3.to_checksum_address("0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c")
+WBNB_ADDRESS = Web3.to_checksum_address("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c")
+PANCAKE_V2_ROUTER = Web3.to_checksum_address("0x10ED43C718714eb63d5aA57B78B54704E256024E")
+BTCB_DECIMALS = 18
 
 TREASURY_ADDRESSES: dict[str, str] = {
     "Safety Treasury": "0x5BB0d5Cb2276a054d933B14D023A2063CF8F28Ce",
@@ -56,6 +59,7 @@ GROUP_BY_ADDRESS.update({address.lower(): "treasury" for address in TREASURY_ADD
 GROUP_BY_ADDRESS.update({address.lower(): "rbs" for address in RBS_ADDRESSES.values()})
 WATCHED_ADDRESSES = tuple(Web3.to_checksum_address(address) for address in GROUP_BY_ADDRESS)
 GROUPS = ("lp", "treasury", "rbs")
+BALANCE_GROUPS = (*GROUPS, "treasury_btcb")
 
 
 def default_bucket() -> dict[str, Any]:
@@ -66,6 +70,8 @@ def default_bucket() -> dict[str, Any]:
         "sell_ibs_raw": "0",
         "buy_usdt_raw": "0",
         "sell_usdt_raw": "0",
+        "treasury_btcb_total_in_raw": "0",
+        "treasury_btcb_total_out_raw": "0",
         "internal_usdt_raw": "0",
         "large_external_outflows": [],
     }
@@ -77,8 +83,9 @@ def default_bucket() -> dict[str, Any]:
 
 def default_state() -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "last_scanned_block": None,
+        "last_btcb_scanned_block": None,
         "coverage_start_ts": None,
         "daily": {},
         "last_reported_date": None,
@@ -148,17 +155,23 @@ def get_logs_chunked(web3: Web3, query: dict[str, Any], from_block: int, to_bloc
     return logs
 
 
-def get_watched_usdt_transfers(web3: Web3, from_block: int, to_block: int) -> list[Any]:
-    watched_topics = [topic_address(address) for address in WATCHED_ADDRESSES]
+def get_watched_token_transfers(
+    web3: Web3,
+    token_address: str,
+    watched_addresses: Iterable[str],
+    from_block: int,
+    to_block: int,
+) -> list[Any]:
+    watched_topics = [topic_address(address) for address in watched_addresses]
     outgoing = get_logs_chunked(
         web3,
-        {"address": USDT_ADDRESS, "topics": [TRANSFER_TOPIC, watched_topics]},
+        {"address": token_address, "topics": [TRANSFER_TOPIC, watched_topics]},
         from_block,
         to_block,
     )
     incoming = get_logs_chunked(
         web3,
-        {"address": USDT_ADDRESS, "topics": [TRANSFER_TOPIC, None, watched_topics]},
+        {"address": token_address, "topics": [TRANSFER_TOPIC, None, watched_topics]},
         from_block,
         to_block,
     )
@@ -167,6 +180,20 @@ def get_watched_usdt_transfers(web3: Web3, from_block: int, to_block: int) -> li
         for log in outgoing + incoming
     }
     return sorted(unique.values(), key=lambda log: (int(log["blockNumber"]), int(log["logIndex"])))
+
+
+def get_watched_usdt_transfers(web3: Web3, from_block: int, to_block: int) -> list[Any]:
+    return get_watched_token_transfers(web3, USDT_ADDRESS, WATCHED_ADDRESSES, from_block, to_block)
+
+
+def get_watched_btcb_transfers(web3: Web3, from_block: int, to_block: int) -> list[Any]:
+    return get_watched_token_transfers(
+        web3,
+        BTCB_ADDRESS,
+        TREASURY_ADDRESSES.values(),
+        from_block,
+        to_block,
+    )
 
 
 def block_timestamp(web3: Web3, block_number: int) -> int:
@@ -233,10 +260,19 @@ def record_transfer(bucket: dict[str, Any], source: str, destination: str, value
         })
 
 
+def record_btcb_transfer(bucket: dict[str, Any], source: str, destination: str, value: int) -> None:
+    treasury = {address.lower() for address in TREASURY_ADDRESSES.values()}
+    if source.lower() in treasury:
+        add_raw(bucket, "treasury_btcb_total_out_raw", value)
+    if destination.lower() in treasury:
+        add_raw(bucket, "treasury_btcb_total_in_raw", value)
+
+
 def aggregate_logs(
     state: dict[str, Any],
     swap_logs: Iterable[Any],
     transfer_logs: Iterable[Any],
+    btcb_transfer_logs: Iterable[Any],
     ibs_is_token0: bool,
     boundary_blocks: list[int],
     boundary_days: list[str],
@@ -254,6 +290,23 @@ def aggregate_logs(
             data_to_int(log["data"]),
             Web3.to_hex(log["transactionHash"]),
         )
+    aggregate_btcb_logs(state, btcb_transfer_logs, boundary_blocks, boundary_days)
+
+
+def aggregate_btcb_logs(
+    state: dict[str, Any],
+    btcb_transfer_logs: Iterable[Any],
+    boundary_blocks: list[int],
+    boundary_days: list[str],
+) -> None:
+    for log in btcb_transfer_logs:
+        day = day_for_block(int(log["blockNumber"]), boundary_blocks, boundary_days)
+        record_btcb_transfer(
+            ensure_bucket(state, day),
+            topic_to_address(log["topics"][1]),
+            topic_to_address(log["topics"][2]),
+            data_to_int(log["data"]),
+        )
 
 
 def sum_balances(contract: Any, addresses: Iterable[str]) -> int:
@@ -261,26 +314,65 @@ def sum_balances(contract: Any, addresses: Iterable[str]) -> int:
 
 
 def current_balances(web3: Web3) -> dict[str, int]:
-    usdt = web3.eth.contract(address=USDT_ADDRESS, abi=[
+    erc20_abi = [
         {"inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"},
-    ])
+    ]
+    usdt = web3.eth.contract(address=USDT_ADDRESS, abi=erc20_abi)
+    btcb = web3.eth.contract(address=BTCB_ADDRESS, abi=erc20_abi)
     return {
         "lp": int(usdt.functions.balanceOf(PAIR_ADDRESS).call()),
         "treasury": sum_balances(usdt, TREASURY_ADDRESSES.values()),
         "rbs": sum_balances(usdt, RBS_ADDRESSES.values()),
+        "treasury_btcb": sum_balances(btcb, TREASURY_ADDRESSES.values()),
     }
+
+
+def current_btcb_price_usdt(web3: Web3, usdt_decimals: int) -> Decimal | None:
+    router = web3.eth.contract(address=PANCAKE_V2_ROUTER, abi=[
+        {
+            "inputs": [
+                {"name": "amountIn", "type": "uint256"},
+                {"name": "path", "type": "address[]"},
+            ],
+            "name": "getAmountsOut",
+            "outputs": [{"name": "amounts", "type": "uint256[]"}],
+            "stateMutability": "view",
+            "type": "function",
+        },
+    ])
+    quotes: list[Decimal] = []
+    for path in ([BTCB_ADDRESS, USDT_ADDRESS], [BTCB_ADDRESS, WBNB_ADDRESS, USDT_ADDRESS]):
+        try:
+            result = router.functions.getAmountsOut(10**BTCB_DECIMALS, path).call()
+            quotes.append(amount(int(result[-1]), usdt_decimals))
+        except Exception as exc:
+            print(f"BTCB链上估值路径不可用：{path}（{exc}）", flush=True)
+    if quotes:
+        return max(quotes)
+    try:
+        response = requests.get(
+            "https://api.binance.com/api/v3/ticker/price",
+            params={"symbol": "BTCUSDT"},
+            timeout=TELEGRAM_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return Decimal(response.json()["price"])
+    except Exception as exc:
+        print(f"BTCB估值暂不可用：{exc}", flush=True)
+        return None
 
 
 def reconstruct_balances(state: dict[str, Any], closing_balances: dict[str, int]) -> None:
     cursor = dict(closing_balances)
     for day in sorted(state.get("daily", {}), reverse=True):
         bucket = ensure_bucket(state, day)
-        bucket["closing_balances_raw"] = {group: str(cursor[group]) for group in GROUPS}
+        bucket["closing_balances_raw"] = {group: str(cursor[group]) for group in BALANCE_GROUPS}
         opening: dict[str, int] = {}
-        for group in GROUPS:
-            net = int(bucket[f"{group}_total_in_raw"]) - int(bucket[f"{group}_total_out_raw"])
+        for group in BALANCE_GROUPS:
+            prefix = "treasury_btcb" if group == "treasury_btcb" else group
+            net = int(bucket[f"{prefix}_total_in_raw"]) - int(bucket[f"{prefix}_total_out_raw"])
             opening[group] = cursor[group] - net
-        bucket["opening_balances_raw"] = {group: str(opening[group]) for group in GROUPS}
+        bucket["opening_balances_raw"] = {group: str(opening[group]) for group in BALANCE_GROUPS}
         cursor = opening
 
 
@@ -292,26 +384,58 @@ def balance_raw(bucket: dict[str, Any], boundary: str, group: str) -> int:
     return int(bucket.get(f"{boundary}_balances_raw", {}).get(group, "0"))
 
 
-def signed_usdt(value_raw: int, decimals: int) -> str:
-    return f"{amount(value_raw, decimals):+,.2f} USDT"
-
-
 def usdt(value_raw: int, decimals: int) -> str:
     return f"{amount(value_raw, decimals):,.2f} USDT"
 
 
-def build_report(day: str, bucket: dict[str, Any], ibs_decimals: int, usdt_decimals: int, partial: bool = False) -> str:
+def btcb(value_raw: int) -> str:
+    return f"{amount(value_raw, BTCB_DECIMALS):,.8f} BTCB"
+
+
+def directional_usdt(value_raw: int, decimals: int) -> str:
+    if value_raw > 0:
+        return f"增加 {usdt(value_raw, decimals)}"
+    if value_raw < 0:
+        return f"减少 {usdt(-value_raw, decimals)}"
+    return "无变化"
+
+
+def directional_btcb(value_raw: int) -> str:
+    if value_raw > 0:
+        return f"增加 {btcb(value_raw)}"
+    if value_raw < 0:
+        return f"减少 {btcb(-value_raw)}"
+    return "无变化"
+
+
+def build_report(
+    day: str,
+    bucket: dict[str, Any],
+    ibs_decimals: int,
+    usdt_decimals: int,
+    btcb_price_usdt: Decimal | None = None,
+    partial: bool = False,
+) -> str:
     buy_usdt = raw(bucket, "buy_usdt_raw")
     sell_usdt = raw(bucket, "sell_usdt_raw")
     trade_net = buy_usdt - sell_usdt
     lp_open, lp_close = balance_raw(bucket, "opening", "lp"), balance_raw(bucket, "closing", "lp")
     treasury_open, treasury_close = balance_raw(bucket, "opening", "treasury"), balance_raw(bucket, "closing", "treasury")
+    btcb_open = balance_raw(bucket, "opening", "treasury_btcb")
+    btcb_close = balance_raw(bucket, "closing", "treasury_btcb")
     rbs_open, rbs_close = balance_raw(bucket, "opening", "rbs"), balance_raw(bucket, "closing", "rbs")
     lp_delta = lp_close - lp_open
     treasury_delta = treasury_close - treasury_open
+    btcb_delta = btcb_close - btcb_open
     rbs_delta = rbs_close - rbs_open
-    combined_open = lp_open + treasury_open + rbs_open
-    combined_close = lp_close + treasury_close + rbs_close
+    btcb_open_value = 0
+    btcb_close_value = 0
+    if btcb_price_usdt is not None:
+        scale = Decimal(10) ** usdt_decimals
+        btcb_open_value = int(amount(btcb_open, BTCB_DECIMALS) * btcb_price_usdt * scale)
+        btcb_close_value = int(amount(btcb_close, BTCB_DECIMALS) * btcb_price_usdt * scale)
+    combined_open = lp_open + treasury_open + rbs_open + btcb_open_value
+    combined_close = lp_close + treasury_close + rbs_close + btcb_close_value
     combined_delta = combined_close - combined_open
     non_trade_lp = lp_delta - trade_net
     label = "截至当前" if partial else "完整日报"
@@ -323,40 +447,34 @@ def build_report(day: str, bucket: dict[str, Any], ibs_decimals: int, usdt_decim
         f"日初/当前：{usdt(lp_open, usdt_decimals)} → {usdt(lp_close, usdt_decimals)}",
         f"买单：{bucket['buy_count']}笔｜{amount(raw(bucket, 'buy_ibs_raw'), ibs_decimals):,.2f} IBS｜流入 {usdt(buy_usdt, usdt_decimals)}",
         f"卖单：{bucket['sell_count']}笔｜{amount(raw(bucket, 'sell_ibs_raw'), ibs_decimals):,.2f} IBS｜流出 {usdt(sell_usdt, usdt_decimals)}",
-        f"交易净流量：<b>{signed_usdt(trade_net, usdt_decimals)}</b>",
-        f"LP实际变化：<b>{signed_usdt(lp_delta, usdt_decimals)}</b>",
-        f"非交易调整：{signed_usdt(non_trade_lp, usdt_decimals)}",
-        f"交易净消耗：{usdt(max(-trade_net, 0), usdt_decimals)}",
+        f"买卖结果：<b>{directional_usdt(trade_net, usdt_decimals)}</b>",
+        f"其他余额变化：{directional_usdt(non_trade_lp, usdt_decimals)}（非买卖造成）",
+        f"LP当日总变化：<b>{directional_usdt(lp_delta, usdt_decimals)}</b>",
         "",
-        "<b>国库资金</b>",
-        f"日初/当前：{usdt(treasury_open, usdt_decimals)} → {usdt(treasury_close, usdt_decimals)}",
-        f"外部流入/流出：{usdt(raw(bucket, 'treasury_external_in_raw'), usdt_decimals)} / {usdt(raw(bucket, 'treasury_external_out_raw'), usdt_decimals)}",
-        f"净变化：<b>{signed_usdt(treasury_delta, usdt_decimals)}</b>",
+        "<b>国库资金（含BTC）</b>",
+        f"USDT：{usdt(treasury_open, usdt_decimals)} → {usdt(treasury_close, usdt_decimals)}｜{directional_usdt(treasury_delta, usdt_decimals)}",
+        f"BTC：{btcb(btcb_open)} → {btcb(btcb_close)}｜{directional_btcb(btcb_delta)}",
         "",
         "<b>RBS余额</b>",
         f"日初/当前：{usdt(rbs_open, usdt_decimals)} → {usdt(rbs_close, usdt_decimals)}",
-        f"外部流入/流出：{usdt(raw(bucket, 'rbs_external_in_raw'), usdt_decimals)} / {usdt(raw(bucket, 'rbs_external_out_raw'), usdt_decimals)}",
-        f"净变化：<b>{signed_usdt(rbs_delta, usdt_decimals)}</b>",
+        f"当日变化：<b>{directional_usdt(rbs_delta, usdt_decimals)}</b>",
         "",
         "<b>项目总资金</b>",
         f"LP+国库+RBS：{usdt(combined_open, usdt_decimals)} → {usdt(combined_close, usdt_decimals)}",
-        f"总净变化：<b>{signed_usdt(combined_delta, usdt_decimals)}</b>",
-        f"项目总净消耗：<b>{usdt(max(-combined_delta, 0), usdt_decimals)}</b>",
-        f"内部划转：{usdt(raw(bucket, 'internal_usdt_raw'), usdt_decimals)}",
+        f"当日总变化：<b>{directional_usdt(combined_delta, usdt_decimals)}</b>",
     ]
-    large = [
-        item for item in bucket.get("large_external_outflows", [])
-        if amount(int(item["amount_raw"]), usdt_decimals) >= LARGE_EXTERNAL_OUTFLOW_USDT
-    ]
-    if large:
-        lines.extend(["", f"<b>大额外部转出（≥{LARGE_EXTERNAL_OUTFLOW_USDT:,.0f} USDT）</b>"])
-        for item in sorted(large, key=lambda row: int(row["amount_raw"]), reverse=True)[:5]:
-            label_cn = "国库" if item["group"] == "treasury" else "RBS"
-            destination = item["to"]
-            lines.append(
-                f"{label_cn} → <a href=\"https://bscscan.com/address/{destination}\">{destination[:8]}…{destination[-6:]}</a>：{usdt(int(item['amount_raw']), usdt_decimals)}"
-            )
-    lines.extend(["", "说明：项目总资金按LP、国库和RBS的链上USDT余额合计；三者之间的内部划转不会重复计入总消耗。"])
+    if btcb_price_usdt is not None:
+        treasury_open_value = treasury_open + btcb_open_value
+        treasury_close_value = treasury_close + btcb_close_value
+        lines[lines.index("<b>RBS余额</b>"):lines.index("<b>RBS余额</b>")] = [
+            f"BTC当前估价：{btcb_price_usdt:,.2f} USDT",
+            f"国库总价值：{usdt(treasury_open_value, usdt_decimals)} → {usdt(treasury_close_value, usdt_decimals)}",
+            "",
+        ]
+        lines.extend(["", "说明：BTC按本次报告时的BTCB/USDT价格统一估值，因此总变化反映余额变化，不反映BTC价格涨跌。"])
+    else:
+        lines[-2] = "LP+国库USDT+RBS（暂不含BTC估值）：" + lines[-2].split("：", 1)[1]
+        lines.extend(["", "说明：BTC价格暂时无法取得，项目总资金暂不含BTC估值；BTC数量仍正常监控。"])
     return "\n".join(lines)
 
 
@@ -416,22 +534,63 @@ def main() -> None:
         boundaries, days = block_day_boundaries(web3, start, end)
         swap_logs = get_swap_logs(web3, start, end)
         transfer_logs = get_watched_usdt_transfers(web3, start, end)
-        aggregate_logs(state, swap_logs, transfer_logs, ibs_is_token0, boundaries, days)
+        aggregate_logs(state, swap_logs, transfer_logs, [], ibs_is_token0, boundaries, days)
         state["last_scanned_block"] = end
-        print(f"扫描区块 {start}-{end}：Swap {len(swap_logs)}笔，相关USDT转账 {len(transfer_logs)}笔", flush=True)
-    if int(state.get("last_scanned_block") or 0) < confirmed_block:
+        print(
+            f"扫描区块 {start}-{end}：Swap {len(swap_logs)}笔，"
+            f"相关USDT转账 {len(transfer_logs)}笔",
+            flush=True,
+        )
+    if state.get("last_btcb_scanned_block") is None:
+        btcb_start_ts = int(state.get("coverage_start_ts") or local_midnight_ts(local_now.date()))
+        btcb_start = find_block_at_or_after(web3, btcb_start_ts, confirmed_block)
+    else:
+        btcb_start = int(state["last_btcb_scanned_block"]) + 1
+    btcb_end = min(confirmed_block, btcb_start + MAX_SCAN_BLOCKS - 1)
+    if btcb_start <= btcb_end:
+        btcb_boundaries, btcb_days = block_day_boundaries(web3, btcb_start, btcb_end)
+        btcb_transfer_logs = get_watched_btcb_transfers(web3, btcb_start, btcb_end)
+        aggregate_btcb_logs(state, btcb_transfer_logs, btcb_boundaries, btcb_days)
+        state["last_btcb_scanned_block"] = btcb_end
+        print(
+            f"扫描BTCB区块 {btcb_start}-{btcb_end}：国库相关转账 {len(btcb_transfer_logs)}笔",
+            flush=True,
+        )
+    usdt_backlog = confirmed_block - int(state.get("last_scanned_block") or 0)
+    btcb_backlog = confirmed_block - int(state.get("last_btcb_scanned_block") or 0)
+    if usdt_backlog > 0 or btcb_backlog > 0:
         save_state(state)
-        print(f"历史数据尚未追平，剩余约 {confirmed_block - int(state['last_scanned_block'])} 个区块", flush=True)
+        print(
+            f"历史数据尚未追平：USDT/交易剩余约 {max(usdt_backlog, 0)} 个区块，"
+            f"BTCB剩余约 {max(btcb_backlog, 0)} 个区块",
+            flush=True,
+        )
         return
     reconstruct_balances(state, current_balances(web3))
+    btcb_price = current_btcb_price_usdt(web3, usdt_decimals)
     force_report = os.getenv("DAILY_FUNDS_FORCE_REPORT", "").strip().lower() in {"1", "true", "yes", "on"}
     target = report_due(state, local_now)
     if target is not None:
-        send_telegram(bot_token, chat_id, build_report(target, ensure_bucket(state, target), ibs_decimals, usdt_decimals))
+        send_telegram(
+            bot_token,
+            chat_id,
+            build_report(target, ensure_bucket(state, target), ibs_decimals, usdt_decimals, btcb_price),
+        )
         state["last_reported_date"] = target
     if force_report or (target is None and current_report_due(state, local_now)):
         today = local_now.date().isoformat()
-        send_telegram(bot_token, chat_id, build_report(today, ensure_bucket(state, today), ibs_decimals, usdt_decimals, partial=True))
+        send_telegram(
+            bot_token,
+            chat_id,
+            build_report(
+                today,
+                ensure_bucket(state, today),
+                ibs_decimals,
+                usdt_decimals,
+                btcb_price,
+                partial=True,
+            ),
+        )
         state["last_current_report_ts"] = int(local_now.timestamp())
         state["last_current_report_slot"] = local_now.strftime("%Y-%m-%dT%H%z")
     save_state(state)

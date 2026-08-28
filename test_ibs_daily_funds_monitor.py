@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from ibs_daily_funds_monitor import (
     build_report,
@@ -8,6 +9,7 @@ from ibs_daily_funds_monitor import (
     default_state,
     ensure_bucket,
     reconstruct_balances,
+    record_btcb_transfer,
     record_trade,
     record_transfer,
 )
@@ -52,10 +54,22 @@ class DailyFundsMonitorTests(unittest.TestCase):
         bucket["lp_total_in_raw"] = "250"
         bucket["lp_total_out_raw"] = "100"
         bucket["treasury_total_out_raw"] = "20"
-        reconstruct_balances(state, {"lp": 1150, "treasury": 980, "rbs": 500})
+        bucket["treasury_btcb_total_in_raw"] = "3"
+        reconstruct_balances(state, {"lp": 1150, "treasury": 980, "rbs": 500, "treasury_btcb": 13})
         self.assertEqual(bucket["opening_balances_raw"]["lp"], "1000")
         self.assertEqual(bucket["opening_balances_raw"]["treasury"], "1000")
         self.assertEqual(bucket["opening_balances_raw"]["rbs"], "500")
+        self.assertEqual(bucket["opening_balances_raw"]["treasury_btcb"], "10")
+
+    def test_btcb_treasury_transfer_is_recorded(self):
+        bucket = default_bucket()
+        from ibs_daily_funds_monitor import TREASURY_ADDRESSES
+        treasury = next(iter(TREASURY_ADDRESSES.values()))
+        outside = "0x0000000000000000000000000000000000000001"
+        record_btcb_transfer(bucket, outside, treasury, 25)
+        record_btcb_transfer(bucket, treasury, outside, 5)
+        self.assertEqual(bucket["treasury_btcb_total_in_raw"], "25")
+        self.assertEqual(bucket["treasury_btcb_total_out_raw"], "5")
 
     def test_report_separates_trade_and_actual_lp_change(self):
         bucket = default_bucket()
@@ -64,13 +78,30 @@ class DailyFundsMonitorTests(unittest.TestCase):
             "sell_count": 1,
             "buy_usdt_raw": str(200 * 10**18),
             "sell_usdt_raw": str(250 * 10**18),
-            "opening_balances_raw": {"lp": str(1000 * 10**18), "treasury": str(500 * 10**18), "rbs": str(300 * 10**18)},
-            "closing_balances_raw": {"lp": str(940 * 10**18), "treasury": str(490 * 10**18), "rbs": str(300 * 10**18)},
+            "opening_balances_raw": {
+                "lp": str(1000 * 10**18),
+                "treasury": str(500 * 10**18),
+                "treasury_btcb": str(2 * 10**18),
+                "rbs": str(300 * 10**18),
+            },
+            "closing_balances_raw": {
+                "lp": str(940 * 10**18),
+                "treasury": str(490 * 10**18),
+                "treasury_btcb": str(2 * 10**18),
+                "rbs": str(300 * 10**18),
+            },
         })
-        message = build_report("2026-08-17", bucket, 18, 18)
-        self.assertIn("交易净流量：<b>-50.00 USDT</b>", message)
-        self.assertIn("LP实际变化：<b>-60.00 USDT</b>", message)
-        self.assertIn("项目总净消耗：<b>70.00 USDT</b>", message)
+        message = build_report("2026-08-17", bucket, 18, 18, Decimal("75000"))
+        self.assertIn("买卖结果：<b>减少 50.00 USDT</b>", message)
+        self.assertIn("其他余额变化：减少 10.00 USDT（非买卖造成）", message)
+        self.assertIn("LP当日总变化：<b>减少 60.00 USDT</b>", message)
+        self.assertIn("国库资金（含BTC）", message)
+        self.assertIn("BTC：2.00000000 BTCB → 2.00000000 BTCB｜无变化", message)
+        self.assertIn("当日总变化：<b>减少 70.00 USDT</b>", message)
+        self.assertNotIn("外部流入/流出", message)
+        self.assertNotIn("交易净消耗", message)
+        self.assertNotIn("非交易调整", message)
+        self.assertNotIn("内部划转", message)
 
     def test_current_report_is_due_hourly(self):
         now = datetime(2026, 8, 18, 2, 0, tzinfo=timezone.utc)

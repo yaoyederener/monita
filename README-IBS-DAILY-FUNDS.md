@@ -1,19 +1,27 @@
 # IBS Daily Funds Ledger
 
-This monitor keeps a Beijing-time daily USDT ledger for the IBS/USDT pair and
-the project's configured treasury and RBS contracts.
+This monitor keeps a Beijing-time daily ledger for the IBS/USDT pair, the
+project's configured treasury (USDT and BTCB), and RBS contracts.
 
 ## Reported figures
 
 - IBS/USDT buy and sell counts, IBS volume, and USDT flow from Pair `Swap` logs.
-- LP opening/closing USDT balance, actual balance change, and the non-trading
-  adjustment between actual balance change and swap net flow.
-- Combined USDT balances and external flows for Safety Treasury, BTCB Treasury,
-  and Worldpool Treasury.
-- Combined USDT balances and external flows for RBS Stabilizer and RBS Executor.
-- Combined LP + treasury + RBS opening/closing balance and net daily depletion.
-- Internal transfers between monitored addresses, kept separate so they are not
-  counted twice as project spending.
+- LP opening/closing USDT balance, buy/sell result, other balance changes, and
+  the total daily LP change in plain-language increase/decrease wording.
+- Combined USDT and BTCB opening/closing balances for Safety Treasury, BTCB
+  Treasury, and Worldpool Treasury.
+- Current BTCB/USDT valuation from PancakeSwap, with Binance BTCUSDT as a
+  fallback. The same current price is applied to opening and closing BTCB so the
+  reported daily change reflects balance movement rather than BTC price moves.
+- Combined USDT opening/closing balance and daily change for RBS Stabilizer and
+  RBS Executor.
+- Combined LP + treasury (including BTCB valuation) + RBS opening/closing value
+  and daily change.
+
+The Telegram report intentionally omits external inflow/outflow, internal
+transfer, trade-depletion, and large-external-outflow lines. Transfer data is
+still processed internally so opening and closing balances reconstruct
+correctly.
 
 The workflow scans every 15 minutes, sends at most one cumulative current-day
 update in each Beijing clock hour, and sends the completed previous-day report
@@ -24,13 +32,12 @@ delivery and the accounting output.
 
 ## Accounting definitions
 
-- Trade net flow = buy-side USDT into LP minus sell-side USDT out of LP.
-- Trade depletion = `max(sell USDT - buy USDT, 0)`.
-- LP actual change = closing LP USDT balance minus opening LP USDT balance.
-- Non-trading adjustment = LP actual change minus trade net flow.
-- Project net depletion = `max(total opening balance - total closing balance, 0)`
-  across LP, treasury, and RBS.
+- Buy/sell result = buy-side USDT into LP minus sell-side USDT out of LP.
+- Other LP balance change = total LP balance change minus the buy/sell result.
+- LP daily change = closing LP USDT balance minus opening LP USDT balance.
+- Project daily change = closing value minus opening value across LP, treasury
+  USDT, treasury BTCB valued at the report-time price, and RBS.
 
-All balances are on-chain BEP-20 USDT balances. They are not a substitute for
-internal protocol accounting or liabilities that are not represented by those
-balances.
+All balances are on-chain BEP-20 USDT or BTCB balances. They are not a
+substitute for internal protocol accounting or liabilities that are not
+represented by those balances.
