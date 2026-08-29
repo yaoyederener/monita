@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 
 const TIMEZONE = process.env.MONITOR_TIMEZONE || "Asia/Shanghai";
 const ALERT_THRESHOLD = Number(process.env.ALERT_IMBALANCE_PCT || 35);
-const REPORT_INTERVAL_MINUTES = Number(process.env.REPORT_INTERVAL_MINUTES || 60);
+const FORCE_REPORT = process.env.FORCE_REPORT === "true";
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
 const CHAT_ID = process.env.CHAT_ID || "";
 const STATE_FILE = path.resolve(".state/ftrex.json");
@@ -20,10 +20,6 @@ if (!BOT_TOKEN || !CHAT_ID) {
 if (!Number.isFinite(ALERT_THRESHOLD) || ALERT_THRESHOLD < 0) {
   throw new Error("ALERT_IMBALANCE_PCT must be a non-negative number");
 }
-if (!Number.isFinite(REPORT_INTERVAL_MINUTES) || REPORT_INTERVAL_MINUTES < 1) {
-  throw new Error("REPORT_INTERVAL_MINUTES must be at least 1");
-}
-
 function timeParts(date = new Date()) {
   const values = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", {
@@ -43,6 +39,7 @@ function timeParts(date = new Date()) {
   return {
     day: `${values.year}-${values.month}-${values.day}`,
     dateTime: `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`,
+    hourKey: `${values.year}-${values.month}-${values.day}T${values.hour}`,
   };
 }
 
@@ -52,12 +49,21 @@ async function loadState() {
     return {
       seen: Array.isArray(state.seen) ? state.seen : [],
       days: state.days && typeof state.days === "object" ? state.days : {},
+      recentTrades: Array.isArray(state.recentTrades) ? state.recentTrades : [],
       lastAlertAt: Number(state.lastAlertAt) || 0,
-      lastReportAt: Number(state.lastReportAt) || 0,
+      lastHourlyReportKey: state.lastHourlyReportKey || "",
+      lastDailyReportDay: state.lastDailyReportDay || "",
     };
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
-    return { seen: [], days: {}, lastAlertAt: 0, lastReportAt: 0 };
+    return {
+      seen: [],
+      days: {},
+      recentTrades: [],
+      lastAlertAt: 0,
+      lastHourlyReportKey: "",
+      lastDailyReportDay: "",
+    };
   }
 }
 
@@ -100,7 +106,7 @@ function addNewTrades(state, trades, now) {
     const key = `${day}|${base}|${occurrence}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    fresh.push(trade);
+    fresh.push({ ...trade, observedAt: now.getTime() });
   }
 
   const increment = summarize(fresh);
@@ -110,10 +116,16 @@ function addNewTrades(state, trades, now) {
     state.days[day][side].notional += increment[side].notional;
   }
   state.seen = [...seen].filter((key) => key.startsWith(`${day}|`)).slice(-20_000);
+  state.recentTrades = [...state.recentTrades, ...fresh].filter(
+    (trade) => Number(trade.observedAt) >= now.getTime() - 25 * 60 * 60_000,
+  );
   for (const oldDay of Object.keys(state.days).sort().slice(0, -7)) {
     delete state.days[oldDay];
   }
-  return { day, fresh, daySummary: state.days[day] };
+  const recentHour = state.recentTrades.filter(
+    (trade) => Number(trade.observedAt) >= now.getTime() - 60 * 60_000,
+  );
+  return { day, fresh, recentHour, daySummary: state.days[day] };
 }
 
 function analyzeDepth(depth) {
@@ -209,6 +221,22 @@ const money = (value) =>
     maximumFractionDigits: 2,
   });
 
+const signedMoney = (value) => `${Number(value) >= 0 ? "+" : ""}${money(value)}`;
+
+const priceText = (value) => {
+  const price = Number(value);
+  return Number.isFinite(price) ? price.toLocaleString("en-US", { maximumFractionDigits: 12 }) : "--";
+};
+
+const ratio = (first, second) =>
+  Number(second) > 0 ? (Number(first) / Number(second)).toFixed(2) : "--";
+
+function strengthLabel(imbalance) {
+  if (imbalance >= 5) return "买盘较强";
+  if (imbalance <= -5) return "卖盘较强";
+  return "相对均衡";
+}
+
 async function sendTelegram(text) {
   const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: "POST",
@@ -221,52 +249,113 @@ async function sendTelegram(text) {
   }
 }
 
-function report(snapshot, update) {
-  const recent = summarize(update.fresh);
+function hourlyReport(snapshot, update) {
+  const recent = summarize(update.recentHour);
   const depth = snapshot.depth;
-  const spread =
-    depth.bestBid > 0 ? ((depth.bestAsk - depth.bestBid) / depth.bestBid) * 100 : 0;
+  const dayNet = update.daySummary.BUY.notional - update.daySummary.SELL.notional;
+  const hourNet = recent.BUY.notional - recent.SELL.notional;
   return [
-    "📊 FTR/USDT 监控",
-    `时间：${timeParts(snapshot.capturedAt).dateTime} (${TIMEZONE})`,
-    `最新价：${snapshot.ticker.close ?? "--"} USDT`,
-    `24h 成交额：${money(snapshot.ticker.turnover)} USDT`,
+    "📊 FTR/USDT 每小时监控",
     "",
-    `买盘：${money(depth.bid.notional)} USDT（${depth.bidLevels}档）`,
-    `卖盘：${money(depth.ask.notional)} USDT（${depth.askLevels}档）`,
-    `盘口失衡：${depth.imbalance.toFixed(2)}%`,
-    `价差：${spread.toFixed(3)}%`,
+    `⏰ 时间：${timeParts(snapshot.capturedAt).dateTime}（北京时间）`,
+    `💰 最新价：${priceText(snapshot.ticker.close)} USDT`,
+    `📈 24小时成交额：${money(snapshot.ticker.turnover)} USDT`,
     "",
-    `本次新增主动买入：${money(recent.BUY.notional)} USDT / ${recent.BUY.count}笔`,
-    `本次新增主动卖出：${money(recent.SELL.notional)} USDT / ${recent.SELL.count}笔`,
-    `今日主动买入：${money(update.daySummary.BUY.notional)} USDT / ${update.daySummary.BUY.count}笔`,
-    `今日主动卖出：${money(update.daySummary.SELL.notional)} USDT / ${update.daySummary.SELL.count}笔`,
-    `今日净主动买入：${money(update.daySummary.BUY.notional - update.daySummary.SELL.notional)} USDT`,
+    "📖 当前20档盘口",
+    `🟢 买盘挂单：${money(depth.bid.notional)} USDT`,
+    `🔴 卖盘挂单：${money(depth.ask.notional)} USDT`,
+    `⚖️ 买卖比例：${ratio(depth.bid.notional, depth.ask.notional)} : 1`,
+    `${depth.imbalance >= 0 ? "📈" : "📉"} 盘口失衡：${depth.imbalance >= 0 ? "+" : ""}${depth.imbalance.toFixed(2)}%（${strengthLabel(depth.imbalance)}）`,
+    "",
+    "🕐 最近1小时成交",
+    `🟢 主动买入：${money(recent.BUY.notional)} USDT / ${recent.BUY.count}笔`,
+    `🔴 主动卖出：${money(recent.SELL.notional)} USDT / ${recent.SELL.count}笔`,
+    `${hourNet >= 0 ? "✅" : "🔻"} 净主动买入：${signedMoney(hourNet)} USDT`,
+    "",
+    "📅 今日累计成交",
+    `🟢 主动买入：${money(update.daySummary.BUY.notional)} USDT / ${update.daySummary.BUY.count}笔`,
+    `🔴 主动卖出：${money(update.daySummary.SELL.notional)} USDT / ${update.daySummary.SELL.count}笔`,
+    `${dayNet >= 0 ? "✅" : "🔻"} 净主动买入：${signedMoney(dayNet)} USDT`,
+  ].join("\n");
+}
+
+function alertReport(snapshot) {
+  const depth = snapshot.depth;
+  const buyAlert = depth.imbalance >= 0;
+  const stronger = buyAlert ? depth.bid.notional : depth.ask.notional;
+  const weaker = buyAlert ? depth.ask.notional : depth.bid.notional;
+  return [
+    `⚠️ FTR/USDT ${buyAlert ? "买盘增强" : "卖压"}预警`,
+    "",
+    `⏰ 时间：${timeParts(snapshot.capturedAt).dateTime}（北京时间）`,
+    `💰 最新价：${priceText(snapshot.ticker.close)} USDT`,
+    "",
+    `🟢 买盘挂单：${money(depth.bid.notional)} USDT`,
+    `🔴 卖盘挂单：${money(depth.ask.notional)} USDT`,
+    `⚖️ ${buyAlert ? "买盘是卖盘" : "卖盘是买盘"}的：${ratio(stronger, weaker)}倍`,
+    `${buyAlert ? "📈" : "📉"} 盘口失衡：${buyAlert ? "+" : ""}${depth.imbalance.toFixed(2)}%`,
+    "",
+    `触发原因：${buyAlert ? "买盘" : "卖盘"}失衡超过${ALERT_THRESHOLD}%`,
+    `提示：挂单可能随时撤销，此预警不代表一定${buyAlert ? "上涨" : "下跌"}。`,
+  ].join("\n");
+}
+
+function dailyReport(day, summary) {
+  const buy = summary.BUY?.notional || 0;
+  const sell = summary.SELL?.notional || 0;
+  const net = buy - sell;
+  const conclusion =
+    net > 0
+      ? "今日主动买入金额高于主动卖出金额。"
+      : net < 0
+        ? "今日主动卖出金额高于主动买入金额。"
+        : "今日主动买入与主动卖出金额基本相同。";
+  return [
+    "📅 FTR/USDT 每日成交总结",
+    "",
+    `日期：${day}（北京时间）`,
+    `收盘参考价：${priceText(summary.lastPrice)} USDT`,
+    `24小时成交额：${money(summary.turnover)} USDT`,
+    "",
+    `🟢 今日主动买入：${money(buy)} USDT / ${summary.BUY?.count || 0}笔`,
+    `🔴 今日主动卖出：${money(sell)} USDT / ${summary.SELL?.count || 0}笔`,
+    `${net >= 0 ? "✅" : "🔻"} 净主动买入：${signedMoney(net)} USDT`,
+    `⚖️ 主买/主卖比例：${ratio(buy, sell)}`,
+    "",
+    `结论：${conclusion}`,
   ].join("\n");
 }
 
 const state = await loadState();
 const snapshot = await collect();
 const update = addNewTrades(state, snapshot.trades, snapshot.capturedAt);
+const latestPrice = Number(snapshot.ticker.close);
+const latestTurnover = Number(snapshot.ticker.turnover);
+if (Number.isFinite(latestPrice)) update.daySummary.lastPrice = latestPrice;
+if (Number.isFinite(latestTurnover)) update.daySummary.turnover = latestTurnover;
+update.daySummary.updatedAt = snapshot.capturedAt.getTime();
+
 const now = Date.now();
-if (now - state.lastReportAt >= REPORT_INTERVAL_MINUTES * 60_000) {
-  await sendTelegram(report(snapshot, update));
-  state.lastReportAt = now;
+const pendingDailyDay = Object.keys(state.days)
+  .filter((day) => day < update.day && day > state.lastDailyReportDay)
+  .sort()
+  .at(-1);
+if (pendingDailyDay) {
+  await sendTelegram(dailyReport(pendingDailyDay, state.days[pendingDailyDay]));
+  state.lastDailyReportDay = pendingDailyDay;
+}
+
+const currentHourKey = timeParts(snapshot.capturedAt).hourKey;
+if (FORCE_REPORT || state.lastHourlyReportKey !== currentHourKey) {
+  await sendTelegram(hourlyReport(snapshot, update));
+  state.lastHourlyReportKey = currentHourKey;
 }
 
 if (
   Math.abs(snapshot.depth.imbalance) >= ALERT_THRESHOLD &&
   now - state.lastAlertAt >= 15 * 60_000
 ) {
-  await sendTelegram(
-    [
-      "⚠️ FTR/USDT 盘口预警",
-      `时间：${timeParts(snapshot.capturedAt).dateTime} (${TIMEZONE})`,
-      `盘口失衡：${snapshot.depth.imbalance.toFixed(2)}%`,
-      `买盘：${money(snapshot.depth.bid.notional)} USDT`,
-      `卖盘：${money(snapshot.depth.ask.notional)} USDT`,
-    ].join("\n"),
-  );
+  await sendTelegram(alertReport(snapshot));
   state.lastAlertAt = now;
 }
 await saveState(state);
