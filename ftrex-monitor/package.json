@@ -1,0 +1,16 @@
+{
+  "name": "ftrex-ftr-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "monitor": "node monitor.js"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}

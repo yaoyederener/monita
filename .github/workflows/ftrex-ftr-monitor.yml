@@ -1,0 +1,74 @@
+name: FTREX FTR Telegram Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ftrex-ftr-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
+      MONITOR_TIMEZONE: Asia/Shanghai
+      ALERT_IMBALANCE_PCT: "35"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: ftrex-monitor/pnpm-lock.yaml
+
+      - name: Restore FTREX monitor state
+        uses: actions/cache/restore@v4
+        with:
+          path: ftrex-monitor/.state
+          key: ftrex-state-${{ github.run_id }}
+          restore-keys: |
+            ftrex-state-
+
+      - name: Restore Playwright browser
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('ftrex-monitor/pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        working-directory: ftrex-monitor
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: ftrex-monitor
+        run: pnpm exec playwright install chromium
+
+      - name: Install Chromium system dependencies
+        working-directory: ftrex-monitor
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Collect and notify Telegram
+        working-directory: ftrex-monitor
+        run: pnpm run monitor
+
+      - name: Save FTREX monitor state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ftrex-monitor/.state
+          key: ftrex-state-${{ github.run_id }}
