@@ -21,6 +21,7 @@ jobs:
       CHAT_ID: ${{ secrets.CHAT_ID }}
       MONITOR_TIMEZONE: Asia/Shanghai
       ALERT_IMBALANCE_PCT: "35"
+      REPORT_INTERVAL_MINUTES: "60"
 
     steps:
       - uses: actions/checkout@v4

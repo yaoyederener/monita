@@ -4,6 +4,7 @@ import { chromium } from "playwright";
 
 const TIMEZONE = process.env.MONITOR_TIMEZONE || "Asia/Shanghai";
 const ALERT_THRESHOLD = Number(process.env.ALERT_IMBALANCE_PCT || 35);
+const REPORT_INTERVAL_MINUTES = Number(process.env.REPORT_INTERVAL_MINUTES || 60);
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
 const CHAT_ID = process.env.CHAT_ID || "";
 const STATE_FILE = path.resolve(".state/ftrex.json");
@@ -18,6 +19,9 @@ if (!BOT_TOKEN || !CHAT_ID) {
 }
 if (!Number.isFinite(ALERT_THRESHOLD) || ALERT_THRESHOLD < 0) {
   throw new Error("ALERT_IMBALANCE_PCT must be a non-negative number");
+}
+if (!Number.isFinite(REPORT_INTERVAL_MINUTES) || REPORT_INTERVAL_MINUTES < 1) {
+  throw new Error("REPORT_INTERVAL_MINUTES must be at least 1");
 }
 
 function timeParts(date = new Date()) {
@@ -49,10 +53,11 @@ async function loadState() {
       seen: Array.isArray(state.seen) ? state.seen : [],
       days: state.days && typeof state.days === "object" ? state.days : {},
       lastAlertAt: Number(state.lastAlertAt) || 0,
+      lastReportAt: Number(state.lastReportAt) || 0,
     };
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
-    return { seen: [], days: {}, lastAlertAt: 0 };
+    return { seen: [], days: {}, lastAlertAt: 0, lastReportAt: 0 };
   }
 }
 
@@ -243,9 +248,12 @@ function report(snapshot, update) {
 const state = await loadState();
 const snapshot = await collect();
 const update = addNewTrades(state, snapshot.trades, snapshot.capturedAt);
-await sendTelegram(report(snapshot, update));
-
 const now = Date.now();
+if (now - state.lastReportAt >= REPORT_INTERVAL_MINUTES * 60_000) {
+  await sendTelegram(report(snapshot, update));
+  state.lastReportAt = now;
+}
+
 if (
   Math.abs(snapshot.depth.imbalance) >= ALERT_THRESHOLD &&
   now - state.lastAlertAt >= 15 * 60_000
