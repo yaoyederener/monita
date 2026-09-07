@@ -143,7 +143,11 @@ def fetch_posts(
 
     for _ in range(MAX_TIMELINE_PAGES):
         params: dict[str, str | int] = {
-            "max_results": 100,
+            # The endpoint minimum is 5. On the first run we only need the
+            # newest few posts to establish a baseline, which minimizes paid
+            # Post reads. Later runs use 100 with since_id so a busy account is
+            # still fully drained through pagination.
+            "max_results": 100 if since_id else 5,
             "tweet.fields": "created_at",
         }
         if since_id:
@@ -329,4 +333,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-  
+    
