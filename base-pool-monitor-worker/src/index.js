@@ -193,9 +193,19 @@ export class LaptopMonitor extends DurableObject {
       configured: Boolean(await this.ctx.storage.get("telegramCredentials")),
       initialized: Boolean(await this.ctx.storage.get("initialized")),
       startedAt: (await this.ctx.storage.get("startedAt")) || null,
+      lastAttemptAt: (await this.ctx.storage.get("lastAttemptAt")) || null,
       lastRunAt: (await this.ctx.storage.get("lastRunAt")) || null,
+      lastError: (await this.ctx.storage.get("lastError")) || null,
       lastBlock: (await this.ctx.storage.get("lastBlock")) || null,
     };
+  }
+
+  async noteAttempt() {
+    await this.ctx.storage.put("lastAttemptAt", Date.now());
+  }
+
+  async noteError(message) {
+    await this.ctx.storage.put("lastError", String(message).slice(0, 300));
   }
 
   async configure({ botToken, chatId }) {
@@ -250,10 +260,14 @@ export default {
   },
 
   async scheduled(controller, env) {
+    const monitor = env.MONITOR.getByName(env.TOKEN_ADDRESS.toLowerCase());
+    await monitor.noteAttempt();
     try {
-      const result = await env.MONITOR.getByName(env.TOKEN_ADDRESS.toLowerCase()).run();
+      const result = await monitor.run();
+      await monitor.noteError("");
       console.log(JSON.stringify({ event: "monitor_success", cron: controller.cron, ...result }));
     } catch (error) {
+      await monitor.noteError(errorMessage(error));
       console.error(JSON.stringify({ event: "monitor_error", error: errorMessage(error) }));
       throw error;
     }
