@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "laptop-base-pool-monitor",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MONITOR",
+        "class_name": "LaptopMonitor"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LaptopMonitor"]
+    }
+  ],
+  "vars": {
+    "RPC_URL": "https://mainnet.base.org",
+    "TOKEN_ADDRESS": "0xb095274743941e953c746f9c228da9c18bb6ec29",
+    "TELEGRAM_MENTION": "@juzhangniubi666",
+    "MIN_LIQUIDITY_USD": "10000",
+    "LARGE_TRANSFER_TOKENS": "1000000",
+    "PRICE_ALERT_PERCENT": "30"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}
