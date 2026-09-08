@@ -357,7 +357,6 @@ async function verifyGitHubOidc(request) {
   if (claims.repository !== "yaoyederener/monita" || claims.ref !== "refs/heads/main") {
     throw new Error("Invalid repository identity");
   }
-  if (claims.sub !== "repo:yaoyederener/monita:ref:refs/heads/main") throw new Error("Invalid subject");
   if (
     claims.workflow_ref !==
     "yaoyederener/monita/.github/workflows/deploy-base-pool-monitor.yml@refs/heads/main"
