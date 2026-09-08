@@ -1,4 +1,4 @@
-name: Deploy LAPTOP Base pool monitor
+name: Verify and configure LAPTOP monitor
 
 on:
   workflow_dispatch:
