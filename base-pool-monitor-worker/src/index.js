@@ -25,6 +25,7 @@ export class LaptopMonitor extends DurableObject {
 
   async run() {
     validateEnvironment(this.env);
+    const credentials = await this.credentials();
     const token = this.env.TOKEN_ADDRESS.toLowerCase();
     const settings = {
       minLiquidityUsd: toFiniteNumber(this.env.MIN_LIQUIDITY_USD, 10_000),
@@ -49,6 +50,7 @@ export class LaptopMonitor extends DurableObject {
           `合约：<code>${TOKEN_DISPLAY}</code>\n` +
           `扫描：每分钟，链上区块补查已启用\n` +
           `当前交易池：${pairs.length} 个`,
+        credentials,
       );
       return { initialized: true, latestBlock: latest, pairs: pairs.length };
     }
@@ -63,16 +65,16 @@ export class LaptopMonitor extends DurableObject {
       },
     ]);
 
-    await this.processLogs(Array.isArray(logs) ? logs : [], settings);
+    await this.processLogs(Array.isArray(logs) ? logs : [], settings, credentials);
     const security = pairs.length > 0 ? await fetchSecurity(token) : null;
-    await this.processPairs(pairs, security, settings);
-    if (security) await this.processSecurity(security);
+    await this.processPairs(pairs, security, settings, credentials);
+    if (security) await this.processSecurity(security, credentials);
     await this.ctx.storage.put("lastBlock", latest);
     await this.ctx.storage.put("lastRunAt", Date.now());
     return { latestBlock: latest, logs: logs.length, pairs: pairs.length };
   }
 
-  async processLogs(logs, settings) {
+  async processLogs(logs, settings, credentials) {
     const minimum = BigInt(Math.trunc(settings.largeTransferTokens)) * 10n ** 18n;
     for (const log of logs) {
       const topic0 = String(log?.topics?.[0] || "").toLowerCase();
@@ -86,6 +88,7 @@ export class LaptopMonitor extends DurableObject {
           `${this.env.TELEGRAM_MENTION}\n🔴 <b>${escapeHtml(adminLabel)}</b>\n` +
             `交易：<a href="${BASESCAN}/tx/${escapeHtml(log.transactionHash)}">BaseScan</a>\n` +
             `合约：<code>${TOKEN_DISPLAY}</code>`,
+          credentials,
         );
         await this.ctx.storage.put(`seen:${eventId}`, true);
         continue;
@@ -107,12 +110,13 @@ export class LaptopMonitor extends DurableObject {
           `发送：<code>${escapeHtml(transfer.from)}</code>\n` +
           `接收：<code>${escapeHtml(transfer.to)}</code>\n` +
           `交易：<a href="${BASESCAN}/tx/${escapeHtml(transfer.txHash)}">BaseScan</a>`,
+        credentials,
       );
       await this.ctx.storage.put(`seen:${eventId}`, true);
     }
   }
 
-  async processPairs(pairs, security, settings) {
+  async processPairs(pairs, security, settings, credentials) {
     for (const pair of pairs) {
       const key = `pair:${pair.address}`;
       const previous = await this.ctx.storage.get(key);
@@ -150,12 +154,13 @@ export class LaptopMonitor extends DurableObject {
           securityLines +
           `\n池地址：<code>${escapeHtml(pair.address)}</code>\n` +
           `<a href="${escapeHtml(link)}">查看交易池</a> ｜ <a href="${BASESCAN}/address/${TOKEN_DISPLAY}">核对合约</a>`,
+        credentials,
       );
       await this.ctx.storage.put(key, pair);
     }
   }
 
-  async processSecurity(security) {
+  async processSecurity(security, credentials) {
     const previous = await this.ctx.storage.get("security");
     const serialized = JSON.stringify(security);
     if (!previous) {
@@ -177,6 +182,7 @@ export class LaptopMonitor extends DurableObject {
           `卖税：${old.sellTax} → <b>${security.sellTax}</b>\n` +
           `池手续费：${old.poolFee} → <b>${security.poolFee}</b>\n` +
           `当前风险：${security.flags.join("、") || "暂未发现"}`,
+        credentials,
       );
     }
     await this.ctx.storage.put("security", serialized);
@@ -184,22 +190,48 @@ export class LaptopMonitor extends DurableObject {
 
   async status() {
     return {
+      configured: Boolean(await this.ctx.storage.get("telegramCredentials")),
       initialized: Boolean(await this.ctx.storage.get("initialized")),
       startedAt: (await this.ctx.storage.get("startedAt")) || null,
       lastRunAt: (await this.ctx.storage.get("lastRunAt")) || null,
       lastBlock: (await this.ctx.storage.get("lastBlock")) || null,
     };
   }
+
+  async configure({ botToken, chatId }) {
+    validateCredentials(botToken, chatId);
+    await this.ctx.storage.put("telegramCredentials", { botToken, chatId });
+    return { configured: true };
+  }
+
+  async credentials() {
+    const credentials = await this.ctx.storage.get("telegramCredentials");
+    if (!credentials) throw new Error("Telegram credentials are not configured");
+    validateCredentials(credentials.botToken, credentials.chatId);
+    return credentials;
+  }
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const monitor = env.MONITOR.getByName(env.TOKEN_ADDRESS.toLowerCase());
+    if (url.pathname === "/bootstrap" && request.method === "POST") {
+      try {
+        await verifyGitHubOidc(request);
+        const body = await request.json();
+        await monitor.configure({ botToken: body?.botToken, chatId: body?.chatId });
+        return Response.json({ ok: true, configured: true });
+      } catch (error) {
+        console.error(JSON.stringify({ event: "bootstrap_error", error: errorMessage(error) }));
+        return Response.json({ ok: false, error: "configuration rejected" }, { status: 403 });
+      }
+    }
     if (url.pathname !== "/" && url.pathname !== "/health") {
       return new Response("Not Found", { status: 404 });
     }
     try {
-      const status = await env.MONITOR.getByName(env.TOKEN_ADDRESS.toLowerCase()).status();
+      const status = await monitor.status();
       return Response.json({
         ok: true,
         service: "LAPTOP Base pool monitor",
@@ -226,7 +258,7 @@ export default {
 };
 
 function validateEnvironment(env) {
-  for (const key of ["BOT_TOKEN", "CHAT_ID", "TOKEN_ADDRESS", "TELEGRAM_MENTION", "RPC_URL"]) {
+  for (const key of ["TOKEN_ADDRESS", "TELEGRAM_MENTION", "RPC_URL"]) {
     if (!env[key]) throw new Error(`Missing environment value: ${key}`);
   }
 }
@@ -258,12 +290,12 @@ async function fetchSecurity(token) {
   return normalizeSecurity(payload, token);
 }
 
-async function sendTelegram(env, html) {
-  const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
+async function sendTelegram(env, html, credentials) {
+  const response = await fetch(`https://api.telegram.org/bot${credentials.botToken}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      chat_id: env.CHAT_ID,
+      chat_id: credentials.chatId,
       text: html,
       parse_mode: "HTML",
       disable_web_page_preview: true,
@@ -274,6 +306,67 @@ async function sendTelegram(env, html) {
     const detail = await response.text();
     throw new Error(`Telegram HTTP ${response.status}: ${detail.slice(0, 300)}`);
   }
+}
+
+function validateCredentials(botToken, chatId) {
+  if (!/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(botToken || ""))) {
+    throw new Error("Invalid Telegram bot token");
+  }
+  if (!/^-?\d{5,}$/.test(String(chatId || ""))) throw new Error("Invalid Telegram chat ID");
+}
+
+async function verifyGitHubOidc(request) {
+  const authorization = request.headers.get("authorization") || "";
+  if (!authorization.startsWith("Bearer ")) throw new Error("Missing bearer token");
+  const token = authorization.slice(7);
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Invalid JWT");
+  const header = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[0])));
+  const claims = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])));
+  if (header.alg !== "RS256" || !header.kid) throw new Error("Unsupported JWT header");
+
+  const discovery = await fetchJson("https://token.actions.githubusercontent.com/.well-known/openid-configuration");
+  const jwks = await fetchJson(discovery.jwks_uri);
+  const jwk = jwks.keys?.find((key) => key.kid === header.kid && key.kty === "RSA");
+  if (!jwk) throw new Error("Unknown signing key");
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  const valid = await crypto.subtle.verify(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    base64UrlDecode(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+  );
+  if (!valid) throw new Error("Invalid JWT signature");
+
+  const now = Math.floor(Date.now() / 1000);
+  const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (claims.iss !== "https://token.actions.githubusercontent.com") throw new Error("Invalid issuer");
+  if (!audience.includes("laptop-base-pool-monitor")) throw new Error("Invalid audience");
+  if (!claims.exp || claims.exp < now - 30 || (claims.nbf && claims.nbf > now + 30)) {
+    throw new Error("Expired JWT");
+  }
+  if (claims.repository !== "yaoyederener/monita" || claims.ref !== "refs/heads/main") {
+    throw new Error("Invalid repository identity");
+  }
+  if (claims.sub !== "repo:yaoyederener/monita:ref:refs/heads/main") throw new Error("Invalid subject");
+  if (
+    claims.workflow_ref !==
+    "yaoyederener/monita/.github/workflows/deploy-base-pool-monitor.yml@refs/heads/main"
+  ) {
+    throw new Error("Invalid workflow identity");
+  }
+}
+
+function base64UrlDecode(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
 }
 
 function pairTitle(changes) {
