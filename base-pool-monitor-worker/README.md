@@ -19,18 +19,24 @@ The monitor uses the exact token contract address. It does not treat similarly n
 
 ## Secrets
 
-Set these as Cloudflare Worker secrets. Never commit their values.
+Keep these in GitHub Actions Secrets. Never commit their values.
 
 - `BOT_TOKEN`
 - `CHAT_ID`
 
-## Deploy
+The workflow obtains a short-lived GitHub OIDC identity and sends the two existing
+secrets only to this Worker's `/bootstrap` endpoint. The Worker verifies the exact
+repository, branch, and workflow before storing them in its Durable Object. No
+long-lived Cloudflare API token is required.
+
+## Deploy and operate
 
 ```bash
 npm install
-npx wrangler secret put BOT_TOKEN
-npx wrangler secret put CHAT_ID
+npm test
 npx wrangler deploy
 ```
 
-The deployment sends one startup message to Telegram on the first Cron run. The public `/health` endpoint exposes only non-secret status.
+The live Worker uses the Cron Trigger `* * * * *`. It sends one startup message to
+Telegram on initialization. The public `/health` endpoint exposes only non-secret
+status.
