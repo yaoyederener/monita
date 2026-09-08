@@ -1,0 +1,35 @@
+name: Deploy LAPTOP Base pool monitor
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "base-pool-monitor-worker/**"
+      - ".github/workflows/deploy-base-pool-monitor.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: base-pool-monitor-worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npx wrangler deploy
+      - name: Copy existing Telegram secrets into the Worker
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: node -e 'process.stdout.write(JSON.stringify({BOT_TOKEN:process.env.BOT_TOKEN,CHAT_ID:process.env.CHAT_ID}))' | npx wrangler secret bulk
