@@ -28,6 +28,7 @@ const configureResponse = await fetch(`${WORKER_URL}/bootstrap`, {
   body: JSON.stringify({ botToken: BOT_TOKEN, chatId: CHAT_ID }),
 });
 if (!configureResponse.ok) {
-  throw new Error(`Worker configuration failed: HTTP ${configureResponse.status}`);
+  const detail = await configureResponse.text();
+  throw new Error(`Worker configuration failed: HTTP ${configureResponse.status}: ${detail}`);
 }
 console.log("Worker Telegram credentials configured successfully.");
