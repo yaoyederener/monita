@@ -224,7 +224,10 @@ export default {
         return Response.json({ ok: true, configured: true });
       } catch (error) {
         console.error(JSON.stringify({ event: "bootstrap_error", error: errorMessage(error) }));
-        return Response.json({ ok: false, error: "configuration rejected" }, { status: 403 });
+        return Response.json(
+          { ok: false, error: "configuration rejected", reason: errorMessage(error) },
+          { status: 403 },
+        );
       }
     }
     if (url.pathname !== "/" && url.pathname !== "/health") {
