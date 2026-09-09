@@ -1,10 +1,10 @@
 # LAPTOP Base Pool Monitor
 
-Cloudflare Worker that checks the Base token below every minute and sends important events to Telegram.
+Cloudflare Worker code for monitoring the Base token below and sending important events to Telegram. The live Cron Trigger is currently disabled; code and Durable Object state are retained for a future restart.
 
 - Token: `0xB095274743941e953c746F9C228DA9c18Bb6ec29`
 - Telegram mention: `@juzhangniubi666`
-- Runtime: Cloudflare Worker Cron Trigger
+- Runtime: Cloudflare Worker (Cron Trigger paused)
 - State and deduplication: one SQLite-backed Durable Object
 
 ## Alerts
@@ -37,6 +37,6 @@ npm test
 npx wrangler deploy
 ```
 
-The live Worker uses the Cron Trigger `* * * * *`. It sends one startup message to
-Telegram on initialization. The public `/health` endpoint exposes only non-secret
-status.
+The live Worker has no Cron Trigger while monitoring is paused. Re-adding `* * * * *`
+would restore minute-by-minute monitoring. The public `/health` endpoint exposes only
+non-secret status.
