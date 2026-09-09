@@ -2,7 +2,8 @@ name: FTREX FTR Telegram Monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Avoid the top of the hour, when GitHub says scheduled workflows are most delayed.
+    - cron: "2-57/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,6 +22,13 @@ jobs:
       CHAT_ID: ${{ secrets.CHAT_ID }}
       MONITOR_TIMEZONE: Asia/Shanghai
       ALERT_IMBALANCE_PCT: "35"
+      HIGH_CONFIRMATIONS: "3"
+      HIGH_PRICE_MOVE_PCT: "2"
+      SPREAD_ALERT_PCT: "1"
+      DEPTH_DROP_PCT: "60"
+      DATA_STALE_MINUTES: "20"
+      SLIPPAGE_QUOTE_USDT: "1000"
+      TELEGRAM_MENTION: "@juzhangniubi666"
       FORCE_REPORT: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
 
     steps:
@@ -62,6 +70,10 @@ jobs:
       - name: Install Chromium system dependencies
         working-directory: ftrex-monitor
         run: pnpm exec playwright install-deps chromium
+
+      - name: Test monitor calculations
+        working-directory: ftrex-monitor
+        run: pnpm test
 
       - name: Collect and notify Telegram
         working-directory: ftrex-monitor
