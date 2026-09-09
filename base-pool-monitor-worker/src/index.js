@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   ADMIN_TOPICS,
   TRANSFER_TOPIC,
+  blockRanges,
   classifyPairChange,
   decodeTransfer,
   escapeHtml,
@@ -56,22 +57,37 @@ export class LaptopMonitor extends DurableObject {
     }
 
     const storedLastBlock = toFiniteNumber(await this.ctx.storage.get("lastBlock"), latest - 1);
-    const fromBlock = Math.min(storedLastBlock + 1, latest);
-    const logs = await rpc(this.env, "eth_getLogs", [
-      {
-        address: token,
-        fromBlock: toHex(fromBlock),
-        toBlock: toHex(latest),
-      },
-    ]);
+    const ranges = blockRanges(storedLastBlock + 1, latest);
+    let logCount = 0;
+    let scannedThrough = storedLastBlock;
+    for (const range of ranges) {
+      const logs = await rpc(this.env, "eth_getLogs", [
+        {
+          address: token,
+          fromBlock: toHex(range.fromBlock),
+          toBlock: toHex(range.toBlock),
+        },
+      ]);
+      const entries = Array.isArray(logs) ? logs : [];
+      await this.processLogs(entries, settings, credentials);
+      logCount += entries.length;
+      scannedThrough = range.toBlock;
+      // Persist after every successful chunk so a later RPC/API failure never loses scan progress.
+      await this.ctx.storage.put("lastBlock", scannedThrough);
+    }
 
-    await this.processLogs(Array.isArray(logs) ? logs : [], settings, credentials);
     const security = pairs.length > 0 ? await fetchSecurity(token) : null;
     await this.processPairs(pairs, security, settings, credentials);
     if (security) await this.processSecurity(security, credentials);
-    await this.ctx.storage.put("lastBlock", latest);
     await this.ctx.storage.put("lastRunAt", Date.now());
-    return { latestBlock: latest, logs: logs.length, pairs: pairs.length };
+    return {
+      latestBlock: latest,
+      scannedThrough,
+      remainingBlocks: Math.max(0, latest - scannedThrough),
+      logChunks: ranges.length,
+      logs: logCount,
+      pairs: pairs.length,
+    };
   }
 
   async processLogs(logs, settings, credentials) {

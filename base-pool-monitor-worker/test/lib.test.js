@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   TRANSFER_TOPIC,
+  blockRanges,
   classifyPairChange,
   decodeTransfer,
   formatMoney,
@@ -11,6 +12,16 @@ import {
 } from "../src/lib.js";
 
 const TOKEN = "0xb095274743941e953c746f9c228da9c18bb6ec29";
+
+test("splits a large block gap into bounded ranges", () => {
+  assert.deepEqual(blockRanges(101, 5_100, 2_000), [
+    { fromBlock: 101, toBlock: 2_100 },
+    { fromBlock: 2_101, toBlock: 4_100 },
+    { fromBlock: 4_101, toBlock: 5_100 },
+  ]);
+  assert.deepEqual(blockRanges(20, 19), []);
+  assert.equal(blockRanges(1, 100_000, 2_000, 10).at(-1).toBlock, 20_000);
+});
 
 test("normalizes a matching DEX pair", () => {
   const pairs = normalizePairs(

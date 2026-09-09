@@ -34,6 +34,19 @@ export function toFiniteNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+export function blockRanges(fromBlock, toBlock, chunkSize = 2_000, maxChunks = 10) {
+  const start = Math.max(0, Math.trunc(toFiniteNumber(fromBlock, 0)));
+  const end = Math.max(0, Math.trunc(toFiniteNumber(toBlock, 0)));
+  const size = Math.max(1, Math.trunc(toFiniteNumber(chunkSize, 2_000)));
+  const limit = Math.max(1, Math.trunc(toFiniteNumber(maxChunks, 10)));
+  if (start > end) return [];
+  const ranges = [];
+  for (let cursor = start; cursor <= end && ranges.length < limit; cursor += size) {
+    ranges.push({ fromBlock: cursor, toBlock: Math.min(end, cursor + size - 1) });
+  }
+  return ranges;
+}
+
 export function formatMoney(value) {
   const number = toFiniteNumber(value, Number.NaN);
   if (!Number.isFinite(number)) return "未知";
