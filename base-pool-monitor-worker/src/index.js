@@ -9,7 +9,8 @@ import {
 const BSCSCAN = "https://bscscan.com";
 // Keep the old object name so the already configured Telegram credentials remain available.
 const INSTANCE_NAME = "0xb095274743941e953c746f9c228da9c18bb6ec29";
-const INITIAL_LOOKBACK_BLOCKS = 150_000;
+// Covers more than two days even at BSC's faster block cadence.
+const INITIAL_LOOKBACK_BLOCKS = 500_000;
 const INITIAL_ENTITIES = Object.freeze({
   depositGateways: ["0x00000000110e73585338df0e7f91bf70ed3bd4c4"],
   depositReceivers: ["0xa0277eb181577b712813b8f0a11b931bd82fef4a"],
@@ -66,6 +67,7 @@ export class LaptopMonitor extends DurableObject {
     state.lastError = "";
     state.consecutiveErrors = 0;
     await this.ctx.storage.put("ftrexFundsState", state);
+    if (!caughtUp) await this.ctx.storage.setAlarm(Date.now() + 30_000);
     return {
       latestBlock: latest, scannedThrough: state.lastBlock,
       remainingBlocks: Math.max(0, latest - state.lastBlock), ranges: ranges.length,
@@ -151,9 +153,9 @@ export class LaptopMonitor extends DurableObject {
 
   async loadState(latestBlock) {
     const existing = await this.ctx.storage.get("ftrexFundsState");
-    if (existing?.version === 2) return existing;
+    if (existing?.version === 3) return existing;
     return {
-      version: 2, startedAt: Date.now(), lastRunAt: null,
+      version: 3, startedAt: Date.now(), lastRunAt: null,
       lastBlock: Math.max(0, latestBlock - INITIAL_LOOKBACK_BLOCKS), lastReportedDay: null,
       lastError: "", consecutiveErrors: 0, entities: structuredClone(INITIAL_ENTITIES), days: {},
     };
@@ -173,6 +175,16 @@ export class LaptopMonitor extends DurableObject {
   }
 
   async noteAttempt() { await this.ctx.storage.put("ftrexLastAttemptAt", Date.now()); }
+  async alarm() {
+    try {
+      const result = await this.run();
+      if (!result.caughtUp) await this.ctx.storage.setAlarm(Date.now() + 30_000);
+    } catch (error) {
+      await this.noteError(errorMessage(error));
+      console.error(JSON.stringify({ event: "ftrex_backfill_error", error: errorMessage(error) }));
+      await this.ctx.storage.setAlarm(Date.now() + 60_000);
+    }
+  }
   async noteError(message) {
     const state = await this.ctx.storage.get("ftrexFundsState");
     if (!state) return;

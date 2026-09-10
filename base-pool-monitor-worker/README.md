@@ -12,4 +12,6 @@ Confirmed starting points:
 
 The legacy Worker name and Durable Object class are intentionally retained so the existing Cloudflare object and Telegram configuration can be reused. LAPTOP token monitoring remains removed; this scheduled job runs only the FTREX funds monitor.
 
+The first run backfills 500,000 blocks (enough to close the previous Beijing day) and uses Durable Object alarms to continue in bounded batches without exceeding Cloudflare's per-invocation subrequest limit. After catch-up, the five-minute Cron Trigger keeps the ledger current.
+
 Secrets (`BOT_TOKEN`, `CHAT_ID`, `BSC_RPC`, optional `BSCSCAN_KEY`) stay in GitHub Actions and are sent to the Worker only through a repository-, branch-, and workflow-bound GitHub OIDC request. The public `/health` endpoint never returns secret values.
