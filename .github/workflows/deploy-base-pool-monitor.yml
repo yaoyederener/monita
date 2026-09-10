@@ -1,4 +1,4 @@
-name: Verify and configure LAPTOP monitor
+name: Verify and configure FTREX BSC funds monitor
 
 on:
   workflow_dispatch:
@@ -25,9 +25,11 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm test
-      - name: Securely configure the live Worker from existing Telegram secrets
+      - name: Securely configure and start the live FTREX Worker
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          BSC_RPC: ${{ secrets.BSC_RPC }}
+          BSCSCAN_KEY: ${{ secrets.BSCSCAN_KEY }}
           WORKER_URL: https://laptop-base-pool-monitor.yaoyederener.workers.dev
         run: node scripts/configure-worker.mjs

@@ -1,33 +1,12 @@
 export const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+export const DEPOSIT_TOPIC =
+  "0x5548c837ab068cf56a2c2479df0882a4922fd203edb7517321831d95078c5f62";
+export const WITHDRAW_TOPIC =
+  "0x9b1bfa7fa9ee420a16e124f794c35ac9f90472acc99140eb2f6447c714cad8eb";
 
-export const ADMIN_TOPICS = new Map([
-  [
-    "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
-    "所有权已变更",
-  ],
-  [
-    "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
-    "所有权转移已发起",
-  ],
-  [
-    "0x238399d427b947898edb290f5ff0f9109849b1c3ba196a42e35f00c50a54b98b",
-    "LayerZero Peer 已变更",
-  ],
-  [
-    "0xd48d879cef83a1c0bdda516f27b13ddb1b3f8bbac1c9e1511bb2a659c2427760",
-    "LayerZero PreCrime 已变更",
-  ],
-  [
-    "0xf0be4f1e87349231d80c36b33f9e8639658eeaf474014dee15a3e6a4d4414197",
-    "LayerZero Inspector 已变更",
-  ],
-]);
-
-const TRUSTED_QUOTE_ADDRESSES = new Set([
-  "0x4200000000000000000000000000000000000006", // WETH
-  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // native USDC on Base
-]);
+export const USDT = "0x55d398326f99059ff775485246999027b3197955";
+export const USDT_DECIMALS = 18;
 
 export function toFiniteNumber(value, fallback = 0) {
   const number = Number(value);
@@ -47,21 +26,145 @@ export function blockRanges(fromBlock, toBlock, chunkSize = 2_000, maxChunks = 1
   return ranges;
 }
 
-export function formatMoney(value) {
-  const number = toFiniteNumber(value, Number.NaN);
-  if (!Number.isFinite(number)) return "未知";
-  if (Math.abs(number) >= 1_000_000_000) return `$${(number / 1_000_000_000).toFixed(2)}B`;
-  if (Math.abs(number) >= 1_000_000) return `$${(number / 1_000_000).toFixed(2)}M`;
-  if (Math.abs(number) >= 1_000) return `$${(number / 1_000).toFixed(2)}K`;
-  if (Math.abs(number) >= 1) return `$${number.toFixed(2)}`;
-  if (number === 0) return "$0";
-  return `$${number.toPrecision(4)}`;
+export function normalizeAddress(value) {
+  const address = String(value || "").toLowerCase();
+  return /^0x[0-9a-f]{40}$/.test(address) ? address : "";
 }
 
-export function formatTax(value) {
-  if (value === "" || value === null || value === undefined) return "未知";
-  const number = Number(value);
-  return Number.isFinite(number) ? `${(number * 100).toFixed(2)}%` : "未知";
+export function addressTopic(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) throw new Error("Invalid address");
+  return `0x${"0".repeat(24)}${normalized.slice(2)}`;
+}
+
+export function addressFromTopic(topic) {
+  const value = String(topic || "").toLowerCase();
+  return /^0x[0-9a-f]{64}$/.test(value) ? `0x${value.slice(-40)}` : "";
+}
+
+export function decodeBusinessEvent(log, expectedTopic) {
+  if (
+    !Array.isArray(log?.topics) ||
+    log.topics.length < 3 ||
+    String(log.topics[0]).toLowerCase() !== expectedTopic
+  ) {
+    return null;
+  }
+  try {
+    const user = addressFromTopic(log.topics[1]);
+    const token = addressFromTopic(log.topics[2]);
+    if (!user || !token) return null;
+    return {
+      contract: normalizeAddress(log.address),
+      user,
+      token,
+      amount: BigInt(log.data || "0x0"),
+      txHash: String(log.transactionHash || "").toLowerCase(),
+      blockNumber: Number(BigInt(log.blockNumber || "0x0")),
+      logIndex: Number(BigInt(log.logIndex || "0x0")),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function decodeTransfer(log) {
+  if (
+    !Array.isArray(log?.topics) ||
+    log.topics.length < 3 ||
+    String(log.topics[0]).toLowerCase() !== TRANSFER_TOPIC
+  ) {
+    return null;
+  }
+  try {
+    const from = addressFromTopic(log.topics[1]);
+    const to = addressFromTopic(log.topics[2]);
+    if (!from || !to) return null;
+    return {
+      from,
+      to,
+      amount: BigInt(log.data || "0x0"),
+      txHash: String(log.transactionHash || "").toLowerCase(),
+      blockNumber: Number(BigInt(log.blockNumber || "0x0")),
+      logIndex: Number(BigInt(log.logIndex || "0x0")),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function uniqueBy(items, keyFn) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function dayKeyBeijing(unixSeconds) {
+  return new Date(Number(unixSeconds) * 1_000 + 8 * 60 * 60 * 1_000).toISOString().slice(0, 10);
+}
+
+export function currentDayBeijing(nowMs = Date.now()) {
+  return new Date(nowMs + 8 * 60 * 60 * 1_000).toISOString().slice(0, 10);
+}
+
+export function previousDay(day) {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+export function emptyDay() {
+  return {
+    deposit: "0",
+    withdrawal: "0",
+    depositCount: 0,
+    withdrawalCount: 0,
+    depositUsers: [],
+    withdrawalUsers: [],
+    largestDeposit: null,
+    largestWithdrawal: null,
+  };
+}
+
+export function addFlow(day, type, event) {
+  const target = day || emptyDay();
+  const amount = BigInt(event.amount);
+  const amountKey = type === "deposit" ? "deposit" : "withdrawal";
+  const countKey = type === "deposit" ? "depositCount" : "withdrawalCount";
+  const usersKey = type === "deposit" ? "depositUsers" : "withdrawalUsers";
+  const largestKey = type === "deposit" ? "largestDeposit" : "largestWithdrawal";
+  target[amountKey] = (BigInt(target[amountKey] || "0") + amount).toString();
+  target[countKey] = Number(target[countKey] || 0) + 1;
+  target[usersKey] = [...new Set([...(target[usersKey] || []), event.user])];
+  if (!target[largestKey] || amount > BigInt(target[largestKey].amount)) {
+    target[largestKey] = { amount: amount.toString(), txHash: event.txHash, user: event.user };
+  }
+  return target;
+}
+
+export function formatUnits(value, decimals = USDT_DECIMALS, fractionDigits = 2) {
+  const amount = BigInt(value || 0);
+  const negative = amount < 0n;
+  const absolute = negative ? -amount : amount;
+  const scale = 10n ** BigInt(decimals);
+  const whole = absolute / scale;
+  const fractionScale = 10n ** BigInt(Math.max(0, fractionDigits));
+  const rounded = ((absolute % scale) * fractionScale + scale / 2n) / scale;
+  const carry = rounded >= fractionScale ? 1n : 0n;
+  const displayedFraction = rounded % fractionScale;
+  const prefix = negative ? "-" : "";
+  const wholeText = (whole + carry).toLocaleString("en-US");
+  if (fractionDigits === 0) return `${prefix}${wholeText}`;
+  return `${prefix}${wholeText}.${displayedFraction.toString().padStart(fractionDigits, "0")}`;
+}
+
+export function shortAddress(address) {
+  const value = normalizeAddress(address);
+  return value ? `${value.slice(0, 8)}…${value.slice(-6)}` : "未知";
 }
 
 export function escapeHtml(value) {
@@ -72,127 +175,7 @@ export function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-export function normalizePairs(rawPairs, tokenAddress) {
-  if (!Array.isArray(rawPairs)) return [];
-  const target = tokenAddress.toLowerCase();
-  return rawPairs
-    .filter((pair) => {
-      const base = pair?.baseToken?.address?.toLowerCase();
-      const quote = pair?.quoteToken?.address?.toLowerCase();
-      return base === target || quote === target;
-    })
-    .map((pair) => {
-      const baseAddress = String(pair?.baseToken?.address || "").toLowerCase();
-      const tokenIsBase = baseAddress === target;
-      const counterToken = tokenIsBase ? pair?.quoteToken : pair?.baseToken;
-      const counterAddress = String(counterToken?.address || "").toLowerCase();
-      const buys = toFiniteNumber(pair?.txns?.m5?.buys);
-      const sells = toFiniteNumber(pair?.txns?.m5?.sells);
-      return {
-        address: String(pair.pairAddress || "").toLowerCase(),
-        dexId: String(pair.dexId || "未知 DEX"),
-        url: String(pair.url || ""),
-        baseSymbol: String(pair?.baseToken?.symbol || "?"),
-        quoteSymbol: String(pair?.quoteToken?.symbol || "?"),
-        counterSymbol: String(counterToken?.symbol || "?"),
-        counterAddress,
-        trustedQuote: TRUSTED_QUOTE_ADDRESSES.has(counterAddress),
-        tokenIsBase,
-        priceUsd: tokenIsBase ? toFiniteNumber(pair.priceUsd) : 0,
-        liquidityUsd: toFiniteNumber(pair?.liquidity?.usd),
-        fdv: tokenIsBase ? toFiniteNumber(pair.fdv) : 0,
-        marketCap: tokenIsBase ? toFiniteNumber(pair.marketCap) : 0,
-        volume5m: toFiniteNumber(pair?.volume?.m5),
-        buys5m: buys,
-        sells5m: sells,
-        trades5m: buys + sells,
-        createdAt: toFiniteNumber(pair.pairCreatedAt),
-      };
-    })
-    .filter((pair) => /^0x[0-9a-f]{40}$/.test(pair.address));
-}
-
-export function classifyPairChange(previous, current, settings) {
-  if (!previous) return ["new"];
-  const changes = [];
-  const minLiquidity = toFiniteNumber(settings.minLiquidityUsd, 10_000);
-  const priceThreshold = toFiniteNumber(settings.priceAlertPercent, 30);
-
-  if (previous.liquidityUsd <= 0 && current.liquidityUsd > 0) {
-    changes.push("liquidity-live");
-  } else if (
-    previous.liquidityUsd > 0 &&
-    current.liquidityUsd <= previous.liquidityUsd * 0.8 &&
-    previous.liquidityUsd - current.liquidityUsd >= minLiquidity
-  ) {
-    changes.push("liquidity-removed");
-  } else if (
-    current.liquidityUsd >= previous.liquidityUsd * 1.25 &&
-    current.liquidityUsd - previous.liquidityUsd >= minLiquidity
-  ) {
-    changes.push("liquidity-added");
-  }
-
-  if (previous.trades5m === 0 && current.trades5m > 0) changes.push("first-trade");
-
-  if (previous.priceUsd > 0 && current.priceUsd > 0) {
-    const change = Math.abs(((current.priceUsd - previous.priceUsd) / previous.priceUsd) * 100);
-    if (change >= priceThreshold) changes.push("price-move");
-  }
-
-  return changes;
-}
-
-export function normalizeSecurity(payload, tokenAddress) {
-  const item = payload?.result?.[tokenAddress.toLowerCase()] || {};
-  const flags = [];
-  const flagNames = {
-    cannot_buy: "无法买入",
-    cannot_sell_all: "无法全部卖出",
-    is_honeypot: "疑似蜜罐",
-    is_blacklisted: "存在黑名单",
-    transfer_pausable: "可暂停转账",
-    trading_cooldown: "交易冷却",
-    slippage_modifiable: "税率可修改",
-    hidden_owner: "隐藏所有者",
-    owner_change_balance: "所有者可改余额",
-    selfdestruct: "可自毁",
-  };
-  for (const [key, label] of Object.entries(flagNames)) {
-    if (String(item[key] || "0") === "1") flags.push(label);
-  }
-  if (String(item.cannot_sell || "0") === "1") flags.push("无法卖出");
-  return {
-    buyTax: formatTax(item.buy_tax),
-    sellTax: formatTax(item.sell_tax),
-    transferTax: formatTax(item.transfer_tax),
-    poolFee: formatTax(item.pool_fee),
-    holderCount: toFiniteNumber(item.holder_count),
-    isInDex: String(item.is_in_dex || "0") === "1",
-    flags,
-  };
-}
-
-export function decodeTransfer(log) {
-  if (!log?.topics || log.topics.length < 3 || log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) {
-    return null;
-  }
-  try {
-    return {
-      from: `0x${log.topics[1].slice(-40)}`.toLowerCase(),
-      to: `0x${log.topics[2].slice(-40)}`.toLowerCase(),
-      amount: BigInt(log.data || "0x0"),
-      txHash: String(log.transactionHash || ""),
-      logIndex: String(log.logIndex || "0x0"),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function formatTokenAmount(amount, decimals = 18) {
-  const scale = 10n ** BigInt(decimals);
-  const whole = amount / scale;
-  const fraction = ((amount % scale) * 100n) / scale;
-  return `${whole.toLocaleString("en-US")}.${fraction.toString().padStart(2, "0")}`;
+export function pruneDays(days, keep = 10) {
+  const entries = Object.entries(days || {}).sort(([a], [b]) => b.localeCompare(a));
+  return Object.fromEntries(entries.slice(0, keep));
 }

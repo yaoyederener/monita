@@ -1,42 +1,15 @@
-# LAPTOP Base Pool Monitor
+# FTREX BNB Chain Funds Monitor
 
-Cloudflare Worker code for monitoring the Base token below and sending important events to Telegram. The live Cron Trigger is currently disabled; code and Durable Object state are retained for a future restart.
+Cloudflare Worker that measures FTREX platform-wide BSC-USDT deposits and withdrawals directly from confirmed on-chain business events. It sends a Beijing-time daily report to Telegram and immediately mentions `@juzhangniubi666` when a new related gateway, receiver, withdrawal contract, source vault, or operator wallet is cross-verified.
 
-- Token: `0xB095274743941e953c746F9C228DA9c18Bb6ec29`
-- Telegram mention: `@juzhangniubi666`
-- Runtime: Cloudflare Worker (Cron Trigger paused)
-- State and deduplication: one SQLite-backed Durable Object
+Confirmed starting points:
 
-## Alerts
+- Deposit gateway: `0x00000000110e73585338df0e7f91bf70ed3bd4c4`
+- Deposit receiver: `0xa0277eb181577b712813b8f0a11b931bd82fef4a`
+- Withdrawal contract/source: `0x301173ccf602050c0bbdd36b6af9cf59d0000000`
+- Withdrawal operator: `0x6e1469c12a996376c4aff61daa25741ef97bbceb`
+- Asset: BSC-USDT `0x55d398326f99059ff775485246999027b3197955`
 
-- New DEX pool and first usable liquidity
-- First trades, large liquidity additions/removals, and large price moves
-- Buy tax, sell tax, pool fee, and GoPlus risk-field changes
-- Transfers of at least 1,000,000 LAPTOP
-- Ownership, LayerZero peer, preCrime, and inspector changes
+The legacy Worker name and Durable Object class are intentionally retained so the existing Cloudflare object and Telegram configuration can be reused. LAPTOP token monitoring remains removed; this scheduled job runs only the FTREX funds monitor.
 
-The monitor uses the exact token contract address. It does not treat similarly named tokens as LAPTOP.
-
-## Secrets
-
-Keep these in GitHub Actions Secrets. Never commit their values.
-
-- `BOT_TOKEN`
-- `CHAT_ID`
-
-The workflow obtains a short-lived GitHub OIDC identity and sends the two existing
-secrets only to this Worker's `/bootstrap` endpoint. The Worker verifies the exact
-repository, branch, and workflow before storing them in its Durable Object. No
-long-lived Cloudflare API token is required.
-
-## Deploy and operate
-
-```bash
-npm install
-npm test
-npx wrangler deploy
-```
-
-The live Worker has no Cron Trigger while monitoring is paused. Re-adding `* * * * *`
-would restore minute-by-minute monitoring. The public `/health` endpoint exposes only
-non-secret status.
+Secrets (`BOT_TOKEN`, `CHAT_ID`, `BSC_RPC`, optional `BSCSCAN_KEY`) stay in GitHub Actions and are sent to the Worker only through a repository-, branch-, and workflow-bound GitHub OIDC request. The public `/health` endpoint never returns secret values.

@@ -1,239 +1,195 @@
 import { DurableObject } from "cloudflare:workers";
 import {
-  ADMIN_TOPICS,
-  TRANSFER_TOPIC,
-  blockRanges,
-  classifyPairChange,
-  decodeTransfer,
-  escapeHtml,
-  formatMoney,
-  formatTokenAmount,
-  normalizePairs,
-  normalizeSecurity,
-  toFiniteNumber,
+  DEPOSIT_TOPIC, TRANSFER_TOPIC, USDT, WITHDRAW_TOPIC, addFlow, addressTopic,
+  blockRanges, currentDayBeijing, dayKeyBeijing, decodeBusinessEvent, decodeTransfer,
+  emptyDay, escapeHtml, formatUnits, normalizeAddress, previousDay, pruneDays,
+  shortAddress, uniqueBy,
 } from "./lib.js";
 
-const TOKEN_DISPLAY = "0xB095274743941e953c746F9C228DA9c18Bb6ec29";
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const BASESCAN = "https://basescan.org";
-const DEX_API = "https://api.dexscreener.com/token-pairs/v1/base";
-const GOPLUS_API = "https://api.gopluslabs.io/api/v1/token_security/8453";
+const BSCSCAN = "https://bscscan.com";
+// Keep the old object name so the already configured Telegram credentials remain available.
+const INSTANCE_NAME = "0xb095274743941e953c746f9c228da9c18bb6ec29";
+const INITIAL_LOOKBACK_BLOCKS = 150_000;
+const INITIAL_ENTITIES = Object.freeze({
+  depositGateways: ["0x00000000110e73585338df0e7f91bf70ed3bd4c4"],
+  depositReceivers: ["0xa0277eb181577b712813b8f0a11b931bd82fef4a"],
+  withdrawalContracts: ["0x301173ccf602050c0bbdd36b6af9cf59d0000000"],
+  withdrawalSources: ["0x301173ccf602050c0bbdd36b6af9cf59d0000000"],
+  withdrawalOperators: ["0x6e1469c12a996376c4aff61daa25741ef97bbceb"],
+});
 
 export class LaptopMonitor extends DurableObject {
-  constructor(ctx, env) {
-    super(ctx, env);
-  }
-
-  async run() {
-    validateEnvironment(this.env);
+  async run({ forceReport = false } = {}) {
     const credentials = await this.credentials();
-    const token = this.env.TOKEN_ADDRESS.toLowerCase();
-    const settings = {
-      minLiquidityUsd: toFiniteNumber(this.env.MIN_LIQUIDITY_USD, 10_000),
-      largeTransferTokens: toFiniteNumber(this.env.LARGE_TRANSFER_TOKENS, 1_000_000),
-      priceAlertPercent: toFiniteNumber(this.env.PRICE_ALERT_PERCENT, 30),
-    };
+    const latest = Number(BigInt(await rpc(credentials.bscRpc, "eth_blockNumber", [])));
+    let state = await this.loadState(latest);
+    const ranges = blockRanges(state.lastBlock + 1, latest, 2_000, 10);
+    const operatorTransactions = ranges.length && credentials.bscscanKey
+      ? await fetchOperatorTransactions(credentials.bscscanKey, state.entities.withdrawalOperators,
+          ranges[0].fromBlock, ranges.at(-1).toBlock)
+      : [];
+    const changes = [];
+    let processedEvents = 0;
 
-    const [latestBlock, rawPairs] = await Promise.all([
-      rpc(this.env, "eth_blockNumber", []),
-      fetchJson(`${DEX_API}/${token}`),
-    ]);
-    const latest = Number(BigInt(latestBlock));
-    const pairs = normalizePairs(rawPairs, token);
-    const initialized = await this.ctx.storage.get("initialized");
-
-    if (!initialized) {
-      for (const pair of pairs) await this.ctx.storage.put(`pair:${pair.address}`, pair);
-      await this.ctx.storage.put({ initialized: true, lastBlock: latest, startedAt: Date.now() });
-      await sendTelegram(
-        this.env,
-        `${this.env.TELEGRAM_MENTION}\n🟢 <b>LAPTOP Base 链监控已启动</b>\n` +
-          `合约：<code>${TOKEN_DISPLAY}</code>\n` +
-          `扫描：每分钟，链上区块补查已启用\n` +
-          `当前交易池：${pairs.length} 个`,
-        credentials,
-      );
-      return { initialized: true, latestBlock: latest, pairs: pairs.length };
-    }
-
-    const storedLastBlock = toFiniteNumber(await this.ctx.storage.get("lastBlock"), latest - 1);
-    const ranges = blockRanges(storedLastBlock + 1, latest);
-    let logCount = 0;
-    let scannedThrough = storedLastBlock;
     for (const range of ranges) {
-      const logs = await rpc(this.env, "eth_getLogs", [
-        {
-          address: token,
-          fromBlock: toHex(range.fromBlock),
-          toBlock: toHex(range.toBlock),
-        },
-      ]);
-      const entries = Array.isArray(logs) ? logs : [];
-      await this.processLogs(entries, settings, credentials);
-      logCount += entries.length;
-      scannedThrough = range.toBlock;
-      // Persist after every successful chunk so a later RPC/API failure never loses scan progress.
-      await this.ctx.storage.put("lastBlock", scannedThrough);
+      const operatorHashes = operatorTransactions
+        .filter((tx) => Number(tx.blockNumber) >= range.fromBlock && Number(tx.blockNumber) <= range.toBlock)
+        .map((tx) => String(tx.hash).toLowerCase());
+      const result = await this.scanRange(credentials.bscRpc, state, range, operatorHashes);
+      state = result.state;
+      state.lastBlock = range.toBlock;
+      state.lastRunAt = Date.now();
+      processedEvents += result.processedEvents;
+      changes.push(...result.changes);
+      state.days = pruneDays(state.days);
+      await this.ctx.storage.put("ftrexFundsState", state);
     }
 
-    const security = pairs.length > 0 ? await fetchSecurity(token) : null;
-    await this.processPairs(pairs, security, settings, credentials);
-    if (security) await this.processSecurity(security, credentials);
-    await this.ctx.storage.put("lastRunAt", Date.now());
+    if (changes.length) await sendTelegram(credentials, addressChangeMessage(this.env, changes));
+    const caughtUp = state.lastBlock >= latest;
+    if (caughtUp) {
+      const today = currentDayBeijing();
+      const yesterday = previousDay(today);
+      if (state.lastReportedDay !== yesterday) {
+        await sendTelegram(credentials, dailyReport(this.env, yesterday, state.days[yesterday], state));
+        state.lastReportedDay = yesterday;
+      }
+      if (forceReport) {
+        await sendTelegram(credentials, dailyReport(this.env, today, state.days[today], state, true));
+      }
+    } else if (forceReport) {
+      await sendTelegram(credentials, backfillMessage(this.env, state, latest));
+    }
+
+    state.lastRunAt = Date.now();
+    state.lastError = "";
+    state.consecutiveErrors = 0;
+    await this.ctx.storage.put("ftrexFundsState", state);
     return {
-      latestBlock: latest,
-      scannedThrough,
-      remainingBlocks: Math.max(0, latest - scannedThrough),
-      logChunks: ranges.length,
-      logs: logCount,
-      pairs: pairs.length,
+      latestBlock: latest, scannedThrough: state.lastBlock,
+      remainingBlocks: Math.max(0, latest - state.lastBlock), ranges: ranges.length,
+      processedEvents, changes: changes.length, caughtUp,
     };
   }
 
-  async processLogs(logs, settings, credentials) {
-    const minimum = BigInt(Math.trunc(settings.largeTransferTokens)) * 10n ** 18n;
-    for (const log of logs) {
-      const topic0 = String(log?.topics?.[0] || "").toLowerCase();
-      const eventId = `${log.transactionHash}:${log.logIndex}`;
-      if (await this.ctx.storage.get(`seen:${eventId}`)) continue;
+  async scanRange(rpcUrl, state, range, operatorHashes = []) {
+    const common = { fromBlock: toHex(range.fromBlock), toBlock: toHex(range.toBlock) };
+    const [depositLogs, withdrawalLogs, receiverTransfers, sourceTransfers] = await Promise.all([
+      getLogs(rpcUrl, { ...common, address: state.entities.depositGateways,
+        topics: [DEPOSIT_TOPIC, null, addressTopic(USDT)] }),
+      getLogs(rpcUrl, { ...common, address: state.entities.withdrawalContracts,
+        topics: [WITHDRAW_TOPIC, null, addressTopic(USDT)] }),
+      Promise.all(state.entities.depositReceivers.map((address) => getLogs(rpcUrl, {
+        ...common, address: USDT, topics: [TRANSFER_TOPIC, null, addressTopic(address)],
+      }))).then((groups) => groups.flat()),
+      Promise.all(state.entities.withdrawalSources.map((address) => getLogs(rpcUrl, {
+        ...common, address: USDT, topics: [TRANSFER_TOPIC, addressTopic(address)],
+      }))).then((groups) => groups.flat()),
+    ]);
 
-      const adminLabel = ADMIN_TOPICS.get(topic0);
-      if (adminLabel) {
-        await sendTelegram(
-          this.env,
-          `${this.env.TELEGRAM_MENTION}\n🔴 <b>${escapeHtml(adminLabel)}</b>\n` +
-            `交易：<a href="${BASESCAN}/tx/${escapeHtml(log.transactionHash)}">BaseScan</a>\n` +
-            `合约：<code>${TOKEN_DISPLAY}</code>`,
-          credentials,
-        );
-        await this.ctx.storage.put(`seen:${eventId}`, true);
-        continue;
+    const candidateHashes = [...new Set([
+      ...uniqueBy([...depositLogs, ...withdrawalLogs, ...receiverTransfers, ...sourceTransfers],
+        (log) => String(log.transactionHash || "").toLowerCase())
+        .map((log) => String(log.transactionHash).toLowerCase()),
+      ...operatorHashes,
+    ])];
+    const [transactions, receipts] = await Promise.all([
+      rpcBatch(rpcUrl, candidateHashes.map((hash) => ["eth_getTransactionByHash", [hash]])),
+      rpcBatch(rpcUrl, candidateHashes.map((hash) => ["eth_getTransactionReceipt", [hash]])),
+    ]);
+    const txByHash = new Map(transactions.filter(Boolean).map((tx) => [tx.hash.toLowerCase(), tx]));
+    const receiptByHash = new Map(receipts.filter(Boolean).map((item) => [item.transactionHash.toLowerCase(), item]));
+    const discoveredDepositLogs = [];
+    const discoveredWithdrawalLogs = [];
+    for (const receipt of receipts.filter(Boolean)) {
+      for (const log of receipt.logs || []) {
+        const topic0 = String(log?.topics?.[0] || "").toLowerCase();
+        if (topic0 === DEPOSIT_TOPIC && decodeBusinessEvent(log, DEPOSIT_TOPIC)?.token === USDT) discoveredDepositLogs.push(log);
+        if (topic0 === WITHDRAW_TOPIC && decodeBusinessEvent(log, WITHDRAW_TOPIC)?.token === USDT) discoveredWithdrawalLogs.push(log);
       }
-
-      if (topic0 !== TRANSFER_TOPIC) continue;
-      const transfer = decodeTransfer(log);
-      if (!transfer || transfer.amount < minimum) continue;
-      const direction =
-        transfer.from === ZERO_ADDRESS
-          ? "增发/跨链铸造"
-          : transfer.to === ZERO_ADDRESS
-            ? "销毁/跨链转出"
-            : "大额转账";
-      await sendTelegram(
-        this.env,
-        `${this.env.TELEGRAM_MENTION}\n🟠 <b>LAPTOP ${direction}</b>\n` +
-          `数量：<b>${formatTokenAmount(transfer.amount)} LAPTOP</b>\n` +
-          `发送：<code>${escapeHtml(transfer.from)}</code>\n` +
-          `接收：<code>${escapeHtml(transfer.to)}</code>\n` +
-          `交易：<a href="${BASESCAN}/tx/${escapeHtml(transfer.txHash)}">BaseScan</a>`,
-        credentials,
-      );
-      await this.ctx.storage.put(`seen:${eventId}`, true);
     }
+
+    const deposits = uniqueBy([...depositLogs, ...discoveredDepositLogs]
+      .map((log) => decodeBusinessEvent(log, DEPOSIT_TOPIC)).filter((event) => event?.token === USDT),
+    (event) => `${event.txHash}:${event.logIndex}`);
+    const withdrawals = uniqueBy([...withdrawalLogs, ...discoveredWithdrawalLogs]
+      .map((log) => decodeBusinessEvent(log, WITHDRAW_TOPIC)).filter((event) => event?.token === USDT),
+    (event) => `${event.txHash}:${event.logIndex}`);
+    const blockNumbers = [...new Set([...deposits, ...withdrawals].map((event) => event.blockNumber))];
+    const blocks = await rpcBatch(rpcUrl, blockNumbers.map((block) => ["eth_getBlockByNumber", [toHex(block), false]]));
+    const timestampByBlock = new Map(blocks.filter(Boolean).map((block) =>
+      [Number(BigInt(block.number)), Number(BigInt(block.timestamp))]));
+
+    const changes = [];
+    const processed = new Set();
+    for (const [type, events] of [["deposit", deposits], ["withdrawal", withdrawals]]) {
+      for (const event of events) {
+        const id = `${type}:${event.txHash}:${event.logIndex}`;
+        if (processed.has(id)) continue;
+        processed.add(id);
+        const receipt = receiptByHash.get(event.txHash);
+        const tx = txByHash.get(event.txHash);
+        const transfers = (receipt?.logs || []).filter((log) => normalizeAddress(log.address) === USDT)
+          .map(decodeTransfer).filter(Boolean);
+        if (type === "deposit") {
+          addEntity(state, "depositGateways", event.contract, changes, "充值入口合约", event.txHash);
+          const match = transfers.find((item) => item.from === event.user && item.amount === event.amount);
+          if (match) addEntity(state, "depositReceivers", match.to, changes, "充值收款钱包", event.txHash);
+        } else {
+          addEntity(state, "withdrawalContracts", event.contract, changes, "提现业务合约", event.txHash);
+          const match = transfers.find((item) => item.to === event.user && item.amount === event.amount);
+          if (match) addEntity(state, "withdrawalSources", match.from, changes, "提现出款金库", event.txHash);
+          addEntity(state, "withdrawalOperators", normalizeAddress(tx?.from), changes, "提现操作钱包", event.txHash);
+        }
+        const timestamp = timestampByBlock.get(event.blockNumber);
+        if (!timestamp) throw new Error(`Missing timestamp for block ${event.blockNumber}`);
+        const day = dayKeyBeijing(timestamp);
+        state.days[day] = addFlow(state.days[day] || emptyDay(), type, event);
+      }
+    }
+    return { state, changes, processedEvents: processed.size };
   }
 
-  async processPairs(pairs, security, settings, credentials) {
-    for (const pair of pairs) {
-      const key = `pair:${pair.address}`;
-      const previous = await this.ctx.storage.get(key);
-      const changes = classifyPairChange(previous, pair, settings);
-      if (changes.length === 0) continue;
-
-      const title = pairTitle(changes);
-      const status =
-        pair.liquidityUsd >= settings.minLiquidityUsd && pair.trades5m > 0
-          ? "🟢 已有流动性和成交"
-          : pair.liquidityUsd > 0
-            ? "🟡 已加池，等待成交验证"
-            : "🔴 空池/尚无可用流动性";
-      const securityLines = security
-        ? `\n买税：${security.buyTax} ｜ 卖税：${security.sellTax}\n` +
-          `池手续费：${security.poolFee} ｜ 风险：${security.flags.join("、") || "暂未发现"}`
-        : "\n税率/卖出测试：等待安全接口更新";
-      const link = /^https:\/\/(www\.)?dexscreener\.com\//i.test(pair.url)
-        ? pair.url
-        : `${BASESCAN}/address/${pair.address}`;
-      const quoteWarning = pair.trustedQuote
-        ? "✅ 官方 WETH/USDC 配对"
-        : `⚠️ 非官方 WETH/USDC 配对：${escapeHtml(pair.counterSymbol)}`;
-
-      await sendTelegram(
-        this.env,
-        `${this.env.TELEGRAM_MENTION}\n🚨 <b>${escapeHtml(title)}</b>\n` +
-          `状态：${status}\n` +
-          `DEX：${escapeHtml(pair.dexId)} ｜ 交易对：LAPTOP/${escapeHtml(pair.counterSymbol)}\n` +
-          `${quoteWarning}\n` +
-          `流动性：<b>${formatMoney(pair.liquidityUsd)}</b>\n` +
-          `价格：${formatMoney(pair.priceUsd)}\n` +
-          `FDV：${formatMoney(pair.fdv)} ｜ 流通市值：${formatMoney(pair.marketCap)}\n` +
-          `5分钟：买 ${pair.buys5m} / 卖 ${pair.sells5m}，成交额 ${formatMoney(pair.volume5m)}` +
-          securityLines +
-          `\n池地址：<code>${escapeHtml(pair.address)}</code>\n` +
-          `<a href="${escapeHtml(link)}">查看交易池</a> ｜ <a href="${BASESCAN}/address/${TOKEN_DISPLAY}">核对合约</a>`,
-        credentials,
-      );
-      await this.ctx.storage.put(key, pair);
-    }
-  }
-
-  async processSecurity(security, credentials) {
-    const previous = await this.ctx.storage.get("security");
-    const serialized = JSON.stringify(security);
-    if (!previous) {
-      await this.ctx.storage.put("security", serialized);
-      return;
-    }
-    if (previous === serialized) return;
-    const old = JSON.parse(previous);
-    const important =
-      old.buyTax !== security.buyTax ||
-      old.sellTax !== security.sellTax ||
-      old.poolFee !== security.poolFee ||
-      JSON.stringify(old.flags) !== JSON.stringify(security.flags);
-    if (important) {
-      await sendTelegram(
-        this.env,
-        `${this.env.TELEGRAM_MENTION}\n🔴 <b>LAPTOP 交易安全数据发生变化</b>\n` +
-          `买税：${old.buyTax} → <b>${security.buyTax}</b>\n` +
-          `卖税：${old.sellTax} → <b>${security.sellTax}</b>\n` +
-          `池手续费：${old.poolFee} → <b>${security.poolFee}</b>\n` +
-          `当前风险：${security.flags.join("、") || "暂未发现"}`,
-        credentials,
-      );
-    }
-    await this.ctx.storage.put("security", serialized);
+  async loadState(latestBlock) {
+    const existing = await this.ctx.storage.get("ftrexFundsState");
+    if (existing?.version === 2) return existing;
+    return {
+      version: 2, startedAt: Date.now(), lastRunAt: null,
+      lastBlock: Math.max(0, latestBlock - INITIAL_LOOKBACK_BLOCKS), lastReportedDay: null,
+      lastError: "", consecutiveErrors: 0, entities: structuredClone(INITIAL_ENTITIES), days: {},
+    };
   }
 
   async status() {
+    const state = await this.ctx.storage.get("ftrexFundsState");
+    const credentials = await this.ctx.storage.get("telegramCredentials");
     return {
-      configured: Boolean(await this.ctx.storage.get("telegramCredentials")),
-      initialized: Boolean(await this.ctx.storage.get("initialized")),
-      startedAt: (await this.ctx.storage.get("startedAt")) || null,
-      lastAttemptAt: (await this.ctx.storage.get("lastAttemptAt")) || null,
-      lastRunAt: (await this.ctx.storage.get("lastRunAt")) || null,
-      lastError: (await this.ctx.storage.get("lastError")) || null,
-      lastBlock: (await this.ctx.storage.get("lastBlock")) || null,
+      configured: Boolean(credentials?.botToken && credentials?.chatId && credentials?.bscRpc),
+      initialized: Boolean(state), startedAt: state?.startedAt || null,
+      lastAttemptAt: (await this.ctx.storage.get("ftrexLastAttemptAt")) || null,
+      lastRunAt: state?.lastRunAt || null, lastBlock: state?.lastBlock || null,
+      lastError: state?.lastError || null, consecutiveErrors: state?.consecutiveErrors || 0,
+      entities: state ? Object.fromEntries(Object.entries(state.entities).map(([key, values]) => [key, values.length])) : null,
     };
   }
 
-  async noteAttempt() {
-    await this.ctx.storage.put("lastAttemptAt", Date.now());
-  }
-
+  async noteAttempt() { await this.ctx.storage.put("ftrexLastAttemptAt", Date.now()); }
   async noteError(message) {
-    await this.ctx.storage.put("lastError", String(message).slice(0, 300));
+    const state = await this.ctx.storage.get("ftrexFundsState");
+    if (!state) return;
+    state.lastError = String(message).slice(0, 300);
+    state.consecutiveErrors = Number(state.consecutiveErrors || 0) + 1;
+    await this.ctx.storage.put("ftrexFundsState", state);
   }
-
-  async configure({ botToken, chatId }) {
-    validateCredentials(botToken, chatId);
-    await this.ctx.storage.put("telegramCredentials", { botToken, chatId });
+  async configure({ botToken, chatId, bscRpc, bscscanKey }) {
+    validateCredentials(botToken, chatId, bscRpc);
+    await this.ctx.storage.put("telegramCredentials", { botToken, chatId, bscRpc, bscscanKey: String(bscscanKey || "") });
     return { configured: true };
   }
-
   async credentials() {
     const credentials = await this.ctx.storage.get("telegramCredentials");
-    if (!credentials) throw new Error("Telegram credentials are not configured");
-    validateCredentials(credentials.botToken, credentials.chatId);
+    if (!credentials) throw new Error("Monitor credentials are not configured");
+    validateCredentials(credentials.botToken, credentials.chatId, credentials.bscRpc);
     return credentials;
   }
 }
@@ -241,158 +197,184 @@ export class LaptopMonitor extends DurableObject {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const monitor = env.MONITOR.getByName(env.TOKEN_ADDRESS.toLowerCase());
+    const monitor = env.MONITOR.getByName(INSTANCE_NAME);
     if (url.pathname === "/bootstrap" && request.method === "POST") {
       try {
         await verifyGitHubOidc(request);
         const body = await request.json();
-        await monitor.configure({ botToken: body?.botToken, chatId: body?.chatId });
+        await monitor.configure({ botToken: body?.botToken, chatId: body?.chatId,
+          bscRpc: body?.bscRpc, bscscanKey: body?.bscscanKey });
         return Response.json({ ok: true, configured: true });
       } catch (error) {
         console.error(JSON.stringify({ event: "bootstrap_error", error: errorMessage(error) }));
-        return Response.json(
-          { ok: false, error: "configuration rejected", reason: errorMessage(error) },
-          { status: 403 },
-        );
+        return Response.json({ ok: false, error: "configuration rejected" }, { status: 403 });
       }
     }
-    if (url.pathname !== "/" && url.pathname !== "/health") {
-      return new Response("Not Found", { status: 404 });
+    if (url.pathname === "/run" && request.method === "POST") {
+      try {
+        await verifyGitHubOidc(request);
+        return Response.json({ ok: true, ...await monitor.run({ forceReport: true }) });
+      } catch (error) {
+        await monitor.noteError(errorMessage(error));
+        return Response.json({ ok: false, error: errorMessage(error) }, { status: 503 });
+      }
     }
-    try {
-      const status = await monitor.status();
-      return Response.json({
-        ok: true,
-        service: "LAPTOP Base pool monitor",
-        token: TOKEN_DISPLAY,
-        mention: env.TELEGRAM_MENTION,
-        schedule: "every minute",
-        ...status,
-      });
-    } catch (error) {
-      console.error(JSON.stringify({ event: "status_error", error: errorMessage(error) }));
-      return Response.json({ ok: false, error: "status unavailable" }, { status: 503 });
-    }
+    if (url.pathname !== "/" && url.pathname !== "/health") return new Response("Not Found", { status: 404 });
+    return Response.json({
+      ok: true, service: "FTREX BNB Chain USDT funds monitor", token: USDT,
+      mention: env.TELEGRAM_MENTION, timezone: "Asia/Shanghai",
+      schedule: "every 5 minutes; daily report after Beijing midnight", ...await monitor.status(),
+    });
   },
-
   async scheduled(controller, env) {
-    const monitor = env.MONITOR.getByName(env.TOKEN_ADDRESS.toLowerCase());
+    const monitor = env.MONITOR.getByName(INSTANCE_NAME);
     await monitor.noteAttempt();
     try {
-      const result = await monitor.run();
-      await monitor.noteError("");
-      console.log(JSON.stringify({ event: "monitor_success", cron: controller.cron, ...result }));
+      console.log(JSON.stringify({ event: "ftrex_funds_success", cron: controller.cron, ...await monitor.run() }));
     } catch (error) {
       await monitor.noteError(errorMessage(error));
-      console.error(JSON.stringify({ event: "monitor_error", error: errorMessage(error) }));
-      throw error;
+      console.error(JSON.stringify({ event: "ftrex_funds_error", error: errorMessage(error) }));
+      // Deliberately do not throw: transient RPC failures must not create failure-email noise.
     }
   },
 };
 
-function validateEnvironment(env) {
-  for (const key of ["TOKEN_ADDRESS", "TELEGRAM_MENTION", "RPC_URL"]) {
-    if (!env[key]) throw new Error(`Missing environment value: ${key}`);
+function addEntity(state, key, address, changes, label, txHash) {
+  if (!address || state.entities[key].includes(address)) return;
+  state.entities[key].push(address);
+  changes.push({ key, address, label, txHash });
+}
+
+function addressChangeMessage(env, changes) {
+  const lines = uniqueBy(changes, (item) => `${item.key}:${item.address}`).map((item) =>
+    `• ${escapeHtml(item.label)}：<code>${escapeHtml(item.address)}</code>\n  <a href="${BSCSCAN}/tx/${escapeHtml(item.txHash)}">验证交易</a>`);
+  return `${env.TELEGRAM_MENTION}\n🚨 <b>羽翎链上地址体系发生变化</b>\n${lines.join("\n")}\n\n已由同一业务事件和 USDT 资金路径交叉验证，并自动纳入后续统计。`;
+}
+
+function dailyReport(env, day, rawDay, state, partial = false) {
+  const data = rawDay || emptyDay();
+  const deposit = BigInt(data.deposit || "0");
+  const withdrawal = BigInt(data.withdrawal || "0");
+  const net = deposit - withdrawal;
+  const netLabel = net > 0n ? "净流入" : net < 0n ? "净流出" : "持平";
+  return `${env.TELEGRAM_MENTION}\n📊 <b>${partial ? "羽翎今日资金快照（截至当前）" : "羽翎每日资金报告"}</b>\n` +
+    `日期：<b>${day}</b>（北京时间）\n\n` +
+    `🟢 充值：<b>${formatUnits(deposit)} USDT</b>｜${data.depositCount || 0} 笔｜${(data.depositUsers || []).length} 个地址\n` +
+    `🔴 提现：<b>${formatUnits(withdrawal)} USDT</b>｜${data.withdrawalCount || 0} 笔｜${(data.withdrawalUsers || []).length} 个地址\n` +
+    `⚖️ ${netLabel}：<b>${formatUnits(net < 0n ? -net : net)} USDT</b>\n` +
+    largestLine("最大充值", data.largestDeposit) + largestLine("最大提现", data.largestWithdrawal) +
+    `地址状态：充值入口 ${state.entities.depositGateways.length}｜收款钱包 ${state.entities.depositReceivers.length}｜提现合约 ${state.entities.withdrawalContracts.length}｜出款金库 ${state.entities.withdrawalSources.length}\n` +
+    `统计资产：BSC-USDT <code>${USDT}</code>`;
+}
+
+function largestLine(label, item) {
+  return item ? `${label}：<b>${formatUnits(item.amount)} USDT</b>（${shortAddress(item.user)}） <a href="${BSCSCAN}/tx/${escapeHtml(item.txHash)}">交易</a>\n` : "";
+}
+
+function backfillMessage(env, state, latest) {
+  const remaining = Math.max(0, latest - state.lastBlock);
+  return `${env.TELEGRAM_MENTION}\n🟡 <b>羽翎链上资金监控已启动</b>\n` +
+    `正在补扫最近约一天的 BNB Chain 区块，尚余 ${remaining.toLocaleString("en-US")} 个区块。\n` +
+    `补扫完成后发送准确日报；地址或合约发生变化会立即通知。`;
+}
+
+async function getLogs(rpcUrl, filter) {
+  if (Array.isArray(filter.address) && !filter.address.length) return [];
+  const result = await rpc(rpcUrl, "eth_getLogs", [filter]);
+  return Array.isArray(result) ? result : [];
+}
+
+async function fetchOperatorTransactions(apiKey, operators, fromBlock, toBlock) {
+  try {
+    const groups = await Promise.all(operators.map(async (address) => {
+      const url = new URL("https://api.etherscan.io/v2/api");
+      for (const [key, value] of Object.entries({
+        chainid: "56", module: "account", action: "txlist", address,
+        startblock: String(fromBlock), endblock: String(toBlock), page: "1", offset: "1000",
+        sort: "asc", apikey: apiKey,
+      })) url.searchParams.set(key, value);
+      const payload = await fetchJson(url.toString());
+      if (payload.status === "0" && /no transactions/i.test(String(payload.message) + String(payload.result))) return [];
+      if (!Array.isArray(payload.result)) throw new Error(`Explorer response: ${payload.message || "invalid result"}`);
+      return payload.result.filter((tx) => normalizeAddress(tx.from) === address && tx.isError !== "1");
+    }));
+    return uniqueBy(groups.flat(), (tx) => String(tx.hash || "").toLowerCase());
+  } catch (error) {
+    console.error(JSON.stringify({ event: "operator_discovery_error", error: errorMessage(error) }));
+    return [];
   }
 }
 
-async function rpc(env, method, params) {
-  const response = await fetch(env.RPC_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Base RPC HTTP ${response.status}`);
+async function rpc(rpcUrl, method, params) {
+  const response = await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params }), signal: AbortSignal.timeout(20_000) });
+  if (!response.ok) throw new Error(`BSC RPC HTTP ${response.status}`);
   const payload = await response.json();
-  if (payload.error) throw new Error(`Base RPC ${payload.error.code}: ${payload.error.message}`);
+  if (payload.error) throw new Error(`BSC RPC ${payload.error.code}: ${payload.error.message}`);
   return payload.result;
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(15_000),
+async function rpcBatch(rpcUrl, calls) {
+  if (!calls.length) return [];
+  const body = calls.map(([method, params], index) => ({ jsonrpc: "2.0", id: index + 1, method, params }));
+  const response = await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(25_000) });
+  if (!response.ok) throw new Error(`BSC RPC batch HTTP ${response.status}`);
+  const payload = await response.json();
+  if (!Array.isArray(payload)) throw new Error("BSC RPC batch response was not an array");
+  const byId = new Map(payload.map((entry) => [entry.id, entry]));
+  return body.map((request) => {
+    const entry = byId.get(request.id);
+    if (entry?.error) throw new Error(`BSC RPC ${entry.error.code}: ${entry.error.message}`);
+    return entry?.result ?? null;
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`);
-  return response.json();
 }
 
-async function fetchSecurity(token) {
-  const payload = await fetchJson(`${GOPLUS_API}?contract_addresses=${token}`);
-  return normalizeSecurity(payload, token);
-}
-
-async function sendTelegram(env, html, credentials) {
+async function sendTelegram(credentials, html) {
   const response = await fetch(`https://api.telegram.org/bot${credentials.botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      chat_id: credentials.chatId,
-      text: html,
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    }),
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: credentials.chatId, text: html, parse_mode: "HTML", disable_web_page_preview: true }),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Telegram HTTP ${response.status}: ${detail.slice(0, 300)}`);
-  }
+  if (!response.ok) throw new Error(`Telegram HTTP ${response.status}`);
 }
 
-function validateCredentials(botToken, chatId) {
-  if (!/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(botToken || ""))) {
-    throw new Error("Invalid Telegram bot token");
-  }
+function validateCredentials(botToken, chatId, bscRpc) {
+  if (!/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(botToken || ""))) throw new Error("Invalid Telegram bot token");
   if (!/^-?\d{5,}$/.test(String(chatId || ""))) throw new Error("Invalid Telegram chat ID");
+  let url;
+  try { url = new URL(String(bscRpc || "")); } catch { throw new Error("Invalid BSC RPC URL"); }
+  if (url.protocol !== "https:") throw new Error("BSC RPC must use HTTPS");
 }
 
 async function verifyGitHubOidc(request) {
   const authorization = request.headers.get("authorization") || "";
   if (!authorization.startsWith("Bearer ")) throw new Error("Missing bearer token");
-  const token = authorization.slice(7);
-  const parts = token.split(".");
+  const parts = authorization.slice(7).split(".");
   if (parts.length !== 3) throw new Error("Invalid JWT");
   const header = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[0])));
   const claims = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])));
   if (header.alg !== "RS256" || !header.kid) throw new Error("Unsupported JWT header");
-
   const discovery = await fetchJson("https://token.actions.githubusercontent.com/.well-known/openid-configuration");
   const jwks = await fetchJson(discovery.jwks_uri);
   const jwk = jwks.keys?.find((key) => key.kid === header.kid && key.kty === "RSA");
   if (!jwk) throw new Error("Unknown signing key");
-  const key = await crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
-  const valid = await crypto.subtle.verify(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    base64UrlDecode(parts[2]),
-    new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
-  );
-  if (!valid) throw new Error("Invalid JWT signature");
-
+  const key = await crypto.subtle.importKey("jwk", jwk,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  if (!await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, base64UrlDecode(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`))) throw new Error("Invalid JWT signature");
   const now = Math.floor(Date.now() / 1000);
   const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (claims.iss !== "https://token.actions.githubusercontent.com") throw new Error("Invalid issuer");
-  if (!audience.includes("laptop-base-pool-monitor")) throw new Error("Invalid audience");
-  if (!claims.exp || claims.exp < now - 30 || (claims.nbf && claims.nbf > now + 30)) {
-    throw new Error("Expired JWT");
-  }
-  if (claims.repository !== "yaoyederener/monita" || claims.ref !== "refs/heads/main") {
-    throw new Error("Invalid repository identity");
-  }
-  if (
-    claims.workflow_ref !==
-    "yaoyederener/monita/.github/workflows/deploy-base-pool-monitor.yml@refs/heads/main"
-  ) {
-    throw new Error("Invalid workflow identity");
-  }
+  if (claims.iss !== "https://token.actions.githubusercontent.com" || !audience.includes("laptop-base-pool-monitor")) throw new Error("Invalid token identity");
+  if (!claims.exp || claims.exp < now - 30 || (claims.nbf && claims.nbf > now + 30)) throw new Error("Expired JWT");
+  if (claims.repository !== "yaoyederener/monita" || claims.ref !== "refs/heads/main") throw new Error("Invalid repository identity");
+  if (claims.workflow_ref !== "yaoyederener/monita/.github/workflows/deploy-base-pool-monitor.yml@refs/heads/main") throw new Error("Invalid workflow identity");
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`);
+  return response.json();
 }
 
 function base64UrlDecode(value) {
@@ -400,20 +382,5 @@ function base64UrlDecode(value) {
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
   return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
 }
-
-function pairTitle(changes) {
-  if (changes.includes("new")) return "LAPTOP 新交易池出现";
-  if (changes.includes("liquidity-removed")) return "LAPTOP 流动性大幅撤出";
-  if (changes.includes("liquidity-added")) return "LAPTOP 流动性大幅增加";
-  if (changes.includes("liquidity-live")) return "LAPTOP 池子已注入流动性";
-  if (changes.includes("first-trade")) return "LAPTOP 已出现首批成交";
-  return "LAPTOP 价格大幅变化";
-}
-
-function toHex(value) {
-  return `0x${Math.max(0, Math.trunc(value)).toString(16)}`;
-}
-
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
-}
+function toHex(value) { return `0x${Math.max(0, Math.trunc(value)).toString(16)}`; }
+function errorMessage(error) { return error instanceof Error ? error.message : String(error); }

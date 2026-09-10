@@ -5,6 +5,9 @@
   "compatibility_date": "2026-09-09",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -20,12 +23,7 @@
     }
   ],
   "vars": {
-    "RPC_URL": "https://mainnet.base.org",
-    "TOKEN_ADDRESS": "0xb095274743941e953c746f9c228da9c18bb6ec29",
-    "TELEGRAM_MENTION": "@juzhangniubi666",
-    "MIN_LIQUIDITY_USD": "10000",
-    "LARGE_TRANSFER_TOKENS": "1000000",
-    "PRICE_ALERT_PERCENT": "30"
+    "TELEGRAM_MENTION": "@juzhangniubi666"
   },
   "observability": {
     "enabled": true,

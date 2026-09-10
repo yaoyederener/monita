@@ -1,96 +1,66 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  TRANSFER_TOPIC,
-  blockRanges,
-  classifyPairChange,
-  decodeTransfer,
-  formatMoney,
-  formatTax,
-  normalizePairs,
-  normalizeSecurity,
+  DEPOSIT_TOPIC, TRANSFER_TOPIC, USDT, addFlow, addressTopic, blockRanges,
+  dayKeyBeijing, decodeBusinessEvent, decodeTransfer, emptyDay, formatUnits, previousDay,
 } from "../src/lib.js";
 
-const TOKEN = "0xb095274743941e953c746f9c228da9c18bb6ec29";
+const topicAddress = (address) => `0x${"0".repeat(24)}${address.slice(2)}`;
+const USER = "0x701876eb1b6cea82774f7041e092f7740624af81";
 
-test("splits a large block gap into bounded ranges", () => {
+test("splits block gaps into bounded ranges", () => {
   assert.deepEqual(blockRanges(101, 5_100, 2_000), [
     { fromBlock: 101, toBlock: 2_100 },
     { fromBlock: 2_101, toBlock: 4_100 },
     { fromBlock: 4_101, toBlock: 5_100 },
   ]);
-  assert.deepEqual(blockRanges(20, 19), []);
   assert.equal(blockRanges(1, 100_000, 2_000, 10).at(-1).toBlock, 20_000);
 });
 
-test("normalizes a matching DEX pair", () => {
-  const pairs = normalizePairs(
-    [
-      {
-        pairAddress: "0x1111111111111111111111111111111111111111",
-        dexId: "aerodrome",
-        baseToken: { address: TOKEN, symbol: "LAPTOP" },
-        quoteToken: { address: "0x4200000000000000000000000000000000000006", symbol: "WETH" },
-        priceUsd: "0.01",
-        liquidity: { usd: 100000 },
-        txns: { m5: { buys: 3, sells: 2 } },
-      },
-    ],
-    TOKEN,
-  );
-  assert.equal(pairs.length, 1);
-  assert.equal(pairs[0].trades5m, 5);
-  assert.equal(pairs[0].liquidityUsd, 100000);
-  assert.equal(pairs[0].counterSymbol, "WETH");
-  assert.equal(pairs[0].trustedQuote, true);
-});
-
-test("classifies removal and price movement", () => {
-  const changes = classifyPairChange(
-    { liquidityUsd: 100000, priceUsd: 1, trades5m: 2 },
-    { liquidityUsd: 60000, priceUsd: 1.5, trades5m: 1 },
-    { minLiquidityUsd: 10000, priceAlertPercent: 30 },
-  );
-  assert.deepEqual(changes, ["liquidity-removed", "price-move"]);
-});
-
-test("decodes a large ERC-20 transfer", () => {
-  const transfer = decodeTransfer({
-    topics: [
-      TRANSFER_TOPIC,
-      `0x${"0".repeat(24)}${"1".repeat(40)}`,
-      `0x${"0".repeat(24)}${"2".repeat(40)}`,
-    ],
-    data: "0xde0b6b3a7640000",
+test("decodes the confirmed FTREX deposit event", () => {
+  const event = decodeBusinessEvent({
+    address: "0x00000000110e73585338df0e7f91bf70ed3bd4c4",
+    topics: [DEPOSIT_TOPIC, topicAddress(USER), addressTopic(USDT)],
+    data: "0x2a4a8d5b7a5e400000",
     transactionHash: `0x${"a".repeat(64)}`,
+    blockNumber: "0x64",
+    logIndex: "0x2",
+  }, DEPOSIT_TOPIC);
+  assert.equal(event.user, USER);
+  assert.equal(event.token, USDT);
+  assert.equal(event.blockNumber, 100);
+});
+
+test("decodes USDT transfer actors and amount", () => {
+  const transfer = decodeTransfer({
+    topics: [TRANSFER_TOPIC, topicAddress(USER), topicAddress("0xa0277eb181577b712813b8f0a11b931bd82fef4a")],
+    data: "0xad78ebc5ac6200000",
+    transactionHash: `0x${"b".repeat(64)}`,
+    blockNumber: "0x1",
     logIndex: "0x1",
   });
-  assert.equal(transfer.amount, 10n ** 18n);
-  assert.equal(transfer.from, `0x${"1".repeat(40)}`);
+  assert.equal(transfer.from, USER);
+  assert.equal(formatUnits(transfer.amount), "200.00");
 });
 
-test("keeps unknown tax distinct from zero tax", () => {
-  assert.equal(formatTax(""), "未知");
-  assert.equal(formatTax("0"), "0.00%");
-  assert.equal(formatMoney(1250000), "$1.25M");
+test("aggregates daily totals, users, and largest transaction", () => {
+  const day = emptyDay();
+  addFlow(day, "deposit", { amount: 200n * 10n ** 18n, user: USER, txHash: "0x1" });
+  addFlow(day, "deposit", { amount: 300n * 10n ** 18n, user: USER, txHash: "0x2" });
+  addFlow(day, "withdrawal", { amount: 150n * 10n ** 18n, user: "0x1111111111111111111111111111111111111111", txHash: "0x3" });
+  assert.equal(formatUnits(day.deposit), "500.00");
+  assert.equal(day.depositCount, 2);
+  assert.equal(day.depositUsers.length, 1);
+  assert.equal(day.largestDeposit.txHash, "0x2");
+  assert.equal(formatUnits(day.withdrawal), "150.00");
 });
 
-test("normalizes GoPlus security flags", () => {
-  const security = normalizeSecurity(
-    {
-      result: {
-        [TOKEN]: {
-          buy_tax: "0.01",
-          sell_tax: "0.02",
-          is_in_dex: "1",
-          cannot_sell: "1",
-          holder_count: "12",
-        },
-      },
-    },
-    TOKEN,
-  );
-  assert.equal(security.buyTax, "1.00%");
-  assert.equal(security.sellTax, "2.00%");
-  assert.deepEqual(security.flags, ["无法卖出"]);
+test("uses Beijing calendar dates", () => {
+  assert.equal(dayKeyBeijing(Date.parse("2026-09-07T23:31:01Z") / 1000), "2026-09-08");
+  assert.equal(previousDay("2026-09-08"), "2026-09-07");
+});
+
+test("formats signed and rounded USDT values", () => {
+  assert.equal(formatUnits(-1_200n * 10n ** 18n), "-1,200.00");
+  assert.equal(formatUnits(1234567890000000000n), "1.23");
 });
