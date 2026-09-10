@@ -1,4 +1,8 @@
-# FTREX FTR/USDT Monitor
+# FTREX FTR/USDT Monitor (Paused)
+
+The scheduled GitHub Actions market/trade monitor is paused. It has been replaced
+operationally by the separate Cloudflare BSC-USDT deposit/withdrawal funds monitor;
+the historical implementation is retained here for reference only.
 
 GitHub Actions 计划任务抓取 FTREX FTR/USDT：
 

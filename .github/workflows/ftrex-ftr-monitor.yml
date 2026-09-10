@@ -1,9 +1,8 @@
-name: FTREX FTR Telegram Monitor
+name: FTREX FTR Telegram Monitor (PAUSED)
 
 on:
-  schedule:
-    # Avoid the top of the hour, when GitHub says scheduled workflows are most delayed.
-    - cron: "2-57/5 * * * *"
+  # Scheduled market/trade summaries are intentionally paused. The separate
+  # Cloudflare FTREX BSC funds monitor remains active.
   workflow_dispatch:
 
 permissions:
