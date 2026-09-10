@@ -23,7 +23,8 @@ export class LaptopMonitor extends DurableObject {
     const credentials = await this.credentials();
     const latest = Number(BigInt(await rpc(credentials.bscRpc, "eth_blockNumber", [])));
     let state = await this.loadState(latest);
-    const ranges = blockRanges(state.lastBlock + 1, latest, 2_000, 10);
+    // Five chunks stay safely below the 50-subrequest limit, including OIDC and Telegram calls.
+    const ranges = blockRanges(state.lastBlock + 1, latest, 2_000, 5);
     const operatorTransactions = ranges.length && credentials.bscscanKey
       ? await fetchOperatorTransactions(credentials.bscscanKey, state.entities.withdrawalOperators,
           ranges[0].fromBlock, ranges.at(-1).toBlock)
@@ -79,12 +80,10 @@ export class LaptopMonitor extends DurableObject {
         topics: [DEPOSIT_TOPIC, null, addressTopic(USDT)] }),
       getLogs(rpcUrl, { ...common, address: state.entities.withdrawalContracts,
         topics: [WITHDRAW_TOPIC, null, addressTopic(USDT)] }),
-      Promise.all(state.entities.depositReceivers.map((address) => getLogs(rpcUrl, {
-        ...common, address: USDT, topics: [TRANSFER_TOPIC, null, addressTopic(address)],
-      }))).then((groups) => groups.flat()),
-      Promise.all(state.entities.withdrawalSources.map((address) => getLogs(rpcUrl, {
-        ...common, address: USDT, topics: [TRANSFER_TOPIC, addressTopic(address)],
-      }))).then((groups) => groups.flat()),
+      getLogs(rpcUrl, { ...common, address: USDT,
+        topics: [TRANSFER_TOPIC, null, state.entities.depositReceivers.map(addressTopic)] }),
+      getLogs(rpcUrl, { ...common, address: USDT,
+        topics: [TRANSFER_TOPIC, state.entities.withdrawalSources.map(addressTopic)] }),
     ]);
 
     const candidateHashes = [...new Set([
