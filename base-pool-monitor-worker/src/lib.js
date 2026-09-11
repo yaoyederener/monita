@@ -179,3 +179,24 @@ export function pruneDays(days, keep = 10) {
   const entries = Object.entries(days || {}).sort(([a], [b]) => b.localeCompare(a));
   return Object.fromEntries(entries.slice(0, keep));
 }
+
+export function mergeFundsDigest(existing, flows, nowMs = Date.now()) {
+  const digest = existing || {
+    since: nowMs, count: 0, deposit: "0", withdrawal: "0",
+    depositCount: 0, withdrawalCount: 0, details: [],
+  };
+  for (const flow of flows) {
+    digest.count += 1;
+    if (flow.type === "deposit") {
+      digest.deposit = (BigInt(digest.deposit) + BigInt(flow.amount)).toString();
+      digest.depositCount += 1;
+    } else {
+      digest.withdrawal = (BigInt(digest.withdrawal) + BigInt(flow.amount)).toString();
+      digest.withdrawalCount += 1;
+    }
+  }
+  digest.details = [...(digest.details || []), ...flows]
+    .sort((a, b) => BigInt(a.amount) === BigInt(b.amount) ? 0 : BigInt(a.amount) > BigInt(b.amount) ? -1 : 1)
+    .slice(0, 8);
+  return digest;
+}

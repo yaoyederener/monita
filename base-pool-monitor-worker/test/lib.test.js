@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEPOSIT_TOPIC, TRANSFER_TOPIC, USDT, addFlow, addressTopic, blockRanges,
   dayKeyBeijing, decodeBusinessEvent, decodeTransfer, emptyDay, formatUnits, previousDay,
+  mergeFundsDigest,
 } from "../src/lib.js";
 
 const topicAddress = (address) => `0x${"0".repeat(24)}${address.slice(2)}`;
@@ -63,4 +64,22 @@ test("uses Beijing calendar dates", () => {
 test("formats signed and rounded USDT values", () => {
   assert.equal(formatUnits(-1_200n * 10n ** 18n), "-1,200.00");
   assert.equal(formatUnits(1234567890000000000n), "1.23");
+});
+
+test("persists three-hour digest totals and keeps the eight largest details", () => {
+  const flows = Array.from({ length: 10 }, (_, index) => ({
+    type: index % 2 === 0 ? "deposit" : "withdrawal",
+    amount: (BigInt(index + 1) * 10n ** 18n).toString(),
+    txHash: `0x${index}`,
+  }));
+  const first = mergeFundsDigest(null, flows.slice(0, 4), 1234);
+  const digest = mergeFundsDigest(first, flows.slice(4), 5678);
+  assert.equal(digest.since, 1234);
+  assert.equal(digest.count, 10);
+  assert.equal(digest.depositCount, 5);
+  assert.equal(digest.withdrawalCount, 5);
+  assert.equal(formatUnits(digest.deposit), "25.00");
+  assert.equal(formatUnits(digest.withdrawal), "30.00");
+  assert.equal(digest.details.length, 8);
+  assert.equal(digest.details[0].txHash, "0x9");
 });

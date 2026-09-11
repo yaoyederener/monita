@@ -3,7 +3,7 @@ import {
   DEPOSIT_TOPIC, TRANSFER_TOPIC, USDT, WITHDRAW_TOPIC, addFlow, addressTopic,
   blockRanges, currentDayBeijing, dayKeyBeijing, decodeBusinessEvent, decodeTransfer,
   emptyDay, escapeHtml, formatUnits, normalizeAddress, previousDay, pruneDays,
-  shortAddress, uniqueBy,
+  mergeFundsDigest, shortAddress, uniqueBy,
 } from "./lib.js";
 
 const BSCSCAN = "https://bscscan.com";
@@ -11,6 +11,7 @@ const BSCSCAN = "https://bscscan.com";
 const INSTANCE_NAME = "0xb095274743941e953c746f9c228da9c18bb6ec29";
 // Covers more than two days even at BSC's faster block cadence.
 const INITIAL_LOOKBACK_BLOCKS = 500_000;
+const FUNDS_DIGEST_INTERVAL_MS = 3 * 60 * 60 * 1_000;
 const INITIAL_ENTITIES = Object.freeze({
   depositGateways: ["0x00000000110e73585338df0e7f91bf70ed3bd4c4"],
   depositReceivers: ["0xa0277eb181577b712813b8f0a11b931bd82fef4a"],
@@ -24,7 +25,7 @@ export class LaptopMonitor extends DurableObject {
     const credentials = await this.credentials();
     const latest = Number(BigInt(await rpc(credentials.bscRpc, "eth_blockNumber", [])));
     let state = await this.loadState(latest);
-    const shouldNotifyFlows = state.realtimeReady === true && latest - state.lastBlock <= 5_000;
+    const shouldQueueFlows = state.realtimeReady === true && latest - state.lastBlock <= 5_000;
     // Five chunks stay safely below the 50-subrequest limit, including OIDC and Telegram calls.
     const ranges = blockRanges(state.lastBlock + 1, latest, 2_000, 5);
     const operatorTransactions = ranges.length && credentials.bscscanKey
@@ -46,13 +47,21 @@ export class LaptopMonitor extends DurableObject {
       processedEvents += result.processedEvents;
       changes.push(...result.changes);
       flows.push(...result.flows);
+      if (shouldQueueFlows && result.flows.length) {
+        state.pendingFundsDigest = mergeFundsDigest(state.pendingFundsDigest, result.flows);
+      }
       state.days = pruneDays(state.days);
       await this.ctx.storage.put("ftrexFundsState", state);
     }
 
     if (changes.length) await sendTelegram(credentials, addressChangeMessage(this.env, changes));
-    if (shouldNotifyFlows && flows.length) {
-      await sendTelegram(credentials, realtimeFundsMessage(this.env, flows));
+    const digestDue = state.pendingFundsDigest?.count > 0 &&
+      Date.now() - state.pendingFundsDigest.since >= FUNDS_DIGEST_INTERVAL_MS;
+    if (digestDue) {
+      await sendTelegram(credentials, fundsDigestMessage(this.env, state.pendingFundsDigest));
+      state.lastFundsDigestAt = Date.now();
+      state.pendingFundsDigest = null;
+      await this.ctx.storage.put("ftrexFundsState", state);
     }
     const caughtUp = state.lastBlock >= latest;
     if (caughtUp) {
@@ -79,7 +88,8 @@ export class LaptopMonitor extends DurableObject {
       latestBlock: latest, scannedThrough: state.lastBlock,
       remainingBlocks: Math.max(0, latest - state.lastBlock), ranges: ranges.length,
       processedEvents, changes: changes.length, caughtUp,
-      notifiedFlows: shouldNotifyFlows ? flows.length : 0,
+      queuedFlows: shouldQueueFlows ? flows.length : 0,
+      sentFundsDigest: Boolean(digestDue),
     };
   }
 
@@ -202,6 +212,10 @@ export class LaptopMonitor extends DurableObject {
       lastRunAt: state?.lastRunAt || null, lastBlock: state?.lastBlock || null,
       lastError: state?.lastError || null, consecutiveErrors: state?.consecutiveErrors || 0,
       realtimeAlerts: state?.realtimeReady === true,
+      fundsDigestIntervalHours: 3,
+      pendingFundsDigestCount: state?.pendingFundsDigest?.count || 0,
+      pendingFundsDigestSince: state?.pendingFundsDigest?.since || null,
+      lastFundsDigestAt: state?.lastFundsDigestAt || null,
       lastFlowAt: state?.lastFlowAt || null,
       lastFlowType: state?.lastFlowType || null,
       lastFlowTx: state?.lastFlowTx || null,
@@ -274,7 +288,7 @@ export default {
     return Response.json({
       ok: true, service: "FTREX BNB Chain USDT funds monitor", token: USDT,
       mention: env.TELEGRAM_MENTION, timezone: "Asia/Shanghai",
-      schedule: "every 5 minutes; daily report after Beijing midnight", ...await monitor.status(),
+      schedule: "scan every 5 minutes; funds digest every 3 hours; daily report after Beijing midnight", ...await monitor.status(),
     });
   },
   async scheduled(controller, env) {
@@ -302,14 +316,12 @@ function addressChangeMessage(env, changes) {
   return `${env.TELEGRAM_MENTION}\n🚨 <b>羽翎链上地址体系发生变化</b>\n${lines.join("\n")}\n\n已由同一业务事件和 USDT 资金路径交叉验证，并自动纳入后续统计。`;
 }
 
-function realtimeFundsMessage(env, flows) {
-  const deposits = flows.filter((flow) => flow.type === "deposit");
-  const withdrawals = flows.filter((flow) => flow.type === "withdrawal");
-  const depositTotal = deposits.reduce((sum, flow) => sum + BigInt(flow.amount), 0n);
-  const withdrawalTotal = withdrawals.reduce((sum, flow) => sum + BigInt(flow.amount), 0n);
+function fundsDigestMessage(env, digest) {
+  const depositTotal = BigInt(digest.deposit || "0");
+  const withdrawalTotal = BigInt(digest.withdrawal || "0");
   const net = depositTotal - withdrawalTotal;
   const netLabel = net > 0n ? "本轮净流入" : net < 0n ? "本轮净流出" : "本轮持平";
-  const details = flows.slice(0, 8).map((flow) => {
+  const details = (digest.details || []).map((flow) => {
     const icon = flow.type === "deposit" ? "🟢 充值" : "🔴 提现";
     const route = flow.type === "deposit"
       ? `${shortAddress(flow.user)} → ${shortAddress(flow.platformAddress)}`
@@ -317,14 +329,15 @@ function realtimeFundsMessage(env, flows) {
     return `${icon} <b>${formatUnits(flow.amount)} USDT</b>｜${route} ` +
       `<a href="${BSCSCAN}/tx/${escapeHtml(flow.txHash)}">交易</a>`;
   });
-  const omitted = flows.length > details.length
-    ? `\n其余 ${flows.length - details.length} 笔已计入本轮合计和每日统计。`
+  const omitted = digest.count > details.length
+    ? `\n其余 ${digest.count - details.length} 笔已计入本轮合计和每日统计。`
     : "";
-  const latestTimestamp = Math.max(...flows.map((flow) => flow.timestamp));
-  return `${env.TELEGRAM_MENTION}\n💸 <b>羽翎链上资金动态</b>\n` +
-    `时间：${formatBeijingTime(latestTimestamp)}（北京时间）\n\n` +
-    `🟢 充值合计：<b>${formatUnits(depositTotal)} USDT</b>｜${deposits.length} 笔\n` +
-    `🔴 提现合计：<b>${formatUnits(withdrawalTotal)} USDT</b>｜${withdrawals.length} 笔\n` +
+  const fromTime = formatBeijingTime(Math.trunc(digest.since / 1_000));
+  const latestTimestamp = Math.max(...(digest.details || []).map((flow) => flow.timestamp));
+  return `${env.TELEGRAM_MENTION}\n💸 <b>羽翎三小时资金汇总</b>\n` +
+    `区间：${fromTime} ～ ${formatBeijingTime(latestTimestamp)}（北京时间）\n\n` +
+    `🟢 充值合计：<b>${formatUnits(depositTotal)} USDT</b>｜${digest.depositCount} 笔\n` +
+    `🔴 提现合计：<b>${formatUnits(withdrawalTotal)} USDT</b>｜${digest.withdrawalCount} 笔\n` +
     `⚖️ ${netLabel}：<b>${formatUnits(net < 0n ? -net : net)} USDT</b>\n\n` +
     `${details.join("\n")}${omitted}`;
 }
