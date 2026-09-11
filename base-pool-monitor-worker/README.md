@@ -2,6 +2,11 @@
 
 Cloudflare Worker that measures FTREX platform-wide BSC-USDT deposits and withdrawals directly from confirmed on-chain business events. It sends a Beijing-time daily report to Telegram and immediately mentions `@juzhangniubi666` when a new related gateway, receiver, withdrawal contract, source vault, or operator wallet is cross-verified.
 
+After the historical baseline is complete, each five-minute scan that contains new
+deposits or withdrawals sends one combined real-time Telegram alert with totals, net
+flow, up to eight transaction details, and BscScan links. Empty scans stay silent;
+the daily report is still sent even when the day's totals are zero.
+
 Confirmed starting points:
 
 - Deposit gateway: `0x00000000110e73585338df0e7f91bf70ed3bd4c4`

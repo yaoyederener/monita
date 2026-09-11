@@ -24,6 +24,7 @@ export class LaptopMonitor extends DurableObject {
     const credentials = await this.credentials();
     const latest = Number(BigInt(await rpc(credentials.bscRpc, "eth_blockNumber", [])));
     let state = await this.loadState(latest);
+    const shouldNotifyFlows = state.realtimeReady === true && latest - state.lastBlock <= 5_000;
     // Five chunks stay safely below the 50-subrequest limit, including OIDC and Telegram calls.
     const ranges = blockRanges(state.lastBlock + 1, latest, 2_000, 5);
     const operatorTransactions = ranges.length && credentials.bscscanKey
@@ -31,6 +32,7 @@ export class LaptopMonitor extends DurableObject {
           ranges[0].fromBlock, ranges.at(-1).toBlock)
       : [];
     const changes = [];
+    const flows = [];
     let processedEvents = 0;
 
     for (const range of ranges) {
@@ -43,11 +45,15 @@ export class LaptopMonitor extends DurableObject {
       state.lastRunAt = Date.now();
       processedEvents += result.processedEvents;
       changes.push(...result.changes);
+      flows.push(...result.flows);
       state.days = pruneDays(state.days);
       await this.ctx.storage.put("ftrexFundsState", state);
     }
 
     if (changes.length) await sendTelegram(credentials, addressChangeMessage(this.env, changes));
+    if (shouldNotifyFlows && flows.length) {
+      await sendTelegram(credentials, realtimeFundsMessage(this.env, flows));
+    }
     const caughtUp = state.lastBlock >= latest;
     if (caughtUp) {
       const today = currentDayBeijing();
@@ -66,12 +72,14 @@ export class LaptopMonitor extends DurableObject {
     state.lastRunAt = Date.now();
     state.lastError = "";
     state.consecutiveErrors = 0;
+    state.realtimeReady = caughtUp;
     await this.ctx.storage.put("ftrexFundsState", state);
     if (!caughtUp) await this.ctx.storage.setAlarm(Date.now() + 30_000);
     return {
       latestBlock: latest, scannedThrough: state.lastBlock,
       remainingBlocks: Math.max(0, latest - state.lastBlock), ranges: ranges.length,
       processedEvents, changes: changes.length, caughtUp,
+      notifiedFlows: shouldNotifyFlows ? flows.length : 0,
     };
   }
 
@@ -122,6 +130,7 @@ export class LaptopMonitor extends DurableObject {
       [Number(BigInt(block.number)), Number(BigInt(block.timestamp))]));
 
     const changes = [];
+    const flows = [];
     const processed = new Set();
     for (const [type, events] of [["deposit", deposits], ["withdrawal", withdrawals]]) {
       for (const event of events) {
@@ -132,44 +141,75 @@ export class LaptopMonitor extends DurableObject {
         const tx = txByHash.get(event.txHash);
         const transfers = (receipt?.logs || []).filter((log) => normalizeAddress(log.address) === USDT)
           .map(decodeTransfer).filter(Boolean);
+        let platformAddress = event.contract;
         if (type === "deposit") {
           addEntity(state, "depositGateways", event.contract, changes, "充值入口合约", event.txHash);
           const match = transfers.find((item) => item.from === event.user && item.amount === event.amount);
-          if (match) addEntity(state, "depositReceivers", match.to, changes, "充值收款钱包", event.txHash);
+          if (match) {
+            platformAddress = match.to;
+            addEntity(state, "depositReceivers", match.to, changes, "充值收款钱包", event.txHash);
+          }
         } else {
           addEntity(state, "withdrawalContracts", event.contract, changes, "提现业务合约", event.txHash);
           const match = transfers.find((item) => item.to === event.user && item.amount === event.amount);
-          if (match) addEntity(state, "withdrawalSources", match.from, changes, "提现出款金库", event.txHash);
+          if (match) {
+            platformAddress = match.from;
+            addEntity(state, "withdrawalSources", match.from, changes, "提现出款金库", event.txHash);
+          }
           addEntity(state, "withdrawalOperators", normalizeAddress(tx?.from), changes, "提现操作钱包", event.txHash);
         }
         const timestamp = timestampByBlock.get(event.blockNumber);
         if (!timestamp) throw new Error(`Missing timestamp for block ${event.blockNumber}`);
         const day = dayKeyBeijing(timestamp);
         state.days[day] = addFlow(state.days[day] || emptyDay(), type, event);
+        state.lastFlowAt = timestamp * 1_000;
+        state.lastFlowType = type;
+        state.lastFlowTx = event.txHash;
+        flows.push({
+          type, amount: event.amount.toString(), user: event.user, txHash: event.txHash,
+          timestamp, platformAddress,
+        });
       }
     }
-    return { state, changes, processedEvents: processed.size };
+    return { state, changes, flows, processedEvents: processed.size };
   }
 
   async loadState(latestBlock) {
     const existing = await this.ctx.storage.get("ftrexFundsState");
-    if (existing?.version === 3) return existing;
+    if (existing?.version === 3) {
+      if (existing.realtimeReady === undefined) {
+        existing.realtimeReady = latestBlock - existing.lastBlock <= 5_000;
+      }
+      return existing;
+    }
     return {
       version: 3, startedAt: Date.now(), lastRunAt: null,
       lastBlock: Math.max(0, latestBlock - INITIAL_LOOKBACK_BLOCKS), lastReportedDay: null,
-      lastError: "", consecutiveErrors: 0, entities: structuredClone(INITIAL_ENTITIES), days: {},
+      lastError: "", consecutiveErrors: 0, realtimeReady: false,
+      entities: structuredClone(INITIAL_ENTITIES), days: {},
     };
   }
 
   async status() {
     const state = await this.ctx.storage.get("ftrexFundsState");
     const credentials = await this.ctx.storage.get("telegramCredentials");
+    const today = currentDayBeijing();
+    const todayData = state?.days?.[today] || emptyDay();
     return {
       configured: Boolean(credentials?.botToken && credentials?.chatId && credentials?.bscRpc),
       initialized: Boolean(state), startedAt: state?.startedAt || null,
       lastAttemptAt: (await this.ctx.storage.get("ftrexLastAttemptAt")) || null,
       lastRunAt: state?.lastRunAt || null, lastBlock: state?.lastBlock || null,
       lastError: state?.lastError || null, consecutiveErrors: state?.consecutiveErrors || 0,
+      realtimeAlerts: state?.realtimeReady === true,
+      lastFlowAt: state?.lastFlowAt || null,
+      lastFlowType: state?.lastFlowType || null,
+      lastFlowTx: state?.lastFlowTx || null,
+      today: state ? {
+        day: today,
+        deposit: formatUnits(todayData.deposit), depositCount: todayData.depositCount || 0,
+        withdrawal: formatUnits(todayData.withdrawal), withdrawalCount: todayData.withdrawalCount || 0,
+      } : null,
       entities: state ? Object.fromEntries(Object.entries(state.entities).map(([key, values]) => [key, values.length])) : null,
     };
   }
@@ -262,6 +302,33 @@ function addressChangeMessage(env, changes) {
   return `${env.TELEGRAM_MENTION}\n🚨 <b>羽翎链上地址体系发生变化</b>\n${lines.join("\n")}\n\n已由同一业务事件和 USDT 资金路径交叉验证，并自动纳入后续统计。`;
 }
 
+function realtimeFundsMessage(env, flows) {
+  const deposits = flows.filter((flow) => flow.type === "deposit");
+  const withdrawals = flows.filter((flow) => flow.type === "withdrawal");
+  const depositTotal = deposits.reduce((sum, flow) => sum + BigInt(flow.amount), 0n);
+  const withdrawalTotal = withdrawals.reduce((sum, flow) => sum + BigInt(flow.amount), 0n);
+  const net = depositTotal - withdrawalTotal;
+  const netLabel = net > 0n ? "本轮净流入" : net < 0n ? "本轮净流出" : "本轮持平";
+  const details = flows.slice(0, 8).map((flow) => {
+    const icon = flow.type === "deposit" ? "🟢 充值" : "🔴 提现";
+    const route = flow.type === "deposit"
+      ? `${shortAddress(flow.user)} → ${shortAddress(flow.platformAddress)}`
+      : `${shortAddress(flow.platformAddress)} → ${shortAddress(flow.user)}`;
+    return `${icon} <b>${formatUnits(flow.amount)} USDT</b>｜${route} ` +
+      `<a href="${BSCSCAN}/tx/${escapeHtml(flow.txHash)}">交易</a>`;
+  });
+  const omitted = flows.length > details.length
+    ? `\n其余 ${flows.length - details.length} 笔已计入本轮合计和每日统计。`
+    : "";
+  const latestTimestamp = Math.max(...flows.map((flow) => flow.timestamp));
+  return `${env.TELEGRAM_MENTION}\n💸 <b>羽翎链上资金动态</b>\n` +
+    `时间：${formatBeijingTime(latestTimestamp)}（北京时间）\n\n` +
+    `🟢 充值合计：<b>${formatUnits(depositTotal)} USDT</b>｜${deposits.length} 笔\n` +
+    `🔴 提现合计：<b>${formatUnits(withdrawalTotal)} USDT</b>｜${withdrawals.length} 笔\n` +
+    `⚖️ ${netLabel}：<b>${formatUnits(net < 0n ? -net : net)} USDT</b>\n\n` +
+    `${details.join("\n")}${omitted}`;
+}
+
 function dailyReport(env, day, rawDay, state, partial = false) {
   const data = rawDay || emptyDay();
   const deposit = BigInt(data.deposit || "0");
@@ -287,6 +354,11 @@ function backfillMessage(env, state, latest) {
   return `${env.TELEGRAM_MENTION}\n🟡 <b>羽翎链上资金监控已启动</b>\n` +
     `正在补扫最近约一天的 BNB Chain 区块，尚余 ${remaining.toLocaleString("en-US")} 个区块。\n` +
     `补扫完成后发送准确日报；地址或合约发生变化会立即通知。`;
+}
+
+function formatBeijingTime(unixSeconds) {
+  return new Date(Number(unixSeconds) * 1_000 + 8 * 60 * 60 * 1_000)
+    .toISOString().replace("T", " ").slice(0, 19);
 }
 
 async function getLogs(rpcUrl, filter) {
