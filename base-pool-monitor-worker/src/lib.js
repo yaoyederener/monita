@@ -125,6 +125,7 @@ export function emptyDay() {
     withdrawalCount: 0,
     depositUsers: [],
     withdrawalUsers: [],
+    depositsByAddress: {},
     largestDeposit: null,
     largestWithdrawal: null,
   };
@@ -137,6 +138,13 @@ export function addFlow(day, type, event) {
   const countKey = type === "deposit" ? "depositCount" : "withdrawalCount";
   const usersKey = type === "deposit" ? "depositUsers" : "withdrawalUsers";
   const largestKey = type === "deposit" ? "largestDeposit" : "largestWithdrawal";
+  if (type === "deposit") {
+    const user = normalizeAddress(event.user);
+    if (!user) throw new Error("Invalid depositor address");
+    const totals = target.depositsByAddress ||= {};
+    const previous = totals[user] || { amount: "0", count: 0 };
+    totals[user] = { amount: (BigInt(previous.amount) + amount).toString(), count: previous.count + 1 };
+  }
   target[amountKey] = (BigInt(target[amountKey] || "0") + amount).toString();
   target[countKey] = Number(target[countKey] || 0) + 1;
   target[usersKey] = [...new Set([...(target[usersKey] || []), event.user])];
@@ -180,23 +188,14 @@ export function pruneDays(days, keep = 10) {
   return Object.fromEntries(entries.slice(0, keep));
 }
 
-export function mergeFundsDigest(existing, flows, nowMs = Date.now()) {
-  const digest = existing || {
-    since: nowMs, count: 0, deposit: "0", withdrawal: "0",
-    depositCount: 0, withdrawalCount: 0, details: [],
-  };
-  for (const flow of flows) {
-    digest.count += 1;
-    if (flow.type === "deposit") {
-      digest.deposit = (BigInt(digest.deposit) + BigInt(flow.amount)).toString();
-      digest.depositCount += 1;
-    } else {
-      digest.withdrawal = (BigInt(digest.withdrawal) + BigInt(flow.amount)).toString();
-      digest.withdrawalCount += 1;
-    }
-  }
-  digest.details = [...(digest.details || []), ...flows]
-    .sort((a, b) => BigInt(a.amount) === BigInt(b.amount) ? 0 : BigInt(a.amount) > BigInt(b.amount) ? -1 : 1)
-    .slice(0, 8);
-  return digest;
+// Older stored days lack the address breakdown. Never present a partial ranking as complete.
+export function topDepositor(day) {
+  const rows = Object.entries(day.depositsByAddress || {}).map(([user, value]) => ({ user, ...value }));
+  const covered = rows.reduce((sum, row) => sum + BigInt(row.amount), 0n);
+  const count = rows.reduce((sum, row) => sum + row.count, 0);
+  const complete = covered === BigInt(day.deposit || "0") && count === (day.depositCount || 0);
+  rows.sort((a, b) => BigInt(a.amount) === BigInt(b.amount)
+    ? a.user.localeCompare(b.user) : BigInt(a.amount) > BigInt(b.amount) ? -1 : 1);
+  const leader = complete ? rows[0] || null : null;
+  return { complete, leader, tiedCount: leader ? rows.filter(row => row.amount === leader.amount).length : 0 };
 }

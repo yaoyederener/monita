@@ -3,15 +3,15 @@ import {
   DEPOSIT_TOPIC, TRANSFER_TOPIC, USDT, WITHDRAW_TOPIC, addFlow, addressTopic,
   blockRanges, currentDayBeijing, dayKeyBeijing, decodeBusinessEvent, decodeTransfer,
   emptyDay, escapeHtml, formatUnits, normalizeAddress, previousDay, pruneDays,
-  mergeFundsDigest, shortAddress, uniqueBy,
+  uniqueBy,
 } from "./lib.js";
+import { dailyReport } from "./report.js";
 
 const BSCSCAN = "https://bscscan.com";
 // Keep the old object name so the already configured Telegram credentials remain available.
 const INSTANCE_NAME = "0xb095274743941e953c746f9c228da9c18bb6ec29";
 // Covers more than two days even at BSC's faster block cadence.
 const INITIAL_LOOKBACK_BLOCKS = 500_000;
-const FUNDS_DIGEST_INTERVAL_MS = 3 * 60 * 60 * 1_000;
 const INITIAL_ENTITIES = Object.freeze({
   depositGateways: ["0x00000000110e73585338df0e7f91bf70ed3bd4c4"],
   depositReceivers: ["0xa0277eb181577b712813b8f0a11b931bd82fef4a"],
@@ -25,7 +25,8 @@ export class LaptopMonitor extends DurableObject {
     const credentials = await this.credentials();
     const latest = Number(BigInt(await rpc(credentials.bscRpc, "eth_blockNumber", [])));
     let state = await this.loadState(latest);
-    const shouldQueueFlows = state.realtimeReady === true && latest - state.lastBlock <= 5_000;
+    // Discard the retired intraday digest; its events are already in the daily ledger.
+    delete state.pendingFundsDigest;
     // Five chunks stay safely below the 50-subrequest limit, including OIDC and Telegram calls.
     const ranges = blockRanges(state.lastBlock + 1, latest, 2_000, 5);
     const operatorTransactions = ranges.length && credentials.bscscanKey
@@ -33,7 +34,6 @@ export class LaptopMonitor extends DurableObject {
           ranges[0].fromBlock, ranges.at(-1).toBlock)
       : [];
     const changes = [];
-    const flows = [];
     let processedEvents = 0;
 
     for (const range of ranges) {
@@ -46,23 +46,11 @@ export class LaptopMonitor extends DurableObject {
       state.lastRunAt = Date.now();
       processedEvents += result.processedEvents;
       changes.push(...result.changes);
-      flows.push(...result.flows);
-      if (shouldQueueFlows && result.flows.length) {
-        state.pendingFundsDigest = mergeFundsDigest(state.pendingFundsDigest, result.flows);
-      }
       state.days = pruneDays(state.days);
       await this.ctx.storage.put("ftrexFundsState", state);
     }
 
     if (changes.length) await sendTelegram(credentials, addressChangeMessage(this.env, changes));
-    const digestDue = state.pendingFundsDigest?.count > 0 &&
-      Date.now() - state.pendingFundsDigest.since >= FUNDS_DIGEST_INTERVAL_MS;
-    if (digestDue) {
-      await sendTelegram(credentials, fundsDigestMessage(this.env, state.pendingFundsDigest));
-      state.lastFundsDigestAt = Date.now();
-      state.pendingFundsDigest = null;
-      await this.ctx.storage.put("ftrexFundsState", state);
-    }
     const caughtUp = state.lastBlock >= latest;
     if (caughtUp) {
       const today = currentDayBeijing();
@@ -88,8 +76,7 @@ export class LaptopMonitor extends DurableObject {
       latestBlock: latest, scannedThrough: state.lastBlock,
       remainingBlocks: Math.max(0, latest - state.lastBlock), ranges: ranges.length,
       processedEvents, changes: changes.length, caughtUp,
-      queuedFlows: shouldQueueFlows ? flows.length : 0,
-      sentFundsDigest: Boolean(digestDue),
+      sentFundsDigest: false,
     };
   }
 
@@ -211,10 +198,8 @@ export class LaptopMonitor extends DurableObject {
       lastAttemptAt: (await this.ctx.storage.get("ftrexLastAttemptAt")) || null,
       lastRunAt: state?.lastRunAt || null, lastBlock: state?.lastBlock || null,
       lastError: state?.lastError || null, consecutiveErrors: state?.consecutiveErrors || 0,
-      realtimeAlerts: state?.realtimeReady === true,
-      fundsDigestIntervalHours: 3,
-      pendingFundsDigestCount: state?.pendingFundsDigest?.count || 0,
-      pendingFundsDigestSince: state?.pendingFundsDigest?.since || null,
+      fundsReportMode: "daily",
+      fundsDigestIntervalHours: null,
       lastFundsDigestAt: state?.lastFundsDigestAt || null,
       lastFlowAt: state?.lastFlowAt || null,
       lastFlowType: state?.lastFlowType || null,
@@ -288,7 +273,7 @@ export default {
     return Response.json({
       ok: true, service: "FTREX BNB Chain USDT funds monitor", token: USDT,
       mention: env.TELEGRAM_MENTION, timezone: "Asia/Shanghai",
-      schedule: "scan every 5 minutes; funds digest every 3 hours; daily report after Beijing midnight", ...await monitor.status(),
+      schedule: "scan every 5 minutes; one daily funds report after Beijing midnight", ...await monitor.status(),
     });
   },
   async scheduled(controller, env) {
@@ -316,62 +301,11 @@ function addressChangeMessage(env, changes) {
   return `${env.TELEGRAM_MENTION}\n🚨 <b>羽翎链上地址体系发生变化</b>\n${lines.join("\n")}\n\n已由同一业务事件和 USDT 资金路径交叉验证，并自动纳入后续统计。`;
 }
 
-function fundsDigestMessage(env, digest) {
-  const depositTotal = BigInt(digest.deposit || "0");
-  const withdrawalTotal = BigInt(digest.withdrawal || "0");
-  const net = depositTotal - withdrawalTotal;
-  const netLabel = net > 0n ? "本轮净流入" : net < 0n ? "本轮净流出" : "本轮持平";
-  const details = (digest.details || []).map((flow) => {
-    const icon = flow.type === "deposit" ? "🟢 充值" : "🔴 提现";
-    const route = flow.type === "deposit"
-      ? `${shortAddress(flow.user)} → ${shortAddress(flow.platformAddress)}`
-      : `${shortAddress(flow.platformAddress)} → ${shortAddress(flow.user)}`;
-    return `${icon} <b>${formatUnits(flow.amount)} USDT</b>｜${route} ` +
-      `<a href="${BSCSCAN}/tx/${escapeHtml(flow.txHash)}">交易</a>`;
-  });
-  const omitted = digest.count > details.length
-    ? `\n其余 ${digest.count - details.length} 笔已计入本轮合计和每日统计。`
-    : "";
-  const fromTime = formatBeijingTime(Math.trunc(digest.since / 1_000));
-  const latestTimestamp = Math.max(...(digest.details || []).map((flow) => flow.timestamp));
-  return `${env.TELEGRAM_MENTION}\n💸 <b>羽翎三小时资金汇总</b>\n` +
-    `区间：${fromTime} ～ ${formatBeijingTime(latestTimestamp)}（北京时间）\n\n` +
-    `🟢 充值合计：<b>${formatUnits(depositTotal)} USDT</b>｜${digest.depositCount} 笔\n` +
-    `🔴 提现合计：<b>${formatUnits(withdrawalTotal)} USDT</b>｜${digest.withdrawalCount} 笔\n` +
-    `⚖️ ${netLabel}：<b>${formatUnits(net < 0n ? -net : net)} USDT</b>\n\n` +
-    `${details.join("\n")}${omitted}`;
-}
-
-function dailyReport(env, day, rawDay, state, partial = false) {
-  const data = rawDay || emptyDay();
-  const deposit = BigInt(data.deposit || "0");
-  const withdrawal = BigInt(data.withdrawal || "0");
-  const net = deposit - withdrawal;
-  const netLabel = net > 0n ? "净流入" : net < 0n ? "净流出" : "持平";
-  return `${env.TELEGRAM_MENTION}\n📊 <b>${partial ? "羽翎今日资金快照（截至当前）" : "羽翎每日资金报告"}</b>\n` +
-    `日期：<b>${day}</b>（北京时间）\n\n` +
-    `🟢 充值：<b>${formatUnits(deposit)} USDT</b>｜${data.depositCount || 0} 笔｜${(data.depositUsers || []).length} 个地址\n` +
-    `🔴 提现：<b>${formatUnits(withdrawal)} USDT</b>｜${data.withdrawalCount || 0} 笔｜${(data.withdrawalUsers || []).length} 个地址\n` +
-    `⚖️ ${netLabel}：<b>${formatUnits(net < 0n ? -net : net)} USDT</b>\n` +
-    largestLine("最大充值", data.largestDeposit) + largestLine("最大提现", data.largestWithdrawal) +
-    `地址状态：充值入口 ${state.entities.depositGateways.length}｜收款钱包 ${state.entities.depositReceivers.length}｜提现合约 ${state.entities.withdrawalContracts.length}｜出款金库 ${state.entities.withdrawalSources.length}\n` +
-    `统计资产：BSC-USDT <code>${USDT}</code>`;
-}
-
-function largestLine(label, item) {
-  return item ? `${label}：<b>${formatUnits(item.amount)} USDT</b>（${shortAddress(item.user)}） <a href="${BSCSCAN}/tx/${escapeHtml(item.txHash)}">交易</a>\n` : "";
-}
-
 function backfillMessage(env, state, latest) {
   const remaining = Math.max(0, latest - state.lastBlock);
   return `${env.TELEGRAM_MENTION}\n🟡 <b>羽翎链上资金监控已启动</b>\n` +
     `正在补扫最近约一天的 BNB Chain 区块，尚余 ${remaining.toLocaleString("en-US")} 个区块。\n` +
     `补扫完成后发送准确日报；地址或合约发生变化会立即通知。`;
-}
-
-function formatBeijingTime(unixSeconds) {
-  return new Date(Number(unixSeconds) * 1_000 + 8 * 60 * 60 * 1_000)
-    .toISOString().replace("T", " ").slice(0, 19);
 }
 
 async function getLogs(rpcUrl, filter) {

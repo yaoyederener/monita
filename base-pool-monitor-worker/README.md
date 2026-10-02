@@ -2,11 +2,20 @@
 
 Cloudflare Worker that measures FTREX platform-wide BSC-USDT deposits and withdrawals directly from confirmed on-chain business events. It sends a Beijing-time daily report to Telegram and immediately mentions `@juzhangniubi666` when a new related gateway, receiver, withdrawal contract, source vault, or operator wallet is cross-verified.
 
-After the historical baseline is complete, five-minute scans persist new deposits
-and withdrawals into a durable digest. At most once every three hours, the Worker
-sends one combined Telegram alert with totals, net flow, the eight largest transaction
-details, and BscScan links. Empty intervals stay silent; the daily report is still
-sent even when the day's totals are zero. Address-system changes remain immediate.
+Five-minute scans keep the ledger current. Funds statistics are sent only once
+per Beijing calendar day, after midnight and after scanning catches up, covering
+the previous day. The former three-hour digest is disabled, including any pending
+digest saved before the upgrade. Address-system change alerts remain immediate.
+Manual `/run` requests still explicitly request a current-day snapshot.
+
+The daily report includes the address with the largest **sum of daily deposits**,
+its complete address, USDT total, and deposit count. Multiple deposits from the
+same address are combined using exact integer arithmetic. Withdrawals do not
+reduce gross deposits. The largest single deposit is shown separately. Ties are
+labelled and one tied address is displayed. Days saved before this upgrade lack
+per-address totals: their ranking is marked unavailable rather than guessed;
+complete rankings begin with the next full Beijing day. No historical all-time
+deposit total is claimed.
 
 Confirmed starting points:
 
