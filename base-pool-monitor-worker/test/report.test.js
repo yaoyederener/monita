@@ -1,0 +1,40 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { addFlow, emptyDay, topDepositor } from '../src/lib.js';
+import { dailyReport } from '../src/report.js';
+const A = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const B = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const unit = 10n ** 18n;
+const deposit = (day, user, value) => addFlow(day, 'deposit', {user, amount: value * unit, txHash: '0x1'});
+const state = {entities: {depositGateways: [], depositReceivers: [], withdrawalContracts: [], withdrawalSources: []}};
+const render = day => dailyReport({TELEGRAM_MENTION: ''}, '2026-10-03', day, state);
+test('ranks combined deposits rather than largest single transfer, retaining exact amounts', () => {
+  const day = emptyDay();
+  deposit(day, A, 300n); deposit(day, B, 500n); deposit(day, A.toUpperCase().replace('0X', '0x'), 300n);
+  addFlow(day, 'withdrawal', {user: A, amount: 1000n * unit, txHash: '0x2'});
+  assert.deepEqual(topDepositor(day).leader, {user: A, amount: String(600n * unit), count: 2});
+  assert.equal(day.largestDeposit.user, B);
+  assert.match(render(day), /600\.00 USDT/);
+  assert.match(render(day), new RegExp(A));
+  assert.match(render(day), /最大单笔充值/);
+  assert.equal(topDepositor(JSON.parse(JSON.stringify(day))).leader.amount, String(600n * unit));
+});
+test('does not label legacy partial address totals as a complete ranking', () => {
+  const day = emptyDay();
+  delete day.depositsByAddress;
+  day.deposit = String(800n * unit); day.depositCount = 3;
+  deposit(day, A, 100n);
+  assert.equal(topDepositor(day).complete, false);
+  assert.equal(topDepositor(day).leader, null);
+  assert.match(render(day), /本日暂不排名/);
+  const next = emptyDay(); deposit(next, A, 1n);
+  assert.equal(topDepositor(next).complete, true);
+});
+test('empty days and equal totals are explicit', () => {
+  const day = emptyDay();
+  assert.match(render(day), /无充值/);
+  deposit(day, B, 500n); deposit(day, A, 500n);
+  assert.equal(topDepositor(day).leader.user, A);
+  assert.equal(topDepositor(day).tiedCount, 2);
+  assert.match(render(day), /共2个地址并列/);
+});
