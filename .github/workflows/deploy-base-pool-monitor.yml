@@ -2,6 +2,12 @@ name: Verify and configure FTREX BSC funds monitor
 
 on:
   workflow_dispatch:
+    inputs:
+      send_test_report:
+        description: Send one FTR report to the configured Telegram chat
+        type: boolean
+        default: false
+        required: false
   push:
     branches: [main]
     paths:
@@ -32,4 +38,5 @@ jobs:
           BSC_RPC: ${{ secrets.BSC_RPC }}
           BSCSCAN_KEY: ${{ secrets.BSCSCAN_KEY }}
           WORKER_URL: https://laptop-base-pool-monitor.yaoyederener.workers.dev
+          SEND_TEST_REPORT: ${{ github.event_name == 'workflow_dispatch' && inputs.send_test_report }}
         run: node scripts/configure-worker.mjs

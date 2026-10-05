@@ -6,6 +6,7 @@ const {
   BSC_RPC,
   BSCSCAN_KEY,
   WORKER_URL,
+  SEND_TEST_REPORT,
 } = process.env;
 
 for (const [name, value] of Object.entries({
@@ -36,7 +37,15 @@ const configureResponse = await fetch(`${WORKER_URL}/bootstrap`, {
 if (!configureResponse.ok) throw new Error(`Worker configuration failed: HTTP ${configureResponse.status}`);
 console.log("Worker credentials configured without exposing secret values.");
 
-const runResponse = await fetch(`${WORKER_URL}/run`, { method: "POST", headers: authorization });
+const runResponse = await fetch(`${WORKER_URL}/run`, {
+  method: "POST",
+  headers: { ...authorization, "content-type": "application/json" },
+  body: JSON.stringify({ report: SEND_TEST_REPORT === "true" }),
+});
 const runResult = await runResponse.json();
 if (!runResponse.ok) throw new Error(`Initial monitor run failed: ${runResult.error || runResponse.status}`);
 console.log(`Initial scan complete: scannedThrough=${runResult.scannedThrough}, remainingBlocks=${runResult.remainingBlocks}`);
+if (SEND_TEST_REPORT === "true") {
+  if (runResult.sentFundsReport !== true) throw new Error("Manual report was not sent; wait for scan catch-up before retrying.");
+  console.log("FTR manual report accepted by Telegram.");
+}
