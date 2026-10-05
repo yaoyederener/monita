@@ -1,21 +1,16 @@
 # FTREX BNB Chain Funds Monitor
 
-Cloudflare Worker that measures FTREX platform-wide BSC-USDT deposits and withdrawals directly from confirmed on-chain business events. It sends a Beijing-time daily report to Telegram and immediately mentions `@juzhangniubi666` when a new related gateway, receiver, withdrawal contract, source vault, or operator wallet is cross-verified.
+Cloudflare Worker that measures FTREX BNB Chain USDT flows from on-chain business events and the verified USDT transfer path. Existing wallet discovery, Durable Object storage and Telegram credentials are retained.
 
-Five-minute scans keep the ledger current. Funds statistics are sent only once
-per Beijing calendar day, after midnight and after scanning catches up, covering
-the previous day. The former three-hour digest is disabled, including any pending
-digest saved before the upgrade. Address-system change alerts remain immediate.
-Manual `/run` requests still explicitly request a current-day snapshot.
+Five-minute scans keep the ledger current. Scheduled Telegram reports run **twice per Beijing calendar day, at 09:00 and 21:00 (Asia/Shanghai)**, after scanning catches up. Each report covers that day's 00:00 through the displayed scanned block timestamp. It compares with the previous day's same notification slot, never with a full previous day. Polls, restarts and overlapping scans deduplicate the saved notification slot. Backlogged scans delay the report; missed older slots are not replayed as a burst. No midnight, three-hour digest or immediate address-change notification is sent. Address discovery still updates the monitored set.
 
-The daily report includes the address with the largest **sum of daily deposits**,
-its complete address, USDT total, and deposit count. Multiple deposits from the
-same address are combined using exact integer arithmetic. Withdrawals do not
-reduce gross deposits. The largest single deposit is shown separately. Ties are
-labelled and one tied address is displayed. Days saved before this upgrade lack
-per-address totals: their ranking is marked unavailable rather than guessed;
-complete rankings begin with the next full Beijing day. No historical all-time
-deposit total is claimed.
+The selected report contains network/asset, timezone, cutoff, external inflow and outflow amounts/counts/address counts, signed net inflow, same-slot changes, known treasury balance and its change, internal transfers, inflow TOP10 and outflow TOP10, and links to the largest single inflow/outflow as the large-transfer reference. No arbitrary large-transfer threshold is assumed.
+
+Both rankings combine an address's gross daily amount using exact integer arithmetic and list up to ten distinct addresses. Internal transfers between verified platform addresses are counted separately and never treated as user deposits or withdrawals. The known treasury balance sums distinct deposit receivers and withdrawal source vaults at the same scanned block; it is not a platform-wide asset or solvency claim.
+
+Legacy stored days may lack withdrawal address totals or internal-transfer coverage. Those fields show unavailable rather than a partial ranking or a false zero; complete data starts with the next full Beijing day. Same-slot percentage and balance comparisons become available after the first day of snapshots. An absent balance response shows unavailable. A stale chain head delays the report. Yesterday's zero baseline is explicitly marked instead of producing an infinite percentage.
+
+Authenticated POST `/run` advances scanning without an extra notification; a JSON body `{ "report": true }` explicitly requests a manual snapshot. `/health` exposes `fundsReportMode: "twice_daily"`, the two report times and the last notified slot, without secret values.
 
 Confirmed starting points:
 

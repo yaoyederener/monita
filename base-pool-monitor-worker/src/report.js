@@ -1,35 +1,57 @@
-import { USDT, emptyDay, escapeHtml, formatUnits, shortAddress, topDepositor } from "./lib.js";
+import { emptyDay, escapeHtml, formatUnits, topAddresses } from "./lib.js";
 
 const BSCSCAN = "https://bscscan.com";
 
-export function dailyReport(env, day, rawDay, state, partial = false) {
+export function dailyReport(env, day, rawDay, state, partial = false, context = {}) {
   const data = rawDay || emptyDay();
   const deposit = BigInt(data.deposit || "0");
   const withdrawal = BigInt(data.withdrawal || "0");
-  const net = deposit - withdrawal;
-  const netLabel = net > 0n ? "净流入" : net < 0n ? "净流出" : "持平";
-  return `${env.TELEGRAM_MENTION}\n📊 <b>${partial ? "羽翎今日资金快照（截至当前）" : "羽翎每日资金报告"}</b>\n` +
-    `日期：<b>${day}</b>（北京时间）\n\n` +
-    `🟢 充值：<b>${formatUnits(deposit)} USDT</b>｜${data.depositCount || 0} 笔｜${(data.depositUsers || []).length} 个地址\n` +
-    `🔴 提现：<b>${formatUnits(withdrawal)} USDT</b>｜${data.withdrawalCount || 0} 笔｜${(data.withdrawalUsers || []).length} 个地址\n` +
-    `⚖️ ${netLabel}：<b>${formatUnits(net < 0n ? -net : net)} USDT</b>\n` +
-    topDepositorLine(data) +
-    largestLine("最大单笔充值", data.largestDeposit) + largestLine("最大单笔提现", data.largestWithdrawal) +
-    `地址状态：充值入口 ${state.entities.depositGateways.length}｜收款钱包 ${state.entities.depositReceivers.length}｜提现合约 ${state.entities.withdrawalContracts.length}｜出款金库 ${state.entities.withdrawalSources.length}\n` +
-    `统计资产：BSC-USDT <code>${USDT}</code>`;
+  const previous = context.previousSnapshot;
+  const balance = context.walletBalance;
+  const balanceText = balance == null ? "暂不可用" : `${formatUnits(balance)} USDT`;
+  const balanceChange = balance != null && previous?.walletBalance != null
+    ? `${formatUnits(BigInt(balance) - BigInt(previous.walletBalance))} USDT（${percentageChange(balance, previous.walletBalance)}）`
+    : "暂无昨日同次通知数据";
+  const cutoff = context.scannedAt ? `${beijingTime(context.scannedAt)}｜区块 ${state.lastBlock}` : `区块 ${state.lastBlock ?? "未知"}`;
+  const mention = env.TELEGRAM_MENTION ? `${escapeHtml(env.TELEGRAM_MENTION)}\n` : "";
+  return mention + `<b>【FTR 链上资金日报｜${escapeHtml(day)}】</b>\n\n` +
+    `网络／币种：BNB Chain／USDT\n` +
+    `统计时区：北京时间（Asia/Shanghai）\n` +
+    `数据截至：${cutoff}\n\n` +
+    `转入：${formatUnits(deposit)} USDT｜${data.depositCount || 0}笔｜${(data.depositUsers || []).length}个来源地址\n` +
+    `转出：${formatUnits(withdrawal)} USDT｜${data.withdrawalCount || 0}笔｜${(data.withdrawalUsers || []).length}个接收地址\n` +
+    `净流入：${formatUnits(deposit - withdrawal)} USDT\n` +
+    `较昨日：转入${percentageChange(deposit, previous?.deposit)}，转出${percentageChange(withdrawal, previous?.withdrawal)}\n\n` +
+    `已知钱包余额：${balanceText}\n` +
+    `较昨日余额变化：${balanceChange}\n` +
+    `内部调拨：${data.internalTransfersComplete === true ? `${formatUnits(data.internalTransfer || "0")} USDT（单独统计）` : "升级前记录不完整，暂不可用"}\n\n` +
+    `转入 TOP10：\n${ranking(data, "deposit")}\n\n` +
+    `转出 TOP10：\n${ranking(data, "withdrawal")}\n\n` +
+    `大额转账（最大单笔参考）：\n${largestLine("转入", data.largestDeposit)}\n${largestLine("转出", data.largestWithdrawal)}`;
+}
+
+export function percentageChange(current, previous) {
+  if (previous == null) return "暂无昨日同次通知数据";
+  const base = BigInt(previous);
+  const value = BigInt(current);
+  if (base === 0n) return value === 0n ? "持平" : "不适用（昨日为0）";
+  const difference = value - base;
+  const absolute = difference < 0n ? -difference : difference;
+  const basisPoints = (absolute * 10_000n + base / 2n) / base;
+  return `${difference > 0n ? "+" : difference < 0n ? "-" : ""}${basisPoints / 100n}.${String(basisPoints % 100n).padStart(2, "0")}%`;
+}
+
+function ranking(day, type) {
+  const result = topAddresses(day, type);
+  if (!result.complete) return "升级前逐地址记录不完整，本日暂无法提供完整排行。";
+  if (!result.rows.length) return "无";
+  return result.rows.map((row, i) => `${i + 1}｜<a href="${BSCSCAN}/address/${escapeHtml(row.user)}">${escapeHtml(row.user)}</a>｜${formatUnits(row.amount)} USDT`).join("\n");
 }
 
 function largestLine(label, item) {
-  return item ? `${label}：<b>${formatUnits(item.amount)} USDT</b>（${shortAddress(item.user)}） <a href="${BSCSCAN}/tx/${escapeHtml(item.txHash)}">交易</a>\n` : "";
+  return item ? `${label}：${formatUnits(item.amount)} USDT｜<a href="${BSCSCAN}/tx/${escapeHtml(item.txHash)}">交易</a>` : `${label}：无`;
 }
 
-function topDepositorLine(day) {
-  const result = topDepositor(day);
-  if (!result.complete) return "充值地址排行：升级前记录缺少逐地址合计，本日暂不排名；下一完整自然日开始提供。\n";
-  if (!result.leader) return "当日累计充值最多地址：无充值。\n";
-  const { user, amount, count } = result.leader;
-  const tied = result.tiedCount > 1 ? `（共${result.tiedCount}个地址并列，展示其中一个）` : "";
-  return `🏆 当日累计充值最多地址${tied}：<code>${escapeHtml(user)}</code>\n` +
-    `累计充值：<b>${formatUnits(amount)} USDT</b>｜${count} 笔 ` +
-    `<a href="${BSCSCAN}/address/${escapeHtml(user)}">查看地址</a>\n`;
+function beijingTime(unixSeconds) {
+  return new Date(Number(unixSeconds) * 1_000 + 8 * 60 * 60 * 1_000).toISOString().replace("T", " ").slice(0, 19);
 }

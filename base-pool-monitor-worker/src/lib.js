@@ -117,6 +117,17 @@ export function previousDay(day) {
   return date.toISOString().slice(0, 10);
 }
 
+export function reportSlotBeijing(nowMs = Date.now()) {
+  const shifted = new Date(nowMs + 8 * 60 * 60 * 1_000);
+  const hour = shifted.getUTCHours();
+  if (hour < 9) return null;
+  return `${shifted.toISOString().slice(0, 10)}T${hour < 21 ? "09" : "21"}:00`;
+}
+
+export function knownPlatformAddresses(entities) {
+  return [...new Set(Object.values(entities || {}).flat().map(normalizeAddress).filter(Boolean))];
+}
+
 export function emptyDay() {
   return {
     deposit: "0",
@@ -126,6 +137,9 @@ export function emptyDay() {
     depositUsers: [],
     withdrawalUsers: [],
     depositsByAddress: {},
+    withdrawalsByAddress: {},
+    internalTransfer: "0",
+    internalTransfersComplete: true,
     largestDeposit: null,
     largestWithdrawal: null,
   };
@@ -138,20 +152,37 @@ export function addFlow(day, type, event) {
   const countKey = type === "deposit" ? "depositCount" : "withdrawalCount";
   const usersKey = type === "deposit" ? "depositUsers" : "withdrawalUsers";
   const largestKey = type === "deposit" ? "largestDeposit" : "largestWithdrawal";
-  if (type === "deposit") {
-    const user = normalizeAddress(event.user);
-    if (!user) throw new Error("Invalid depositor address");
-    const totals = target.depositsByAddress ||= {};
-    const previous = totals[user] || { amount: "0", count: 0 };
-    totals[user] = { amount: (BigInt(previous.amount) + amount).toString(), count: previous.count + 1 };
-  }
+  const user = normalizeAddress(event.user);
+  if (!user) throw new Error("Invalid flow address");
+  const totals = target[type === "deposit" ? "depositsByAddress" : "withdrawalsByAddress"] ||= {};
+  const previous = totals[user] || { amount: "0", count: 0 };
+  totals[user] = { amount: (BigInt(previous.amount) + amount).toString(), count: previous.count + 1 };
   target[amountKey] = (BigInt(target[amountKey] || "0") + amount).toString();
   target[countKey] = Number(target[countKey] || 0) + 1;
-  target[usersKey] = [...new Set([...(target[usersKey] || []), event.user])];
+  target[usersKey] = [...new Set([...(target[usersKey] || []).map(normalizeAddress), user])];
   if (!target[largestKey] || amount > BigInt(target[largestKey].amount)) {
-    target[largestKey] = { amount: amount.toString(), txHash: event.txHash, user: event.user };
+    target[largestKey] = { amount: amount.toString(), txHash: event.txHash, user };
   }
   return target;
+}
+
+export function addInternalTransfer(day, event) {
+  const target = day || emptyDay();
+  target.internalTransfer = (BigInt(target.internalTransfer || "0") + BigInt(event.amount)).toString();
+  return target;
+}
+
+export function topAddresses(day, type, limit = 10) {
+  const amountKey = type === "deposit" ? "deposit" : "withdrawal";
+  const countKey = type === "deposit" ? "depositCount" : "withdrawalCount";
+  const rows = Object.entries(day[type === "deposit" ? "depositsByAddress" : "withdrawalsByAddress"] || {})
+    .map(([user, value]) => ({ user, ...value }));
+  const covered = rows.reduce((sum, row) => sum + BigInt(row.amount), 0n);
+  const count = rows.reduce((sum, row) => sum + Number(row.count), 0);
+  const complete = covered === BigInt(day[amountKey] || "0") && count === (day[countKey] || 0);
+  rows.sort((a, b) => BigInt(a.amount) === BigInt(b.amount)
+    ? a.user.localeCompare(b.user) : BigInt(a.amount) > BigInt(b.amount) ? -1 : 1);
+  return { complete, rows: complete ? rows.slice(0, limit) : [] };
 }
 
 export function formatUnits(value, decimals = USDT_DECIMALS, fractionDigits = 2) {

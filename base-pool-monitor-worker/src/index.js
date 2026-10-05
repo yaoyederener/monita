@@ -1,9 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import {
-  DEPOSIT_TOPIC, TRANSFER_TOPIC, USDT, WITHDRAW_TOPIC, addFlow, addressTopic,
+  DEPOSIT_TOPIC, TRANSFER_TOPIC, USDT, WITHDRAW_TOPIC, addFlow, addInternalTransfer, addressTopic,
   blockRanges, currentDayBeijing, dayKeyBeijing, decodeBusinessEvent, decodeTransfer,
   emptyDay, escapeHtml, formatUnits, normalizeAddress, previousDay, pruneDays,
-  uniqueBy,
+  uniqueBy, knownPlatformAddresses, reportSlotBeijing,
 } from "./lib.js";
 import { dailyReport } from "./report.js";
 
@@ -21,7 +21,13 @@ const INITIAL_ENTITIES = Object.freeze({
 });
 
 export class LaptopMonitor extends DurableObject {
-  async run({ forceReport = false } = {}) {
+  async run(options = {}) {
+    if (this.running) return this.running;
+    this.running = this.performRun(options);
+    try { return await this.running; } finally { this.running = null; }
+  }
+
+  async performRun({ forceReport = false } = {}) {
     const credentials = await this.credentials();
     const latest = Number(BigInt(await rpc(credentials.bscRpc, "eth_blockNumber", [])));
     let state = await this.loadState(latest);
@@ -50,17 +56,28 @@ export class LaptopMonitor extends DurableObject {
       await this.ctx.storage.put("ftrexFundsState", state);
     }
 
-    if (changes.length) await sendTelegram(credentials, addressChangeMessage(this.env, changes));
+    // Keep address discovery active, without sending notifications outside the two daily reports.
+    if (changes.length) console.log(JSON.stringify({ event: "ftrex_address_changes", changes }));
     const caughtUp = state.lastBlock >= latest;
+    let sentFundsReport = false;
     if (caughtUp) {
       const today = currentDayBeijing();
-      const yesterday = previousDay(today);
-      if (state.lastReportedDay !== yesterday) {
-        await sendTelegram(credentials, dailyReport(this.env, yesterday, state.days[yesterday], state));
-        state.lastReportedDay = yesterday;
-      }
-      if (forceReport) {
-        await sendTelegram(credentials, dailyReport(this.env, today, state.days[today], state, true));
+      const slot = reportSlotBeijing();
+      const scheduledDue = slot && state.lastReportedSlot !== slot;
+      if (scheduledDue || forceReport) {
+        const snapshot = await this.captureReportSnapshot(credentials.bscRpc, state, today);
+        const comparisonKey = slot ? `${previousDay(today)}${slot.slice(10)}` : null;
+        const previousSnapshot = comparisonKey ? state.reportSnapshots?.[comparisonKey] : null;
+        await sendTelegram(credentials, dailyReport(this.env, today, state.days[today], state, true,
+          { ...snapshot, previousSnapshot }));
+        sentFundsReport = true;
+        if (scheduledDue) {
+          state.lastReportedSlot = slot;
+          state.reportSnapshots ||= {};
+          state.reportSnapshots[slot] = snapshot;
+          state.reportSnapshots = Object.fromEntries(Object.entries(state.reportSnapshots)
+            .sort(([a], [b]) => b.localeCompare(a)).slice(0, 20));
+        }
       }
     } else if (forceReport) {
       await sendTelegram(credentials, backfillMessage(this.env, state, latest));
@@ -76,13 +93,36 @@ export class LaptopMonitor extends DurableObject {
       latestBlock: latest, scannedThrough: state.lastBlock,
       remainingBlocks: Math.max(0, latest - state.lastBlock), ranges: ranges.length,
       processedEvents, changes: changes.length, caughtUp,
-      sentFundsDigest: false,
+      sentFundsDigest: false, sentFundsReport,
     };
+  }
+
+  async captureReportSnapshot(rpcUrl, state, day) {
+    const block = await rpc(rpcUrl, "eth_getBlockByNumber", [toHex(state.lastBlock), false]);
+    const scannedAt = Number(BigInt(block?.timestamp || "0x0"));
+    if (!scannedAt || Math.abs(Date.now() / 1_000 - scannedAt) > 600) {
+      throw new Error("Latest scanned block is stale; report delayed until chain data catches up");
+    }
+    let walletBalance = null;
+    try {
+      const addresses = [...new Set([...state.entities.depositReceivers, ...state.entities.withdrawalSources])];
+      const balances = await rpcBatch(rpcUrl, addresses.map(address => ["eth_call", [
+        { to: USDT, data: `0x70a08231${addressTopic(address).slice(2)}` }, toHex(state.lastBlock),
+      ]]));
+      if (balances.length && balances.every(value => /^0x[0-9a-f]+$/i.test(String(value)))) {
+        walletBalance = balances.reduce((sum, value) => sum + BigInt(value), 0n).toString();
+      }
+    } catch {
+      console.error(JSON.stringify({ event: "ftrex_wallet_balance_unavailable" }));
+    }
+    const data = state.days[day] || emptyDay();
+    return { deposit: data.deposit, withdrawal: data.withdrawal, walletBalance, scannedAt, block: state.lastBlock };
   }
 
   async scanRange(rpcUrl, state, range, operatorHashes = []) {
     const common = { fromBlock: toHex(range.fromBlock), toBlock: toHex(range.toBlock) };
-    const [depositLogs, withdrawalLogs, receiverTransfers, sourceTransfers] = await Promise.all([
+    const platformTopics = knownPlatformAddresses(state.entities).map(addressTopic);
+    const [depositLogs, withdrawalLogs, receiverTransfers, sourceTransfers, internalLogs] = await Promise.all([
       getLogs(rpcUrl, { ...common, address: state.entities.depositGateways,
         topics: [DEPOSIT_TOPIC, null, addressTopic(USDT)] }),
       getLogs(rpcUrl, { ...common, address: state.entities.withdrawalContracts,
@@ -91,10 +131,11 @@ export class LaptopMonitor extends DurableObject {
         topics: [TRANSFER_TOPIC, null, state.entities.depositReceivers.map(addressTopic)] }),
       getLogs(rpcUrl, { ...common, address: USDT,
         topics: [TRANSFER_TOPIC, state.entities.withdrawalSources.map(addressTopic)] }),
+      getLogs(rpcUrl, { ...common, address: USDT, topics: [TRANSFER_TOPIC, platformTopics, platformTopics] }),
     ]);
 
     const candidateHashes = [...new Set([
-      ...uniqueBy([...depositLogs, ...withdrawalLogs, ...receiverTransfers, ...sourceTransfers],
+      ...uniqueBy([...depositLogs, ...withdrawalLogs, ...receiverTransfers, ...sourceTransfers, ...internalLogs],
         (log) => String(log.transactionHash || "").toLowerCase())
         .map((log) => String(log.transactionHash).toLowerCase()),
       ...operatorHashes,
@@ -121,7 +162,10 @@ export class LaptopMonitor extends DurableObject {
     const withdrawals = uniqueBy([...withdrawalLogs, ...discoveredWithdrawalLogs]
       .map((log) => decodeBusinessEvent(log, WITHDRAW_TOPIC)).filter((event) => event?.token === USDT),
     (event) => `${event.txHash}:${event.logIndex}`);
-    const blockNumbers = [...new Set([...deposits, ...withdrawals].map((event) => event.blockNumber))];
+    const internalCandidates = uniqueBy([...internalLogs, ...receipts.filter(Boolean)
+      .flatMap(receipt => receipt.logs || []).filter(log => normalizeAddress(log.address) === USDT)]
+      .map(decodeTransfer).filter(Boolean), event => `${event.txHash}:${event.logIndex}`);
+    const blockNumbers = [...new Set([...deposits, ...withdrawals, ...internalCandidates].map((event) => event.blockNumber))];
     const blocks = await rpcBatch(rpcUrl, blockNumbers.map((block) => ["eth_getBlockByNumber", [toHex(block), false]]));
     const timestampByBlock = new Map(blocks.filter(Boolean).map((block) =>
       [Number(BigInt(block.number)), Number(BigInt(block.timestamp))]));
@@ -158,6 +202,7 @@ export class LaptopMonitor extends DurableObject {
         const timestamp = timestampByBlock.get(event.blockNumber);
         if (!timestamp) throw new Error(`Missing timestamp for block ${event.blockNumber}`);
         const day = dayKeyBeijing(timestamp);
+        if (knownPlatformAddresses(state.entities).includes(event.user)) continue;
         state.days[day] = addFlow(state.days[day] || emptyDay(), type, event);
         state.lastFlowAt = timestamp * 1_000;
         state.lastFlowType = type;
@@ -167,6 +212,14 @@ export class LaptopMonitor extends DurableObject {
           timestamp, platformAddress,
         });
       }
+    }
+    const platformAddresses = new Set(knownPlatformAddresses(state.entities));
+    for (const event of internalCandidates) {
+      if (!platformAddresses.has(event.from) || !platformAddresses.has(event.to)) continue;
+      const timestamp = timestampByBlock.get(event.blockNumber);
+      if (!timestamp) throw new Error(`Missing timestamp for block ${event.blockNumber}`);
+      const day = dayKeyBeijing(timestamp);
+      state.days[day] = addInternalTransfer(state.days[day] || emptyDay(), event);
     }
     return { state, changes, flows, processedEvents: processed.size };
   }
@@ -198,7 +251,9 @@ export class LaptopMonitor extends DurableObject {
       lastAttemptAt: (await this.ctx.storage.get("ftrexLastAttemptAt")) || null,
       lastRunAt: state?.lastRunAt || null, lastBlock: state?.lastBlock || null,
       lastError: state?.lastError || null, consecutiveErrors: state?.consecutiveErrors || 0,
-      fundsReportMode: "daily",
+      fundsReportMode: "twice_daily",
+      fundsReportTimes: ["09:00", "21:00"],
+      lastReportedSlot: state?.lastReportedSlot || null,
       fundsDigestIntervalHours: null,
       lastFundsDigestAt: state?.lastFundsDigestAt || null,
       lastFlowAt: state?.lastFlowAt || null,
@@ -263,7 +318,8 @@ export default {
     if (url.pathname === "/run" && request.method === "POST") {
       try {
         await verifyGitHubOidc(request);
-        return Response.json({ ok: true, ...await monitor.run({ forceReport: true }) });
+        const body = await request.json().catch(() => ({}));
+        return Response.json({ ok: true, ...await monitor.run({ forceReport: body.report === true }) });
       } catch (error) {
         await monitor.noteError(errorMessage(error));
         return Response.json({ ok: false, error: errorMessage(error) }, { status: 503 });
@@ -273,7 +329,7 @@ export default {
     return Response.json({
       ok: true, service: "FTREX BNB Chain USDT funds monitor", token: USDT,
       mention: env.TELEGRAM_MENTION, timezone: "Asia/Shanghai",
-      schedule: "scan every 5 minutes; one daily funds report after Beijing midnight", ...await monitor.status(),
+      schedule: "scan every 5 minutes; funds reports at 09:00 and 21:00 Beijing time", ...await monitor.status(),
     });
   },
   async scheduled(controller, env) {
@@ -305,7 +361,7 @@ function backfillMessage(env, state, latest) {
   const remaining = Math.max(0, latest - state.lastBlock);
   return `${env.TELEGRAM_MENTION}\n🟡 <b>羽翎链上资金监控已启动</b>\n` +
     `正在补扫最近约一天的 BNB Chain 区块，尚余 ${remaining.toLocaleString("en-US")} 个区块。\n` +
-    `补扫完成后发送准确日报；地址或合约发生变化会立即通知。`;
+    `补扫完成后按北京时间09:00、21:00发送日报。`;
 }
 
 async function getLogs(rpcUrl, filter) {
@@ -367,6 +423,8 @@ async function sendTelegram(credentials, html) {
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`Telegram HTTP ${response.status}`);
+  const result = await response.json();
+  if (result.ok !== true) throw new Error("Telegram rejected the report");
 }
 
 function validateCredentials(botToken, chatId, bscRpc) {
