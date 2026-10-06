@@ -45,7 +45,7 @@ function ranking(day, type) {
   const result = topAddresses(day, type);
   if (!result.complete) return "升级前逐地址记录不完整，本日暂无法提供完整排行。";
   if (!result.rows.length) return "无";
-  return result.rows.map((row, i) => `${i + 1}｜<a href="${BSCSCAN}/address/${escapeHtml(row.user)}">${escapeHtml(row.user)}</a>｜${formatUnits(row.amount)} USDT`).join("\n");
+  return result.rows.map((row, i) => `${i + 1}｜尾号 <a href="${BSCSCAN}/address/${escapeHtml(row.user)}">${escapeHtml(row.user.slice(-6))}</a>｜${formatUnits(row.amount)} USDT`).join("\n");
 }
 
 function largestLine(label, item) {
