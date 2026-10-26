@@ -1,0 +1,33 @@
+name: AILGNS LP Monitor
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # 北京时间 09:00 和 21:00（UTC 01:00 / 13:00）
+    - cron: "0 1 * * *"
+    - cron: "0 13 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  ailgns-lp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Report AILGNS/DAI buys, sells and LP flow
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u ailgns_lp_monitor.py --hours 24
