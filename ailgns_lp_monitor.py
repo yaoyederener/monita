@@ -183,8 +183,6 @@ def send_telegram(text):
     r = json.load(urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data, timeout=30))
     if not r.get("ok"):
         raise RuntimeError(f"Telegram 发送失败: {r}")
-    chat = r["result"]["chat"]
-    print(f"发送目标：{chat.get('type')}｜{chat.get('title') or chat.get('first_name') or ''}", file=sys.stderr)
 
 
 def main():
