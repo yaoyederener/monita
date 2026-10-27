@@ -146,13 +146,15 @@ def build_report(hours):
     ail1, dai1 = reserves(latest)
     p0, p1 = dai0 / ail0, dai1 / ail1
 
-    trade_net = s["buy_dai"] - s["sell_dai"]
-    lp_net = s["mint_dai"] - s["burn_dai"]
     pool_net = dai1 - dai0
     end_time = datetime.fromtimestamp(latest_ts, BJT).strftime("%Y-%m-%d %H:%M")
 
-    def verdict(x):
-        return "🟢 净流入" if x > 0 else ("🔴 净流出" if x < 0 else "⚪ 持平")
+    if pool_net > 0:
+        flow = f"🟢 <b>LP 净流入：{signed(pool_net)} DAI</b>"
+    elif pool_net < 0:
+        flow = f"🔴 <b>LP 净流出：{signed(pool_net)} DAI</b>"
+    else:
+        flow = "⚪ <b>LP 持平：0 DAI</b>"
 
     lines = [
         "📊 <b>AILGNS 流动性监控（AILGNS/DAI）</b>",
@@ -162,14 +164,8 @@ def build_report(hours):
         f"　　买入 {fmt(s['buy_ail'], 2)} AILGNS｜最大单笔 {fmt(s['buy_max'])} DAI",
         f"🔴 <b>卖单</b>：{fmt(s['sell_n'])} 笔｜{fmt(s['sell_dai'])} DAI",
         f"　　卖出 {fmt(s['sell_ail'], 2)} AILGNS｜最大单笔 {fmt(s['sell_max'])} DAI",
-        f"⚖️ 买卖差额：{signed(trade_net)} DAI　{verdict(trade_net)}",
         "",
-        "💧 <b>流动性增减</b>（LP 添加 / 撤出）",
-        f"　　添加 {fmt(s['mint_n'])} 笔：+{fmt(s['mint_dai'])} DAI / +{fmt(s['mint_ail'], 2)} AILGNS",
-        f"　　撤出 {fmt(s['burn_n'])} 笔：-{fmt(s['burn_dai'])} DAI / -{fmt(s['burn_ail'], 2)} AILGNS",
-        f"　　LP 净变化：{signed(lp_net)} DAI　{verdict(lp_net)}",
-        "",
-        f"🏦 <b>池子 DAI 总变化</b>：{signed(pool_net)} DAI（{signed(pct(dai1, dai0), 2)}%）　{verdict(pool_net)}",
+        f"{flow}（{signed(pct(dai1, dai0), 2)}%）",
         f"　　当前储备：{fmt(dai1)} DAI / {fmt(ail1, 2)} AILGNS",
         f"💲 价格：{fmt(p1, 2)} DAI（{hours} 小时 {signed(pct(p1, p0), 2)}%）",
         "",
