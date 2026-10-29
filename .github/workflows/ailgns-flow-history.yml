@@ -1,0 +1,55 @@
+name: AILGNS Flow History
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # 每小时更新当天的买卖与池子净流入/流出，供 data.juzhang.org 读取
+    - cron: "23 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monita-repository-writer
+  cancel-in-progress: false
+
+jobs:
+  ailgns-flows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update AILGNS daily flow history
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -u ailgns_flow_history.py
+
+      - name: Save flow history
+        shell: bash
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ailgns_flows.json
+          if git diff --cached --quiet; then
+            echo "没有变化"
+            exit 0
+          fi
+          git commit -m "Update AILGNS flow history"
+          for i in 1 2 3; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
