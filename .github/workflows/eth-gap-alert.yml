@@ -1,0 +1,48 @@
+name: ETH Gap Alert
+
+on:
+  workflow_dispatch:
+    inputs:
+      gap:
+        description: "价差阈值（美元/枚）"
+        default: "20"
+      size:
+        description: "按多少枚报价"
+        default: "10"
+
+  schedule:
+    # 每 6 小时接力一次，每次连续运行约 5 小时 55 分，每分钟检查 Bitget 与链上 ETH 价差
+    - cron: "0 0,6,12,18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eth-gap-alert
+  cancel-in-progress: true
+
+jobs:
+  eth-gap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Watch Bitget vs on-chain ETH gap
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          PYTHONUNBUFFERED: "1"
+        run: >
+          python -u eth_arb_alert.py
+          --gap "${{ github.event.inputs.gap || '20' }}"
+          --size "${{ github.event.inputs.size || '10' }}"
+          --minutes 355
+          ${{ github.event_name == 'workflow_dispatch' && '--test' || '' }}
