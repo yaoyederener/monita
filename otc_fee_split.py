@@ -18,6 +18,7 @@ from eth_account import Account
 from eth_utils import keccak
 
 from chains import rpc, send_tx
+from notify_mail import send as send_mail
 
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
 SPLITTERS = {"anubis": "0xeee877c1b6285b82890bdcd027d2715f658ecf23", "polygon": "0xcc274e07847a6a86917b6ccd4e67706170d4036f"}
@@ -30,6 +31,8 @@ TOKENS = [
     ["polygon", "LGNS", "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01", 96455222, 9000, 9],
 ]
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+OTC = "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"  # 从托管合约转来的是 OTC 成交手续费
+EXPLORERS = {"anubis": "https://anubisscan.io/tx/", "polygon": "https://polygonscan.com/tx/"}
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fee_split.json")
 
 
@@ -55,6 +58,7 @@ def main():
     key = os.environ.get("OTC_KEEPER_KEY")
     acct = Account.from_key(key) if key else None
     latest = {c: int(rpc(c, "eth_blockNumber", []), 16) for c in SPLITTERS}
+    received, split_done = [], []
 
     for chain, name, tok, start, span, dec in TOKENS:
         label = f"{name}（{'Anubis' if chain == 'anubis' else 'Polygon'}）"
@@ -64,6 +68,10 @@ def main():
             end = min(latest[chain], b + span - 1)
             logs = rpc(chain, "eth_getLogs", [{"address": tok, "fromBlock": hex(b), "toBlock": hex(end), "topics": [TRANSFER, None, "0x" + pad(SOURCE)]}])
             income += sum(int(l["data"], 16) for l in logs)
+            for l in logs:  # 记下每一笔，最后发邮件
+                frm = "0x" + l["topics"][1][26:]
+                kind = "OTC 成交手续费" if frm == OTC else "会员付款 / 转入"
+                received.append(f"· {kind}：{int(l['data'], 16) / 10 ** dec:,.4f} {label}\n  来自 {frm}\n  {EXPLORERS[chain]}{l['transactionHash']}")
             st["scanned_to"] = end
         st["income"] = str(income)
         splitter = SPLITTERS[chain]
@@ -85,10 +93,21 @@ def main():
             print("  还没设置 OTC_KEEPER_KEY，跳过")
             continue
         try:
-            print(f"  已分账：{send_tx(chain, acct, splitter, sel('split(address,uint256)') + pad(tok) + f'{pending:064x}', '分账')}")
+            h = send_tx(chain, acct, splitter, sel('split(address,uint256)') + pad(tok) + f'{pending:064x}', '分账')
+            print(f"  已分账：{h}")
+            amt = pending / 10 ** dec
+            split_done.append(f"· {amt:,.4f} {label}：30% {amt * 0.3:,.4f} → 0xe878…91c3，40% {amt * 0.4:,.4f} → 0xD53A…7285，30% 留在 0xedb9…b1e6\n  {EXPLORERS[chain]}{h}")
         except Exception as e:  # 一个币失败不影响其他币，下次再试
             print(f"  分账失败，下次再试：{e}")
 
+    if (received or split_done) and not args.dry_run:
+        parts = []
+        if received:
+            parts.append(f"收到 {len(received)} 笔付款：\n" + "\n".join(received))
+        if split_done:
+            parts.append(f"已分账 {len(split_done)} 笔：\n" + "\n".join(split_done))
+        title = "AiLGNS 服务站：" + "、".join((["收到付款"] if received else []) + (["已分账"] if split_done else []))
+        send_mail(title, "\n\n".join(parts) + "\n\n—— ailgns.dev 自动通知")
     if not args.dry_run:
         os.makedirs(os.path.dirname(STATE), exist_ok=True)
         with open(STATE, "w") as f:

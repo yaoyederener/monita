@@ -7,6 +7,10 @@ on:
         description: "立刻往 DeBox 群发一条挂单播报（测试）"
         type: boolean
         default: false
+      mail_test:
+        description: "立刻发一封测试邮件"
+        type: boolean
+        default: false
 
   # 定时由 Cloudflare 定时器触发（cloudflare/cron-worker.js），GitHub 自带的 schedule 被严重限流
 
@@ -41,11 +45,22 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u otc_refund_keeper.py
 
+      - name: Send a test email
+        if: ${{ inputs.mail_test }}
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: python -c "import notify_mail; ok = notify_mail.send('AiLGNS 服务站：测试邮件', '邮件通知已经设置好了。以后有新挂单、收到付款、完成分账，都会发到这个邮箱。'); raise SystemExit(0 if ok else 1)"
+
       - name: Split new OTC fees 30/40/30
         if: always()
         continue-on-error: true
         env:
           OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           PYTHONUNBUFFERED: "1"
         run: python -u otc_fee_split.py
 
@@ -57,6 +72,9 @@ jobs:
           DEBOX_API_SECRET: ${{ secrets.DEBOX_API_SECRET }}
           DEBOX_GROUP_ID: ${{ secrets.DEBOX_GROUP_ID }}
           DEBOX_SUMMARY_HOURS: ${{ vars.DEBOX_SUMMARY_HOURS }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           PYTHONUNBUFFERED: "1"
         shell: bash
         run: python -u otc_debox_broadcast.py ${{ inputs.debox_test && '--test' || '' }}
