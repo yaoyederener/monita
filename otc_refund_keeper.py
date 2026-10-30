@@ -46,8 +46,9 @@ def refund(ids, key):
     data = SEL_REFUND + u256(32) + u256(len(ids)) + "".join(u256(i) for i in ids)
     tx = {"from": acct.address, "to": OTC, "data": data}
     gas = int(int(rpc("eth_estimateGas", [tx]), 16) * 1.3)
+    # 签名要求带大小写校验的地址
     signed = acct.sign_transaction({
-        "to": to_checksum_address(OTC),  # 签名要求带大小写校验的地址 "data": data, "value": 0, "chainId": CHAIN_ID, "gas": gas,
+        "to": to_checksum_address(OTC), "data": data, "value": 0, "chainId": CHAIN_ID, "gas": gas,
         "gasPrice": int(rpc("eth_gasPrice", []), 16),
         "nonce": int(rpc("eth_getTransactionCount", [acct.address, "pending"]), 16),
     })
