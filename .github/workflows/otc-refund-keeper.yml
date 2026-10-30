@@ -1,0 +1,38 @@
+name: OTC Refund Keeper
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # 每 5 分钟检查一次，把过期没成交的 OTC 挂单退回挂单人（GitHub 高峰期可能延迟几分钟）
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: otc-refund-keeper
+  cancel-in-progress: false
+
+jobs:
+  refund:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install signer
+        run: pip install "eth-account==0.13.4"
+
+      - name: Refund expired OTC orders
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u otc_refund_keeper.py
