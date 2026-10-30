@@ -3,9 +3,7 @@ name: AILGNS Flow History
 on:
   workflow_dispatch:
 
-  schedule:
-    # 每小时更新当天的买卖与池子净流入/流出，供 data.juzhang.org 读取
-    - cron: "23 * * * *"
+  # 定时由 Cloudflare 定时器触发（cloudflare/cron-worker.js），GitHub 自带的 schedule 被严重限流
 
 permissions:
   contents: write

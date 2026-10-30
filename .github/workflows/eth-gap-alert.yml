@@ -9,10 +9,11 @@ on:
       size:
         description: "按多少枚报价"
         default: "10"
+      test:
+        description: "启动时先发一条测试消息（true / false）"
+        default: "true"
 
-  schedule:
-    # 每 6 小时接力一次，每次连续运行约 5 小时 55 分，每分钟检查 Bitget 与链上 ETH 价差
-    - cron: "0 0,6,12,18 * * *"
+  # 定时由 Cloudflare 定时器触发（cloudflare/cron-worker.js），GitHub 自带的 schedule 被严重限流
 
 permissions:
   contents: read
@@ -45,4 +46,4 @@ jobs:
           --gap "${{ github.event.inputs.gap || '20' }}"
           --size "${{ github.event.inputs.size || '10' }}"
           --minutes 355
-          ${{ github.event_name == 'workflow_dispatch' && '--test' || '' }}
+          ${{ github.event.inputs.test == 'true' && '--test' || '' }}

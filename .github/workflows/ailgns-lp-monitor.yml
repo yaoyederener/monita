@@ -3,10 +3,7 @@ name: AILGNS LP Monitor
 on:
   workflow_dispatch:
 
-  schedule:
-    # 北京时间 09:00 和 21:00（UTC 01:00 / 13:00）
-    - cron: "0 1 * * *"
-    - cron: "0 13 * * *"
+  # 定时由 Cloudflare 定时器触发（cloudflare/cron-worker.js），GitHub 自带的 schedule 被严重限流
 
 permissions:
   contents: read

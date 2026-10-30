@@ -3,9 +3,7 @@ name: OTC Refund Keeper
 on:
   workflow_dispatch:
 
-  schedule:
-    # 每 5 分钟检查一次，把过期没成交的 OTC 挂单退回挂单人（GitHub 高峰期可能延迟几分钟）
-    - cron: "*/5 * * * *"
+  # 定时由 Cloudflare 定时器触发（cloudflare/cron-worker.js），GitHub 自带的 schedule 被严重限流
 
 permissions:
   contents: read
