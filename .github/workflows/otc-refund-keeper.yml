@@ -40,6 +40,14 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u otc_refund_keeper.py
 
+      - name: Split new OTC fees 30/40/30
+        if: always()
+        continue-on-error: true
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u otc_fee_split.py
+
       - name: Broadcast OTC orders to DeBox group
         if: always()
         continue-on-error: true
@@ -50,13 +58,18 @@ jobs:
           DEBOX_SUMMARY_HOURS: ${{ vars.DEBOX_SUMMARY_HOURS }}
           PYTHONUNBUFFERED: "1"
         shell: bash
+        run: python -u otc_debox_broadcast.py ${{ inputs.debox_test && '--test' || '' }}
+
+      - name: Save broadcast and fee split state
+        if: always()
+        continue-on-error: true
+        shell: bash
         run: |
-          python -u otc_debox_broadcast.py ${{ inputs.debox_test && '--test' || '' }}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/otc_broadcast.json
+          git add data/otc_broadcast.json data/fee_split.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
-          git commit -m "Update OTC broadcast state"
+          git commit -m "Update OTC broadcast and fee split state"
           for i in 1 2 3; do
             git fetch origin main
             if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
