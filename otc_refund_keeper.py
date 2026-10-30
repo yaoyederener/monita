@@ -67,12 +67,16 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
+    key = os.environ.get("OTC_KEEPER_KEY")
+    if key:
+        addr = Account.from_key(key).address
+        gas = int(rpc("eth_getBalance", [addr, "latest"]), 16) / 1e18
+        print(f"退回钱包 {addr}，Gas 余额 {gas:.4f} DAI" + ("（余额太低，请充值）" if gas < 0.05 else ""))
     latest = rpc("eth_getBlockByNumber", ["latest", False])
     count, ids = expired_orders(int(latest["timestamp"], 16))
     print(f"共 {count} 张挂单，已过期待退回 {len(ids)} 张：{ids}")
     if not ids or args.dry_run:
         return
-    key = os.environ.get("OTC_KEEPER_KEY")
     if not key:
         print("还没设置 OTC_KEEPER_KEY，本次跳过（挂单人可以在网站上自己取回）")
         return
