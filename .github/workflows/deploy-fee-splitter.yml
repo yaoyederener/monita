@@ -2,6 +2,12 @@ name: Deploy Fee Splitter (one-time)
 
 on:
   workflow_dispatch:
+    inputs:
+      chain:
+        description: "部署到哪条链"
+        type: choice
+        options: [anubis, polygon]
+        default: polygon
 
 permissions:
   contents: read
@@ -20,4 +26,4 @@ jobs:
         env:
           OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
           PYTHONUNBUFFERED: "1"
-        run: python -u deploy_fee_splitter.py
+        run: python -u deploy_fee_splitter.py ${{ inputs.chain }}
