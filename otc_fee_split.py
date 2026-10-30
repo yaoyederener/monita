@@ -2,7 +2,7 @@
 
 分账合约 AilgnsFeeSplitter（地址、比例写死，Anubis 和 Polygon 各一个）：
   30% → 0xe878…91c3，40% → 0xD53A…7285，30% 留在原收款钱包 0xedb9…b1e6。
-分哪些币：Anubis 链 LGNS / AiLGNS / DAI，Polygon 链 DAI（会员费 + OTC 手续费）。
+分哪些币：Anubis 链 LGNS / AiLGNS / DAI，Polygon 链 DAI / LGNS（会员费 + OTC 手续费）。
 从下面 START 区块开始，转进原收款钱包的这几种币全部算收入（包括任何人转进来的）。
 已经分了多少记在分账合约链上（totalSplit），所以重复运行也不会多分。
 原收款钱包需要先在 ailgns.dev/#/otc/split 授权各自链上的分账合约，没授权时只提示、不报错。
@@ -27,6 +27,7 @@ TOKENS = [
     ["anubis", "AiLGNS", "0x256edb652db43e721ec6a12b6b51b6967d3bb8cb", 17842792, 5000, 18],
     ["anubis", "DAI", "0x83fd06f0846d9d90b3016bf670efe2e0b11cde14", 17842792, 5000, 18],
     ["polygon", "DAI", "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063", 96447842, 9000, 18],
+    ["polygon", "LGNS", "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01", 96455222, 9000, 9],
 ]
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fee_split.json")
