@@ -2,11 +2,16 @@ name: OTC Refund Keeper
 
 on:
   workflow_dispatch:
+    inputs:
+      debox_test:
+        description: "立刻往 DeBox 群发一条挂单播报（测试）"
+        type: boolean
+        default: false
 
   # 定时由 Cloudflare 定时器触发（cloudflare/cron-worker.js），GitHub 自带的 schedule 被严重限流
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: otc-refund-keeper
@@ -34,6 +39,29 @@ jobs:
           OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
           PYTHONUNBUFFERED: "1"
         run: python -u otc_refund_keeper.py
+
+      - name: Broadcast OTC orders to DeBox group
+        if: always()
+        continue-on-error: true
+        env:
+          DEBOX_API_KEY: ${{ secrets.DEBOX_API_KEY }}
+          DEBOX_API_SECRET: ${{ secrets.DEBOX_API_SECRET }}
+          DEBOX_GROUP_ID: ${{ secrets.DEBOX_GROUP_ID }}
+          DEBOX_SUMMARY_HOURS: ${{ vars.DEBOX_SUMMARY_HOURS }}
+          PYTHONUNBUFFERED: "1"
+        shell: bash
+        run: |
+          python -u otc_debox_broadcast.py ${{ inputs.debox_test && '--test' || '' }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/otc_broadcast.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Update OTC broadcast state"
+          for i in 1 2 3; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            sleep 5
+          done
 
       - name: Pre-build member structure diagrams on ailgns.dev
         if: always()
