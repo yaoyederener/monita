@@ -31,18 +31,23 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u ailgns_flow_history.py
 
+      - name: Update AILGNS daily deposit files (for team growth lookup)
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -u ailgns_deposit_index.py
+
       - name: Save flow history
         shell: bash
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/ailgns_flows.json
+          git add -A data/ailgns_flows.json data/deposits
           if git diff --cached --quiet; then
             echo "没有变化"
             exit 0
           fi
-          git commit -m "Update AILGNS flow history"
+          git commit -m "Update AILGNS flow history and deposits"
           for i in 1 2 3; do
             git fetch origin main
             if git rebase origin/main && git push origin HEAD:main; then
