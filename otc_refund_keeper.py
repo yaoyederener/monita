@@ -10,6 +10,7 @@ import os
 import time
 
 from eth_account import Account
+from eth_utils import to_checksum_address
 
 from ailgns_lp_monitor import rpc
 
@@ -46,7 +47,7 @@ def refund(ids, key):
     tx = {"from": acct.address, "to": OTC, "data": data}
     gas = int(int(rpc("eth_estimateGas", [tx]), 16) * 1.3)
     signed = acct.sign_transaction({
-        "to": OTC, "data": data, "value": 0, "chainId": CHAIN_ID, "gas": gas,
+        "to": to_checksum_address(OTC),  # 签名要求带大小写校验的地址 "data": data, "value": 0, "chainId": CHAIN_ID, "gas": gas,
         "gasPrice": int(rpc("eth_gasPrice", []), 16),
         "nonce": int(rpc("eth_getTransactionCount", [acct.address, "pending"]), 16),
     })
