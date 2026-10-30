@@ -1,0 +1,23 @@
+name: Deploy Fee Splitter (one-time)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "eth-account==0.13.4"
+      - name: Deploy AilgnsFeeSplitter
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u deploy_fee_splitter.py
