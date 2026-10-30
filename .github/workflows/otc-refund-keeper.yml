@@ -34,3 +34,8 @@ jobs:
           OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
           PYTHONUNBUFFERED: "1"
         run: python -u otc_refund_keeper.py
+
+      - name: Pre-build member structure diagrams on ailgns.dev
+        if: always()
+        continue-on-error: true
+        run: curl -sS --max-time 280 https://ailgns.dev/api/refresh || true
