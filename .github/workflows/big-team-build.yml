@@ -1,0 +1,64 @@
+name: Big Team Trees
+
+# 超大团队（8 万个地址以上）的结构图数据，生成到 trees 分支给 ailgns.dev 读。
+# 由 OTC Refund Keeper 每 5 分钟检查 ailgns.dev/api/bigroots，有需要时触发；也可以手动填地址触发。
+on:
+  workflow_dispatch:
+    inputs:
+      roots:
+        description: "要生成的团队根地址（空格隔开；不填就按网站的待办列表）"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: big-team-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch existing trees
+        shell: bash
+        run: |
+          mkdir -p trees
+          if git fetch --depth 1 origin trees 2>/dev/null; then git archive FETCH_HEAD trees | tar -x; fi
+          ls -la trees || true
+      - name: Build
+        env:
+          PYTHONUNBUFFERED: "1"
+          ROOTS: ${{ inputs.roots }}
+        shell: bash
+        run: |
+          if [ -z "$ROOTS" ]; then ROOTS=$(curl -s https://ailgns.dev/api/bigroots | python -c "import json,sys; print(' '.join(json.load(sys.stdin)['due'][:3]))"); fi
+          echo "要生成：$ROOTS"
+          [ -z "$ROOTS" ] && exit 0
+          python -u big_team_build.py $ROOTS
+          python - <<'PY'
+          import json, os, struct, gzip, time
+          idx = {}
+          for f in os.listdir("trees"):
+              if f.endswith(".bin.gz"):
+                  with gzip.open(os.path.join("trees", f)) as g:
+                      head = g.read(20)
+                  _, n, at = struct.unpack("<IId", head[4:20])
+                  idx[f[:-7]] = {"at": at, "n": n, "bytes": os.path.getsize(os.path.join("trees", f))}
+          json.dump(idx, open("trees/index.json", "w"))
+          print(idx)
+          PY
+      - name: Publish to trees branch (single commit, no history)
+        shell: bash
+        run: |
+          [ -f trees/index.json ] || exit 0
+          mkdir -p /tmp/pub && cp -r trees /tmp/pub/ && cd /tmp/pub
+          git init -q -b trees && git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Big team trees $(date -u +%FT%TZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" trees:trees
