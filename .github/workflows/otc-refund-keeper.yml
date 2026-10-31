@@ -95,6 +95,11 @@ jobs:
             sleep 5
           done
 
+      - name: Notify order owners on DeBox (fills, cancels, refunds)
+        if: always()
+        continue-on-error: true
+        run: curl -sS --max-time 120 https://ailgns.dev/api/otc-watch || true
+
       - name: Start big team builds when ailgns.dev needs them
         if: always()
         continue-on-error: true
