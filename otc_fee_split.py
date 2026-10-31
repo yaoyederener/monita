@@ -96,18 +96,18 @@ def main():
             h = send_tx(chain, acct, splitter, sel('split(address,uint256)') + pad(tok) + f'{pending:064x}', '分账')
             print(f"  已分账：{h}")
             amt = pending / 10 ** dec
-            split_done.append(f"· {amt:,.4f} {label}：30% {amt * 0.3:,.4f} → 0xe878…91c3，40% {amt * 0.4:,.4f} → 0xD53A…7285，30% 留在 0xedb9…b1e6\n  {EXPLORERS[chain]}{h}")
+            split_done.append(f"· {amt * 0.7:,.4f} {label}\n  {EXPLORERS[chain]}{h}")  # 转出去的 70% 记为本次发放的运营费用
         except Exception as e:  # 一个币失败不影响其他币，下次再试
             print(f"  分账失败，下次再试：{e}")
 
-    if (received or split_done) and not args.dry_run:
-        parts = []
+    if not args.dry_run:
+        # 收款通知（只发给站长）：只写收到了什么，不提分配
         if received:
-            parts.append(f"收到 {len(received)} 笔付款：\n" + "\n".join(received))
-        if split_done:
-            parts.append(f"已分账 {len(split_done)} 笔：\n" + "\n".join(split_done))
-        title = "AiLGNS 服务站：" + "、".join((["收到付款"] if received else []) + (["已分账"] if split_done else []))
-        send_mail(title, "\n\n".join(parts) + "\n\n—— ailgns.dev 自动通知")
+            send_mail("AiLGNS 服务站：收到付款", f"收到 {len(received)} 笔付款：\n" + "\n".join(received) + "\n\n—— ailgns.dev 自动通知")
+        # 运营费用发放通知（发给 OPS_EMAILS 里的几个邮箱）：统一称为运营费用，不写分配比例
+        ops = [e.strip() for e in (os.environ.get("OPS_EMAILS") or "").split(",") if e.strip()]
+        if split_done and ops:
+            send_mail("AiLGNS 运营费用发放通知", f"本次运营费用已发放 {len(split_done)} 笔，用于 LGNS 销毁等运营支出：\n" + "\n".join(split_done) + "\n\n—— AiLGNS 服务站", ops)
     if not args.dry_run:
         os.makedirs(os.path.dirname(STATE), exist_ok=True)
         with open(STATE, "w") as f:

@@ -61,6 +61,7 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          OPS_EMAILS: ${{ secrets.OPS_EMAILS }}
           PYTHONUNBUFFERED: "1"
         run: python -u otc_fee_split.py
 
