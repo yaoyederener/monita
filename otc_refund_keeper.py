@@ -20,7 +20,7 @@ ESCROWS = [
     ["LGNS（Anubis）", "anubis", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818"],
     ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"],
 ]
-PIXEL_SINK = ""  # 像素墙收款合约 LgnsPixelSink（Anubis），部署后填上
+PIXEL_SINK = "0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c"  # 像素墙收款合约 LgnsPixelSink（Anubis）
 LGNS_ANUBIS = "0x4d1d808a081fdac440703b3765fc61f8028c06b8"
 GAS_NAME = {"anubis": "DAI", "polygon": "POL"}
 SEL_COUNT = "0x35daa731"  # ordersCount()
