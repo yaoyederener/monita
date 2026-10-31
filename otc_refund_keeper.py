@@ -23,7 +23,7 @@ ESCROWS = [
 # 像素墙收款合约 [链, 合约, LGNS]；合约地址空着表示还没部署（付款直接进销毁地址，不用分）
 PIXEL_SINKS = [
     ["anubis", "0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c", "0x4d1d808a081fdac440703b3765fc61f8028c06b8"],
-    ["polygon", "", "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01"],
+    ["polygon", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01"],
 ]
 GAS_NAME = {"anubis": "DAI", "polygon": "POL"}
 SEL_COUNT = "0x35daa731"  # ordersCount()

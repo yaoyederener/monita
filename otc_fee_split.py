@@ -33,7 +33,7 @@ TOKENS = [
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 # 从托管合约转来的是 OTC 成交手续费（AiLGNS、LGNS Anubis、LGNS Polygon），从像素墙收款合约转来的是像素墙收入
 OTC = {"0x4e730be6d46be71223ded5a32dc45799f6d4bc15", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"}
-PIXEL_SINKS = {"0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c"}  # 像素墙收款合约（Anubis；Polygon 的部署后加进来）
+PIXEL_SINKS = {"0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c", "0x2b0ab121d60f823fffc4cef75af26055df388e2b"}  # 像素墙收款合约（Anubis、Polygon）
 EXPLORERS = {"anubis": "https://anubisscan.io/tx/", "polygon": "https://polygonscan.com/tx/"}
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fee_split.json")
 
