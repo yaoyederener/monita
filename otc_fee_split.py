@@ -31,7 +31,9 @@ TOKENS = [
     ["polygon", "LGNS", "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01", 96455222, 9000, 9],
 ]
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-OTC = "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"  # 从托管合约转来的是 OTC 成交手续费
+# 从托管合约转来的是 OTC 成交手续费（AiLGNS、LGNS Anubis、LGNS Polygon），从像素墙收款合约转来的是像素墙收入
+OTC = {"0x4e730be6d46be71223ded5a32dc45799f6d4bc15", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"}
+PIXEL_SINK = ""  # 像素墙收款合约 LgnsPixelSink，部署后填上（小写）
 EXPLORERS = {"anubis": "https://anubisscan.io/tx/", "polygon": "https://polygonscan.com/tx/"}
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fee_split.json")
 
@@ -70,7 +72,7 @@ def main():
             income += sum(int(l["data"], 16) for l in logs)
             for l in logs:  # 记下每一笔，最后发邮件
                 frm = "0x" + l["topics"][1][26:]
-                kind = "OTC 成交手续费" if frm == OTC else "会员付款 / 转入"
+                kind = "OTC 成交手续费" if frm in OTC else "像素墙收入（20%）" if PIXEL_SINK and frm == PIXEL_SINK else "会员付款 / 转入"
                 received.append(f"· {kind}：{int(l['data'], 16) / 10 ** dec:,.4f} {label}\n  来自 {frm}\n  {EXPLORERS[chain]}{l['transactionHash']}")
             st["scanned_to"] = end
         st["income"] = str(income)
