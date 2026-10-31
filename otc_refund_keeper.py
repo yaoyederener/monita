@@ -1,6 +1,6 @@
 """OTC 托管合约过期自动退回：找出已过期还没退回的挂单，调用 refundExpired 把币退给挂单人。
 三个市场各一个托管合约：AiLGNS（Anubis）、LGNS（Anubis）、LGNS（Polygon，Gas 用 POL）。
-顺便把像素墙收款合约里的 LGNS 分出去（flush：80% 销毁、20% 转原收款钱包），任何人都能调用。
+顺便把像素墙收款合约（Anubis、Polygon 各一个）里的 LGNS 分出去（flush：80% 销毁、20% 转原收款钱包），任何人都能调用。
 
 合约只会把币退给挂单人本人 / 转到写死的地址，这个钱包只负责付 Gas，碰不到任何人的币。
 需要的环境变量：OTC_KEEPER_KEY（专用小钱包私钥，放少量 Anubis DAI 和 Polygon POL 付 Gas）
@@ -20,8 +20,11 @@ ESCROWS = [
     ["LGNS（Anubis）", "anubis", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818"],
     ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"],
 ]
-PIXEL_SINK = "0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c"  # 像素墙收款合约 LgnsPixelSink（Anubis）
-LGNS_ANUBIS = "0x4d1d808a081fdac440703b3765fc61f8028c06b8"
+# 像素墙收款合约 [链, 合约, LGNS]；合约地址空着表示还没部署（付款直接进销毁地址，不用分）
+PIXEL_SINKS = [
+    ["anubis", "0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c", "0x4d1d808a081fdac440703b3765fc61f8028c06b8"],
+    ["polygon", "", "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01"],
+]
 GAS_NAME = {"anubis": "DAI", "polygon": "POL"}
 SEL_COUNT = "0x35daa731"  # ordersCount()
 SEL_GET = "0x8f72fc77"  # getOrders(uint256,uint256)
@@ -80,14 +83,16 @@ def main():
             print(f"  {name} 退回失败，下次再试：{e}")
 
     # 像素墙收款合约：有 LGNS 就分出去（80% 销毁、20% 转原收款钱包，之后由 otc_fee_split.py 按 30/40/30 分）
-    if PIXEL_SINK:
+    for chain, sink, lgns in PIXEL_SINKS:
+        if not sink:
+            continue
         try:
-            bal = int(rpc("anubis", "eth_call", [{"to": LGNS_ANUBIS, "data": "0x70a08231" + u256(int(PIXEL_SINK, 16))}, "latest"]), 16)
-            print(f"像素墙收款合约待分：{bal / 1e9:.4f} LGNS")
+            bal = int(rpc(chain, "eth_call", [{"to": lgns, "data": "0x70a08231" + u256(int(sink, 16))}, "latest"]), 16)
+            print(f"像素墙收款合约（{chain}）待分：{bal / 1e9:.4f} LGNS")
             if bal > 0 and not args.dry_run and acct:
-                print(f"  已分出（80% 销毁、20% 运营）：{send_tx('anubis', acct, PIXEL_SINK, SEL_FLUSH, '像素墙分账')}")
+                print(f"  已分出（80% 销毁、20% 运营）：{send_tx(chain, acct, sink, SEL_FLUSH, '像素墙分账')}")
         except Exception as e:
-            print(f"  像素墙分账失败，下次再试：{e}")
+            print(f"  像素墙分账（{chain}）失败，下次再试：{e}")
 
 
 if __name__ == "__main__":
