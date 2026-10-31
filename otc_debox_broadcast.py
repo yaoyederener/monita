@@ -19,7 +19,6 @@ import urllib.request
 import uuid
 
 from ailgns_lp_monitor import rpc
-from notify_mail import send as send_mail
 
 OTC = "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"
 PAIR = "0x0a1Cce65d995C6C5100e6F5bA3c388Ef34CEcaf0"  # AiLGNS/DAI，token0 = AiLGNS
@@ -153,8 +152,6 @@ def main():
         print(text)
         if not args.dry_run and send(text):
             state["last_summary"] = time.time()
-        if reason == "new" and not args.dry_run:  # 有新挂单：也发邮件
-            send_mail(f"AiLGNS OTC 新挂单 {len(new_ids)} 张", text)
     if not args.dry_run:
         state["next_id"] = count
         os.makedirs(os.path.dirname(STATE), exist_ok=True)
