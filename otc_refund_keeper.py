@@ -19,6 +19,7 @@ ESCROWS = [
     ["AiLGNS", "anubis", "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"],
     ["LGNS（Anubis）", "anubis", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818"],
     ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"],
+    ["gLGNS（Anubis）", "anubis", "0x2b0ab121d60f823fffc4cef75af26055df388e2b"],
 ]
 # 像素墙收款合约 [链, 合约, LGNS]；合约地址空着表示还没部署（付款直接进销毁地址，不用分）
 PIXEL_SINKS = [

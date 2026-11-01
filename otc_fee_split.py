@@ -3,7 +3,7 @@
 
 分账合约 AilgnsFeeSplitter（地址、比例写死，Anubis 和 Polygon 各一个）：
   30% → 0xe878…91c3，40% → 0xD53A…7285，30% 留在原收款钱包 0xedb9…b1e6。
-分哪些币：Anubis 链 LGNS / AiLGNS / DAI，Polygon 链 DAI / LGNS（会员费 + OTC 手续费）。
+分哪些币：Anubis 链 LGNS / AiLGNS / DAI / gLGNS，Polygon 链 DAI / LGNS（会员费 + OTC 手续费）。
 从下面 START 区块开始，转进原收款钱包的这几种币全部算收入（包括任何人转进来的）。
 已经分了多少记在分账合约链上（totalSplit），所以重复运行也不会多分。
 原收款钱包需要先在 ailgns.dev/#/otc/split 授权各自链上的分账合约，没授权时只提示、不报错。
@@ -31,11 +31,14 @@ TOKENS = [
     ["anubis", "DAI", "0x83fd06f0846d9d90b3016bf670efe2e0b11cde14", 17842792, 5000, 18],
     ["polygon", "DAI", "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063", 96447842, 9000, 18],
     ["polygon", "LGNS", "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01", 96455222, 9000, 9],
+    ["anubis", "gLGNS", "0xf140a92c156e76f5a1d3d6f96284b250330f8f4c", 18004618, 5000, 18],  # gLGNS OTC 手续费（从托管合约部署区块起）
 ]
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-# 从托管合约转来的是 OTC 成交手续费（AiLGNS、LGNS Anubis、LGNS Polygon），从像素墙收款合约转来的是像素墙收入
-OTC = {"0x4e730be6d46be71223ded5a32dc45799f6d4bc15", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"}
-PIXEL_SINKS = {"0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c", "0x2b0ab121d60f823fffc4cef75af26055df388e2b"}  # 像素墙收款合约（Anubis、Polygon）
+# 从托管合约转来的是 OTC 成交手续费，从像素墙收款合约转来的是像素墙收入
+# 按链分开：gLGNS 托管合约（Anubis）和像素墙收款合约（Polygon）地址相同（同一部署钱包、相同 nonce），不能只看地址
+OTC = {"anubis": {"0x4e730be6d46be71223ded5a32dc45799f6d4bc15", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x2b0ab121d60f823fffc4cef75af26055df388e2b"},  # AiLGNS、LGNS、gLGNS
+       "polygon": {"0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"}}  # LGNS
+PIXEL_SINKS = {"anubis": {"0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c"}, "polygon": {"0x2b0ab121d60f823fffc4cef75af26055df388e2b"}}  # 像素墙收款合约
 EXPLORERS = {"anubis": "https://anubisscan.io/tx/", "polygon": "https://polygonscan.com/tx/"}
 MAIL_HOUR = 9  # 北京时间几点后发前一天的汇总邮件
 MAIL_KEEP = 500  # 邮件一直发不出去时，最多攒这么多条
@@ -117,7 +120,7 @@ def main():
             income += sum(int(l["data"], 16) for l in logs)
             for l in logs:  # 记下每一笔，最后发邮件
                 frm = "0x" + l["topics"][1][26:]
-                kind = "OTC 成交手续费" if frm in OTC else "像素墙收入（20%）" if frm in PIXEL_SINKS else "会员付款 / 转入"
+                kind = "OTC 成交手续费" if frm in OTC[chain] else "像素墙收入（20%）" if frm in PIXEL_SINKS[chain] else "会员付款 / 转入"
                 received.append({"kind": kind, "amt": int(l["data"], 16) / 10 ** dec, "label": label, "from": frm, "url": EXPLORERS[chain] + l["transactionHash"]})
             st["scanned_to"] = end
         st["income"] = str(income)
