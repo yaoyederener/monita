@@ -36,7 +36,7 @@ TOKENS = [
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 # 从托管合约转来的是 OTC 成交手续费，从像素墙收款合约转来的是像素墙收入
 # 按链分开：gLGNS 托管合约（Anubis）和像素墙收款合约（Polygon）地址相同（同一部署钱包、相同 nonce），不能只看地址
-OTC = {"anubis": {"0x4e730be6d46be71223ded5a32dc45799f6d4bc15", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", "0x8c67912b3ed44f4512c2f22b7b2263f6659396ed", "0x8d84d678d195e770caad263d1c37967ec796165c"},  # AiLGNS、LGNS、gLGNS、AWAKE NFT 卡牌、AiLGNS 借款（借款手续费是出借人直接付到收款钱包的，这里只是归类）
+OTC = {"anubis": {"0x4e730be6d46be71223ded5a32dc45799f6d4bc15", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", "0x8c67912b3ed44f4512c2f22b7b2263f6659396ed", "0x8d84d678d195e770caad263d1c37967ec796165c", "0x242ab392571d325d814a48892ac16115a6d285dc"},  # AiLGNS、LGNS、gLGNS、AWAKE NFT 卡牌、AiLGNS 借款（借款手续费是出借人直接付到收款钱包的，这里只是归类）
        "polygon": {"0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"}}  # LGNS
 PIXEL_SINKS = {"anubis": {"0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c"}, "polygon": {"0x2b0ab121d60f823fffc4cef75af26055df388e2b"}}  # 像素墙收款合约
 EXPLORERS = {"anubis": "https://anubisscan.io/tx/", "polygon": "https://polygonscan.com/tx/"}
