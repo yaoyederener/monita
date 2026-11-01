@@ -17,7 +17,7 @@ from chains import rpc, send_tx
 # [名称, 链, 托管合约, 每张挂单占几个字]
 # 代币托管（AilgnsOtcEscrow）每张 7 个字：maker, sell, open, expiry, giveTotal, wantTotal, giveLeft
 # 卡牌托管（AwakeNftEscrow）每张 6 个字：maker, sell, open, expiry, tokenId, price
-# 借款合约（AilgnsLoanEscrow）每张 9 个字：borrower, lender, status, expiry, term, due, collateral, principal, repayAmount
+# 借款合约（AilgnsLoanEscrow，双向版）每张 10 个字：borrower, lender, isOffer, status, expiry, term, due, collateral, principal, repayAmount
 #   status 0 挂单中且 expiry 到了 → refundExpired 退抵押币；status 1 借款中且 due 到了 → claim 把抵押币划给出借人（任何人都能触发，币只给出借人）
 ESCROWS = [
     ["AiLGNS", "anubis", "0x4e730be6d46be71223ded5a32dc45799f6d4bc15", 7],
@@ -25,7 +25,7 @@ ESCROWS = [
     ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db", 7],
     ["gLGNS（Anubis）", "anubis", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", 7],
     ["AWAKE NFT 卡牌（Anubis）", "anubis", "0x8c67912b3ed44f4512c2f22b7b2263f6659396ed", 6],
-    ["AiLGNS 抵押借款（Anubis）", "anubis", "0x8d84d678d195e770caad263d1c37967ec796165c", 9],
+    ["AiLGNS 抵押借款（Anubis）", "anubis", "", 10],  # 双向版重新部署后填地址（旧的 0x8d84…165c 单向版没有任何借款，弃用）
 ]
 LOAN_SEL_COUNT = "0x9d11ed75"  # loansCount()
 LOAN_SEL_GET = "0x86b20104"  # getLoans(uint256,uint256)
@@ -49,7 +49,7 @@ def u256(v):
 
 def expired_orders(chain, otc, now, width=7):
     """返回 (总数, 要退回的编号, 要触发违约领取的编号)"""
-    loan = width == 9
+    loan = width == 10
     count = int(rpc(chain, "eth_call", [{"to": otc, "data": LOAN_SEL_COUNT if loan else SEL_COUNT}, "latest"]), 16)
     ids, claims = [], []
     for start in range(0, count, 500):
@@ -59,7 +59,7 @@ def expired_orders(chain, otc, now, width=7):
         for i in range(n):
             o = w[2 + i * width: 2 + (i + 1) * width]
             if loan:
-                status, expiry, due = o[2], o[3], o[5]
+                status, expiry, due = o[3], o[4], o[6]
                 if status == 0 and expiry <= now:
                     ids.append(start + i)
                 elif status == 1 and due <= now:
