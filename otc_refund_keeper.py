@@ -16,13 +16,13 @@ from chains import rpc, send_tx
 
 # [名称, 链, 托管合约, 每张挂单占几个字]
 # 代币托管（AilgnsOtcEscrow）每张 7 个字：maker, sell, open, expiry, giveTotal, wantTotal, giveLeft
-# 卡牌托管（AwakeNftEscrow）每张 6 个字：maker, sell, open, expiry, tokenId, price；合约地址空着表示还没部署
+# 卡牌托管（AwakeNftEscrow）每张 6 个字：maker, sell, open, expiry, tokenId, price
 ESCROWS = [
     ["AiLGNS", "anubis", "0x4e730be6d46be71223ded5a32dc45799f6d4bc15", 7],
     ["LGNS（Anubis）", "anubis", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", 7],
     ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db", 7],
     ["gLGNS（Anubis）", "anubis", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", 7],
-    ["AWAKE NFT 卡牌（Anubis）", "anubis", "", 6],
+    ["AWAKE NFT 卡牌（Anubis）", "anubis", "0x8c67912b3ed44f4512c2f22b7b2263f6659396ed", 6],
 ]
 # 像素墙收款合约 [链, 合约, LGNS]；合约地址空着表示还没部署（付款直接进销毁地址，不用分）
 PIXEL_SINKS = [
