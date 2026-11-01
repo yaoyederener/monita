@@ -14,12 +14,15 @@ from eth_account import Account
 
 from chains import rpc, send_tx
 
-# [名称, 链, 托管合约]
+# [名称, 链, 托管合约, 每张挂单占几个字]
+# 代币托管（AilgnsOtcEscrow）每张 7 个字：maker, sell, open, expiry, giveTotal, wantTotal, giveLeft
+# 卡牌托管（AwakeNftEscrow）每张 6 个字：maker, sell, open, expiry, tokenId, price；合约地址空着表示还没部署
 ESCROWS = [
-    ["AiLGNS", "anubis", "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"],
-    ["LGNS（Anubis）", "anubis", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818"],
-    ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"],
-    ["gLGNS（Anubis）", "anubis", "0x2b0ab121d60f823fffc4cef75af26055df388e2b"],
+    ["AiLGNS", "anubis", "0x4e730be6d46be71223ded5a32dc45799f6d4bc15", 7],
+    ["LGNS（Anubis）", "anubis", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", 7],
+    ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db", 7],
+    ["gLGNS（Anubis）", "anubis", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", 7],
+    ["AWAKE NFT 卡牌（Anubis）", "anubis", "", 6],
 ]
 # 像素墙收款合约 [链, 合约, LGNS]；合约地址空着表示还没部署（付款直接进销毁地址，不用分）
 PIXEL_SINKS = [
@@ -38,7 +41,7 @@ def u256(v):
     return f"{int(v):064x}"
 
 
-def expired_orders(chain, otc, now):
+def expired_orders(chain, otc, now, width=7):
     count = int(rpc(chain, "eth_call", [{"to": otc, "data": SEL_COUNT}, "latest"]), 16)
     ids = []
     for start in range(0, count, 500):
@@ -46,9 +49,9 @@ def expired_orders(chain, otc, now):
         w = [int(h[i:i + 64], 16) for i in range(0, len(h), 64)]
         n = w[1]
         for i in range(n):
-            o = w[2 + i * 7: 9 + i * 7]
-            is_open, expiry, give_left = o[2], o[3], o[6]
-            if is_open and expiry <= now and give_left > 0:
+            o = w[2 + i * width: 2 + (i + 1) * width]
+            is_open, expiry = o[2], o[3]
+            if is_open and expiry <= now and (width == 6 or o[6] > 0):  # 卡牌挂单只要还开着就退（卡或 DAI 一定还在合约里）
                 ids.append(start + i)
     return count, ids
 
@@ -66,10 +69,12 @@ def main():
             low = gas < (0.05 if chain == "anubis" else 0.5)
             print(f"退回钱包 {acct.address}，{chain} Gas 余额 {gas:.4f} {GAS_NAME[chain]}" + ("（余额太低，请充值）" if low else ""))
 
-    for name, chain, otc in ESCROWS:
+    for name, chain, otc, width in ESCROWS:
+        if not otc:
+            continue
         try:  # 一个市场出问题不影响别的市场
             now = int(rpc(chain, "eth_getBlockByNumber", ["latest", False])["timestamp"], 16)
-            count, ids = expired_orders(chain, otc, now)
+            count, ids = expired_orders(chain, otc, now, width)
             print(f"{name}：共 {count} 张挂单，已过期待退回 {len(ids)} 张：{ids}")
             if not ids or args.dry_run:
                 continue
