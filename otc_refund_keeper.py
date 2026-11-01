@@ -25,7 +25,7 @@ ESCROWS = [
     ["LGNS（Polygon）", "polygon", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db", 7],
     ["gLGNS（Anubis）", "anubis", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", 7],
     ["AWAKE NFT 卡牌（Anubis）", "anubis", "0x8c67912b3ed44f4512c2f22b7b2263f6659396ed", 6],
-    ["AiLGNS 抵押借款（Anubis）", "anubis", "", 9],
+    ["AiLGNS 抵押借款（Anubis）", "anubis", "0x8d84d678d195e770caad263d1c37967ec796165c", 9],
 ]
 LOAN_SEL_COUNT = "0x9d11ed75"  # loansCount()
 LOAN_SEL_GET = "0x86b20104"  # getLoans(uint256,uint256)
