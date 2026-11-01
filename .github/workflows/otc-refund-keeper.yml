@@ -106,6 +106,11 @@ jobs:
         continue-on-error: true
         run: curl -sS --max-time 120 https://ailgns.dev/api/ops-watch || true
 
+      - name: Loan notices on DeBox (fund/take/repay/default, due reminders, group post)
+        if: always()
+        continue-on-error: true
+        run: curl -sS --max-time 120 https://ailgns.dev/api/loan-watch || true
+
       - name: Daily stats report to the internal ops DeBox group
         if: always()
         continue-on-error: true
