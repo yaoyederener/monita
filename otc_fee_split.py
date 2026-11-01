@@ -1,4 +1,5 @@
 """原收款钱包收入到账立刻分账：每 5 分钟检查一次，转进 0xedb9…b1e6 的收入按 30% / 40% / 30% 分出去。
+分账照常每 5 分钟做；邮件通知不再一笔一发，先记在状态文件里，每天北京时间 9 点后汇总发一封（收款汇总给站长，运营费用汇总给 OPS_EMAILS）。
 
 分账合约 AilgnsFeeSplitter（地址、比例写死，Anubis 和 Polygon 各一个）：
   30% → 0xe878…91c3，40% → 0xD53A…7285，30% 留在原收款钱包 0xedb9…b1e6。
@@ -13,6 +14,7 @@
 import argparse
 import json
 import os
+import time
 
 from eth_account import Account
 from eth_utils import keccak
@@ -35,6 +37,8 @@ TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 OTC = {"0x4e730be6d46be71223ded5a32dc45799f6d4bc15", "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x4060f38d3e837843b69014d9f85ecfb3e29fa2db"}
 PIXEL_SINKS = {"0xf1fb8f098979dc29a3020070ac93ef24f1b2ca4c", "0x2b0ab121d60f823fffc4cef75af26055df388e2b"}  # 像素墙收款合约（Anubis、Polygon）
 EXPLORERS = {"anubis": "https://anubisscan.io/tx/", "polygon": "https://polygonscan.com/tx/"}
+MAIL_HOUR = 9  # 北京时间几点后发前一天的汇总邮件
+MAIL_KEEP = 500  # 邮件一直发不出去时，最多攒这么多条
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fee_split.json")
 
 
@@ -48,6 +52,47 @@ def pad(a):
 
 def call(chain, to, data):
     return int(rpc(chain, "eth_call", [{"to": to, "data": data}, "latest"]), 16)
+
+
+def bj_now():
+    return time.gmtime(time.time() + 8 * 3600)
+
+
+def digest(state, dry_run):
+    """每天发一次汇总邮件：发成功才清空，发失败下次再试"""
+    q = state.setdefault("mail", {"received": [], "split": [], "sent": ""})
+    now = bj_now()
+    today = time.strftime("%Y-%m-%d", now)
+    if dry_run or now.tm_hour < MAIL_HOUR or q["sent"] == today:
+        return
+    stamp = f"截至北京时间 {now.tm_mon}月{now.tm_mday}日 {MAIL_HOUR}:00"
+
+    def totals(items):
+        t = {}
+        for x in items:
+            t[x["label"]] = t.get(x["label"], 0) + x["amt"]
+        return "\n".join(f"  {v:,.4f} {k}" for k, v in t.items())
+
+    ok = True
+    if q["received"]:
+        r = q["received"]
+        lines = [f"· {x['kind']}：{x['amt']:,.4f} {x['label']}\n  来自 {x['from']}\n  {x['url']}" for x in r]
+        body = f"过去一天共收到 {len(r)} 笔付款（{stamp}）。\n\n合计：\n{totals(r)}\n\n明细：\n" + "\n".join(lines) + "\n\n—— ailgns.dev 自动通知（每天汇总一次）"
+        if send_mail(f"AiLGNS 服务站：每日收款汇总（{len(r)} 笔）", body):
+            q["received"] = []
+        else:
+            ok = False
+    ops = [e.strip() for e in (os.environ.get("OPS_EMAILS") or "").split(",") if e.strip()]
+    if q["split"] and ops:
+        sp = q["split"]
+        lines = [f"· {x['amt']:,.4f} {x['label']}\n  {x['url']}" for x in sp]
+        body = f"过去一天运营费用共发放 {len(sp)} 笔（{stamp}），用于 LGNS 销毁等运营支出。\n\n合计：\n{totals(sp)}\n\n明细：\n" + "\n".join(lines) + "\n\n—— AiLGNS 服务站（每天汇总一次）"
+        if send_mail(f"AiLGNS 运营费用发放日报（{len(sp)} 笔）", body, ops):
+            q["split"] = []
+        else:
+            ok = False
+    if ok:
+        q["sent"] = today
 
 
 def main():
@@ -73,7 +118,7 @@ def main():
             for l in logs:  # 记下每一笔，最后发邮件
                 frm = "0x" + l["topics"][1][26:]
                 kind = "OTC 成交手续费" if frm in OTC else "像素墙收入（20%）" if frm in PIXEL_SINKS else "会员付款 / 转入"
-                received.append(f"· {kind}：{int(l['data'], 16) / 10 ** dec:,.4f} {label}\n  来自 {frm}\n  {EXPLORERS[chain]}{l['transactionHash']}")
+                received.append({"kind": kind, "amt": int(l["data"], 16) / 10 ** dec, "label": label, "from": frm, "url": EXPLORERS[chain] + l["transactionHash"]})
             st["scanned_to"] = end
         st["income"] = str(income)
         splitter = SPLITTERS[chain]
@@ -98,18 +143,15 @@ def main():
             h = send_tx(chain, acct, splitter, sel('split(address,uint256)') + pad(tok) + f'{pending:064x}', '分账')
             print(f"  已分账：{h}")
             amt = pending / 10 ** dec
-            split_done.append(f"· {amt * 0.7:,.4f} {label}\n  {EXPLORERS[chain]}{h}")  # 转出去的 70% 记为本次发放的运营费用
+            split_done.append({"amt": amt * 0.7, "label": label, "url": EXPLORERS[chain] + h})  # 转出去的 70% 记为本次发放的运营费用
         except Exception as e:  # 一个币失败不影响其他币，下次再试
             print(f"  分账失败，下次再试：{e}")
 
-    if not args.dry_run:
-        # 收款通知（只发给站长）：只写收到了什么，不提分配
-        if received:
-            send_mail("AiLGNS 服务站：收到付款", f"收到 {len(received)} 笔付款：\n" + "\n".join(received) + "\n\n—— ailgns.dev 自动通知")
-        # 运营费用发放通知（发给 OPS_EMAILS 里的几个邮箱）：统一称为运营费用，不写分配比例
-        ops = [e.strip() for e in (os.environ.get("OPS_EMAILS") or "").split(",") if e.strip()]
-        if split_done and ops:
-            send_mail("AiLGNS 运营费用发放通知", f"本次运营费用已发放 {len(split_done)} 笔，用于 LGNS 销毁等运营支出：\n" + "\n".join(split_done) + "\n\n—— AiLGNS 服务站", ops)
+    # 先记下来，每天汇总发一封（不再一笔一发）
+    q = state.setdefault("mail", {"received": [], "split": [], "sent": time.strftime("%Y-%m-%d", bj_now())})  # 刚改成汇总的这天不再补发，明天 9 点发第一封
+    q["received"] = (q["received"] + received)[-MAIL_KEEP:]
+    q["split"] = (q["split"] + split_done)[-MAIL_KEEP:]
+    digest(state, args.dry_run)
     if not args.dry_run:
         os.makedirs(os.path.dirname(STATE), exist_ok=True)
         with open(STATE, "w") as f:
