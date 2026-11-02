@@ -1,0 +1,81 @@
+name: FLGNS bilateral 0.4 percent deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Verify a saved 0.4 percent each plan, or deploy that exact plan
+        type: choice
+        options: [verify, deploy]
+        default: verify
+
+permissions:
+  contents: read
+  actions: read
+
+# Share the existing signer's lock; never compete with fee/refund transactions.
+concurrency:
+  group: otc-refund-keeper
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install fixed ABI and signing libraries
+        run: python -m pip install eth-account==0.13.4 eth-abi==5.2.0
+      - name: Recover only this bilateral plan and journal
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prior_url=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=flgns-bilateral04-deployment-journal&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].archive_download_url // empty')
+          if [ -z "$prior_url" ]; then
+            prior_url=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=flgns-bilateral04-deployment-plan&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].archive_download_url // empty')
+          fi
+          if [ -n "$prior_url" ]; then
+            gh api "$prior_url" > "$RUNNER_TEMP/flgns-bilateral-recovery.zip"
+            python - <<'PY'
+          import os, zipfile
+          from pathlib import Path
+          with zipfile.ZipFile(Path(os.environ['RUNNER_TEMP']) / 'flgns-bilateral-recovery.zip') as archive:
+              names = archive.namelist()
+              if names.count('deployment-plan.json') != 1:
+                  raise SystemExit('Prior bilateral artifact lacks one unambiguous plan')
+              for name in ['deployment-plan.json', 'deployment.json']:
+                  if names.count(name) > 1:
+                      raise SystemExit('Ambiguous bilateral artifact entries')
+                  if name in names:
+                      Path('flgns/bilateral/ops', name).write_bytes(archive.read(name))
+          PY
+          fi
+      - name: Verify current deployment artifact and fixed plan without a key
+        run: python flgns/bilateral/ops/deploy.py --plan flgns/bilateral/ops/deployment-plan.json
+      - name: Save fixed plan before any broadcast
+        uses: actions/upload-artifact@v4
+        with:
+          name: flgns-bilateral04-deployment-plan
+          path: flgns/bilateral/ops/deployment-plan.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Deploy only saved nonces and addresses
+        if: inputs.mode == 'deploy'
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+        run: python flgns/bilateral/ops/deploy.py --plan flgns/bilateral/ops/deployment-plan.json --broadcast
+      - name: Preserve plan and public transaction journal on every outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flgns-bilateral04-deployment-journal
+          path: |
+            flgns/bilateral/ops/deployment-plan.json
+            flgns/bilateral/ops/deployment.json
+          if-no-files-found: warn
+          retention-days: 90
