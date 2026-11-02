@@ -107,6 +107,16 @@ jobs:
         shell: bash
         run: python -u kv_backup.py ${{ inputs.kv_backup && '--force' || '' }}
 
+      - name: Check ailgns.dev for tampering (foreign scripts, unknown addresses)
+        if: always()
+        continue-on-error: true
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u site_guard.py
+
       - name: Save broadcast and fee split state
         if: always()
         continue-on-error: true
@@ -114,7 +124,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/otc_broadcast.json data/fee_split.json data/buyback.json data/kv_backup.json 2>/dev/null || true
+          git add data/otc_broadcast.json data/fee_split.json data/buyback.json data/kv_backup.json data/site_guard.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "Update OTC broadcast and fee split state"
           for i in 1 2 3; do
