@@ -7,6 +7,10 @@ on:
         description: "立刻往 DeBox 群发一条挂单播报（测试）"
         type: boolean
         default: false
+      kv_backup:
+        description: "立刻备份一次 KV 并发邮件"
+        type: boolean
+        default: false
       mail_test:
         description: "立刻发一封测试邮件"
         type: boolean
@@ -91,6 +95,18 @@ jobs:
         shell: bash
         run: python -u otc_debox_broadcast.py ${{ inputs.debox_test && '--test' || '' }}
 
+      - name: Daily KV backup by email (members, VIP transfers, pixel board)
+        if: always()
+        continue-on-error: true
+        env:
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          PYTHONUNBUFFERED: "1"
+        shell: bash
+        run: python -u kv_backup.py ${{ inputs.kv_backup && '--force' || '' }}
+
       - name: Save broadcast and fee split state
         if: always()
         continue-on-error: true
@@ -98,7 +114,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/otc_broadcast.json data/fee_split.json data/buyback.json 2>/dev/null || true
+          git add data/otc_broadcast.json data/fee_split.json data/buyback.json data/kv_backup.json 2>/dev/null || true
           git diff --cached --quiet && exit 0
           git commit -m "Update OTC broadcast and fee split state"
           for i in 1 2 3; do
