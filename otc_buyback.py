@@ -22,8 +22,8 @@ from eth_utils import keccak
 from chains import rpc, send_tx
 from notify_mail import send as send_mail
 
-BUYBACK = ""  # 回购分账合约地址：部署后填上（小写）；空着时本脚本什么都不做，旧的分账照常
-START = 0  # 回购合约部署所在区块：从这里开始算收入
+BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"  # 回购分账合约地址（2026-11-03 部署）
+START = 18104818  # 回购合约部署所在区块：从这里开始算收入
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
 LGNS, DAI, AIL = "0x4d1d808a081fdac440703b3765fc61f8028c06b8", "0x83fd06f0846d9d90b3016bf670efe2e0b11cde14", "0x256edb652db43e721ec6a12b6b51b6967d3bb8cb"
 LGNS_OTC, AIL_OTC = "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"
