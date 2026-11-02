@@ -1,0 +1,28 @@
+name: DeBox Announcement (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: "要发的通告文件（announcements/ 里）"
+        required: true
+        default: "announcements/ilo-otc.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Send announcement to the marketing groups
+        env:
+          DEBOX_API_KEY: ${{ secrets.DEBOX_API_KEY }}
+          DEBOX_API_SECRET: ${{ secrets.DEBOX_API_SECRET }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u debox_announce.py "${{ inputs.file }}"
