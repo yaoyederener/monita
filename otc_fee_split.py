@@ -21,6 +21,7 @@ from eth_utils import keccak
 
 from chains import rpc, send_tx
 from notify_mail import send as send_mail
+from otc_buyback import BUYBACK
 
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
 SPLITTERS = {"anubis": "0xeee877c1b6285b82890bdcd027d2715f658ecf23", "polygon": "0xcc274e07847a6a86917b6ccd4e67706170d4036f"}
@@ -131,6 +132,9 @@ def main():
         pending = income - done
         print(f"{label}：累计收入 {income / 10 ** dec:.6f}，已分 {done / 10 ** dec:.6f}，待分 {pending / 10 ** dec:.6f}")
         if pending <= 0 or args.dry_run:
+            continue
+        if BUYBACK:  # 回购分账上线后：Anubis 收入由 otc_buyback.py 换成 AiLGNS 再分；Polygon 收入先攒着不分
+            print("  已改成回购分账（otc_buyback.py），这里不再分")
             continue
         out = pending - pending * 3000 // 10000  # 要转出去的 70%（留下的 30% 不用转）
         allowance = call(chain, tok, "0xdd62ed3e" + pad(SOURCE) + pad(splitter))
