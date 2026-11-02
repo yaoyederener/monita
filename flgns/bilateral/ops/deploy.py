@@ -176,6 +176,7 @@ def recover(entry, p, artifact):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--broadcast", action="store_true")
+    parser.add_argument("--refresh-unused-plan", action="store_true", help="Explicitly refresh only a never-broadcast plan under the shared signer lock")
     parser.add_argument("--artifact", default=str(ROOT.parent / "contracts/build/FlgnsOtcEscrowV2.artifact.json"))
     parser.add_argument("--plan", default=str(ROOT / "deployment-plan.json"))
     parser.add_argument("--output", default=str(ROOT / "deployment.json"))
@@ -192,6 +193,18 @@ def main():
         atomic_json(plan_path, new_plan(artifact, artifact_path))
     plan = json.loads(plan_path.read_text())
     validate_plan(plan, artifact_path)
+    if args.refresh_unused_plan:
+        require(not args.broadcast, "Refresh must finish and persist before the separate broadcast step")
+        require(not output_path.exists(), "A transaction journal exists; recover it, never allocate replacement nonces")
+        for entry in plan["markets"]:
+            require(rpc("eth_getCode", [entry["address"], "latest"]) == "0x", "Old planned contract exists; recover original journal")
+        current = int(rpc("eth_getTransactionCount", [KEEPER, "latest"]), 16)
+        pending = int(rpc("eth_getTransactionCount", [KEEPER, "pending"]), 16)
+        require(current == pending, "Keeper transaction pending; do not refresh plan")
+        if current != plan["markets"][0]["nonce"]:
+            plan = new_plan(artifact, artifact_path)
+            atomic_json(plan_path, plan)
+            validate_plan(plan, artifact_path)
     digest = plan_digest(plan)
     state = json.loads(output_path.read_text()) if output_path.exists() else {"chainId": 6714, "deployer": KEEPER, "artifactSha256": plan["artifactSha256"], "planSha256": digest, "markets": {}}
     require(state["planSha256"] == digest and state["artifactSha256"] == plan["artifactSha256"], "Journal belongs to another plan")

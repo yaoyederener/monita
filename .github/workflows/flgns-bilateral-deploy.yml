@@ -8,6 +8,10 @@ on:
         type: choice
         options: [verify, deploy]
         default: verify
+      refresh_unused_plan:
+        description: Refresh a never-broadcast plan if the shared keeper used its nonces
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -56,7 +60,7 @@ jobs:
           PY
           fi
       - name: Verify current deployment artifact and fixed plan without a key
-        run: python flgns/bilateral/ops/deploy.py --plan flgns/bilateral/ops/deployment-plan.json
+        run: python flgns/bilateral/ops/deploy.py --plan flgns/bilateral/ops/deployment-plan.json ${{ inputs.refresh_unused_plan && '--refresh-unused-plan' || '' }}
       - name: Save fixed plan before any broadcast
         uses: actions/upload-artifact@v4
         with:
