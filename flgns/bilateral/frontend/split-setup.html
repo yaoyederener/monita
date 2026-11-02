@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#078d82">
+  <title>分账授权设置 · FLGNS OTC</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="style.css">
+  <style>.setup{max-width:860px;margin:28px auto}.setup h1{font-size:24px}.setup .addresses{display:grid;gap:10px;font-size:12px}.setup .addresses span{display:block;color:var(--muted)}.setup .token-stats{display:grid;gap:7px;font-size:12px;overflow-wrap:anywhere}.setup .choice{display:flex;gap:9px;align-items:center;font-size:12px;margin:15px 0}.setup .choice input{width:17px;height:17px}.setup .buttons{display:flex;gap:8px;flex-wrap:wrap}.setup .buttons button{white-space:normal}.setup .operation-status a{overflow-wrap:anywhere}.setup .setup-warning{font-size:12px;color:var(--muted)}.setup .input-wrap input:disabled{background:var(--panel-2)}.setup .contract-grid{margin:0}.setup .state{font-size:12px;color:var(--muted)}</style>
+</head>
+<body>
+  <header class="top"><div class="wrap top-in"><a class="brand" href="/"><span class="logo">F</span><span class="brand-t"><b>FLGNS OTC</b><small>分账授权设置</small></span></a><span class="chain"><i></i>Anubis 6714</span><button id="connect-wallet" class="connect">连接 SOURCE 钱包</button></div></header>
+  <main class="wrap setup">
+    <div class="page-heading"><div><p class="eyebrow">SOURCE WALLET · SETUP</p><h1>新增币种的分账授权</h1><p class="sub">仅供固定收款钱包 SOURCE 设置 FLGNS、RM 授权。</p></div></div>
+    <div id="setup-state" class="status-banner" role="status">正在只读核对链上配置…</div>
+    <section class="card"><div class="card-head"><h2>固定分账配置</h2><button id="recheck" class="secondary small">重新核对</button></div><div id="split-config" class="addresses"></div><p class="note">授权不会转出代币。本页仅发送你明确点击的 ERC-20 approve 交易，不执行分账、转账或其他合约操作。实际分账由既有机器人或 SOURCE 另行触发。</p></section>
+    <div id="setup-tokens"></div>
+    <section class="card"><h2>额度说明</h2><p class="setup-warning">默认使用自定义额度，按代币数量填写。分账合约每分配一笔，消耗其中向外转出的 70% 对应授权额度；其余 30% 留在 SOURCE。已有额度可直接替换；如钱包或代币要求先清零，请显式点击“清零授权”，确认完成后再填写新额度。</p><p class="setup-warning">勾选最大额度后，既有分账合约可以在其固定规则内使用此币种的后续额度，直到你撤销。请核对固定收款地址和 keeper。页面不会默认勾选或自动签名。</p><p class="setup-warning">每笔授权需要 SOURCE 钱包在 Anubis 上支付 DAI Gas。</p></section>
+  </main>
+  <div id="dialog-host"></div>
+  <script src="config.js"></script><script src="amounts.js"></script><script src="wallet.js"></script><script src="split-setup.js"></script>
+</body>
+</html>

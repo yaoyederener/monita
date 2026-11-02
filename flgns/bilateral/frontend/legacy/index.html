@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FLGNS OTC · 旧订单撤单取回</title>
+  <meta name="description" content="FLGNS OTC 旧订单管理：查询 Anubis 四个原托管合约，撤销未结清挂单或取回到期资金。旧页面不开放新挂单和成交。">
+  <meta name="theme-color" content="#078d82">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="legacy-mode">
+  <header class="top"><div class="wrap top-in">
+    <a class="brand" href="#dai" aria-label="FLGNS OTC 首页"><span class="logo" aria-hidden="true">F</span><span class="brand-t"><b>FLGNS OTC</b><small>链上担保交易</small></span></a>
+    <span class="chain"><i></i>Anubis <span>6714</span></span>
+    <button class="connect" id="connect-wallet">连接钱包</button>
+  </div></header>
+  <main class="wrap">
+    <div class="page-heading"><div><p class="eyebrow">FLGNS · OTC MARKET</p><h1>旧订单管理</h1><p class="sub">原合约订单查询 · 撤单 · 到期取回</p></div><span class="fee-badge">旧合约原费率 <b>2%</b></span></div>
+    <nav class="market-tabs" aria-label="交易对" id="market-tabs"></nav>
+    <div class="legacy-notice"><span>这里保留四个旧合约的完整订单；旧合约原费率为吃单方 2%。本页已关闭发布和成交，撤单/取回不收交易手续费，也不需要新增代币授权。</span><a href="../">前往双方各 0.4% 新市场 ↗</a></div>
+    <div class="market-actions"><a class="button secondary" href="#my-orders">管理我的旧订单</a><a class="button secondary" href="../">返回新市场 ↗</a></div>
+    <div class="status-banner" id="deployment-status" role="status">正在核对市场配置…</div>
+    <div class="market-bar"><span><b id="current-market">FLGNS / DAI</b><small id="book-status">尚未读取链上订单</small></span><button class="text-button" id="refresh-book"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 11-1l3 3M4 15l3 3a7 7 0 0 0 11-1"/></svg>刷新订单</button></div>
+    <div id="order-books"></div>
+    <div class="form-grid">
+      <section class="card"><div class="card-head"><h2>如何迁移旧挂单？</h2></div><p class="note">连接原挂单钱包，逐个选择 DAI、LGNS、AiLGNS、RM 交易对，在「我的订单」撤单或取回。未结清订单包含已到期但尚未退款的挂单；也可用完整订单编号查询。</p><p class="note">退款始终由旧合约退回原挂单钱包。确认退款后，你可以自行前往新市场重新挂单；不会自动搬移资产或订单。链上旧合约本身保持原逻辑，仍可能被第三方直接调用成交；请尽快撤销不再需要的旧挂单。</p><p><a class="button secondary" href="../">进入双方各 0.4% 新市场 ↗</a></p></section>
+      <aside class="card wallet-card"><div class="card-head"><h2>我的钱包</h2><span class="network-label">Anubis</span></div><div id="wallet-details"><div class="wallet-placeholder"><span class="wallet-icon" aria-hidden="true">▣</span><b>连接钱包，管理旧订单</b><p>查看余额、查询挂单与撤单取回</p><button class="secondary" id="wallet-card-connect">连接钱包</button></div></div><div class="wallet-rules"><div><span>旧合约原费率</span><b>2% · 吃单方承担</b></div><p>本页仅提供查询、撤单和到期取回；不开放发布或成交。撤单/取回不收交易手续费，无须新增代币授权，链上操作仍需 Gas。</p><div><span>Gas 币</span><b>DAI</b></div><p>请在钱包保留 DAI，用于撤单或到期取回的链上交易。</p></div></aside>
+    </div>
+    <section class="card" id="my-orders"><div class="card-head"><h2>我的旧订单</h2><div class="inline-controls"><select id="mine-filter" aria-label="我的订单筛选"><option value="open">全部未结清</option><option value="all">所有订单</option></select><button class="secondary small" id="refund-expired" disabled>取回到期订单</button></div></div><div id="my-order-list" class="empty">连接钱包后显示当前交易对的全部未结清订单</div><div class="lookup"><label for="lookup-id">按订单编号找回</label><div><input id="lookup-id" inputmode="numeric" placeholder="输入完整订单编号，如 0"><button class="secondary" id="lookup-order">查询</button></div><p class="note">订单编号从 0 开始。查询覆盖当前交易对的任何订单，不受列表页数影响。</p><div id="lookup-result" role="status"></div></div></section>
+    <section class="card transparency"><div class="card-head"><h2>合约与手续费</h2><span class="muted">公开可核对</span></div><div class="contract-grid" id="contract-details"></div><details><summary>旧合约原手续费如何收取？</summary><p>旧合约原逻辑仅成交收取 2% 手续费，由吃单方承担，从吃单方收到的挂单币中扣除。例如，吃单成交 100 FLGNS，手续费为 2 FLGNS，吃单方收到 98 FLGNS；挂单方按挂单比例足额收到对方付款。实际金额按各代币精度向下取整。</p><p>每笔手续费的 60% 转至 <a id="fee-60" target="_blank" rel="noopener"></a>；剩余 40% 转至 SOURCE 地址 <a id="fee-40" target="_blank" rel="noopener"></a>。60% 份额按最小单位向下取整，尾差计入 40% 份额。</p></details><details><summary>撤单和到期后如何取回？</summary><p>挂单方可随时撤单，剩余托管币退回原钱包。到期订单不再允许成交，可在「我的订单」主动触发取回；任何人也可以触发已到期订单的退款，资金始终退回挂单方。到期不会自行发出链上交易。</p></details><details><summary>输入金额与代币转账说明</summary><p>本页不接受新挂单与成交，也不会请求代币授权。退款由旧合约将剩余托管币退回原挂单钱包；若代币转账本身受限制导致失败，请保留交易错误信息并联系支持。</p></details></section>
+  </main>
+  <footer class="foot"><div class="wrap foot-in"><a class="brand" href="#dai"><span class="logo small-logo">F</span><span class="brand-t"><b>FLGNS OTC</b><small>flgns.org</small></span></a><p>FLGNS / DAI · LGNS · AiLGNS · RM<span>所有交易由你的钱包确认。请核对代币、合约和金额。</span></p><a href="https://anubisscan.io" target="_blank" rel="noopener">Anubis 浏览器 ↗</a></div></footer>
+  <div id="dialog-host"></div><div class="toast" id="toast" role="status" hidden></div>
+  <script src="config.js"></script><script src="amounts.js"></script><script src="wallet.js"></script><script src="app.js"></script>
+</body>
+</html>

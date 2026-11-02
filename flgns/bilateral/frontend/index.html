@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FLGNS OTC · Anubis 链上担保交易</title>
+  <meta name="description" content="FLGNS OTC：Anubis 链上担保交易，支持 FLGNS / DAI、LGNS、AiLGNS、RM 四个交易对。挂单托管、部分成交、撤单与到期取回。">
+  <meta name="theme-color" content="#078d82">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css?v=bilateral-04">
+</head>
+<body>
+  <header class="top"><div class="wrap top-in">
+    <a class="brand" href="#dai" aria-label="FLGNS OTC 首页"><span class="logo" aria-hidden="true">F</span><span class="brand-t"><b>FLGNS OTC</b><small>链上担保交易</small></span></a>
+    <span class="chain"><i></i>Anubis <span>6714</span></span>
+    <button class="connect" id="connect-wallet">连接钱包</button>
+  </div></header>
+  <main class="wrap">
+    <div class="page-heading"><div><p class="eyebrow">FLGNS · OTC MARKET</p><h1>FLGNS 场外交易</h1><p class="sub">自主定价 · 合约托管 · 按挂单价格成交</p></div><span class="fee-badge">双方各收 <b>0.4%</b></span></div>
+    <nav class="market-tabs" aria-label="交易对" id="market-tabs"></nav>
+    <div class="market-actions"><button class="sell-action" data-goform="sell">＋ 我要卖 FLGNS</button><button class="buy-action" data-goform="buy">＋ 我要买 FLGNS</button><a class="button secondary" href="#my-orders">我的订单</a></div>
+    <div class="legacy-notice"><span>原 2% 市场的挂单仍在原合约中。</span><a href="legacy/" data-legacy-link>管理旧订单 / 撤单取回 ↗</a></div>
+    <div class="status-banner" id="deployment-status" role="status">正在核对市场配置…</div>
+    <div class="market-bar"><span><b id="current-market">FLGNS / DAI</b><small id="book-status">尚未读取链上订单</small></span><button class="text-button" id="refresh-book"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 11-1l3 3M4 15l3 3a7 7 0 0 0 11-1"/></svg>刷新订单</button></div>
+    <div id="order-books"></div>
+    <div class="form-grid">
+      <section class="card order-form" id="create-order"><div class="card-head"><h2>发布挂单</h2><span class="muted">支持部分成交</span></div>
+        <div class="side-tabs" id="side-tabs"><button class="on sell" data-side="sell">卖出 FLGNS</button><button class="buy" data-side="buy">买入 FLGNS</button></div>
+        <form id="create-form">
+          <label class="field"><span id="quantity-label">卖出 FLGNS 数量（扣费前）</span><div class="input-wrap"><input id="flgns-amount" inputmode="decimal" autocomplete="off" placeholder="0.00" required><b>FLGNS</b></div></label>
+          <label class="field"><span id="quote-label">成交报价总额（扣费前）</span><div class="input-wrap"><input id="quote-amount" inputmode="decimal" autocomplete="off" placeholder="0.00" required><b class="quote-symbol">DAI</b></div></label>
+          <div class="price-preview" id="price-preview">填写扣费前数量和报价，预览双方手续费与净收</div>
+          <label class="field"><span>挂单有效期</span><select id="duration"><option value="600">10 分钟</option><option value="1800">30 分钟</option><option value="3600">1 小时</option><option value="21600">6 小时</option><option value="86400">1 天</option><option value="604800" selected>7 天</option><option value="2592000">30 天</option></select></label>
+          <p class="form-note" id="create-note">挂单时锁定卖出的币，未成交部分可随时撤单取回。</p>
+          <button class="primary wide" id="create-submit" type="submit" disabled>市场尚未开放</button>
+          <p class="operation-status" id="create-status" role="status"></p>
+        </form>
+      </section>
+      <aside class="card wallet-card"><div class="card-head"><h2>我的钱包</h2><span class="network-label">Anubis</span></div><div id="wallet-details"><div class="wallet-placeholder"><span class="wallet-icon" aria-hidden="true">▣</span><b>连接钱包，开始交易</b><p>查看余额、发布挂单和管理订单</p><button class="secondary" id="wallet-card-connect">连接钱包</button></div></div><div class="wallet-rules"><div><span>成交手续费</span><b>挂单方 0.4% · 吃单方 0.4%</b></div><p>双方各从自己收到的币中扣除 0.4%，涉及两种代币。挂单、撤单和到期取回不收交易手续费，链上操作仍需 Gas。</p><div><span>Gas 币</span><b>DAI</b></div><p>请在钱包保留 DAI，用于授权及链上交易。</p></div></aside>
+    </div>
+    <section class="card" id="my-orders"><div class="card-head"><h2>我的订单</h2><div class="inline-controls"><a class="secondary button small" href="legacy/#my-orders" data-legacy-link data-section="my-orders">旧订单取回 ↗</a><select id="mine-filter" aria-label="我的订单筛选"><option value="open">全部未结清</option><option value="all">所有订单</option></select><button class="secondary small" id="refund-expired" disabled>取回到期订单</button></div></div><div id="my-order-list" class="empty">连接钱包后显示当前交易对的全部未结清订单</div><div class="lookup"><label for="lookup-id">按订单编号找回</label><div><input id="lookup-id" inputmode="numeric" placeholder="输入完整订单编号，如 0"><button class="secondary" id="lookup-order">查询</button></div><p class="note">订单编号从 0 开始。查询覆盖当前交易对的任何订单，不受列表页数影响。</p><div id="lookup-result" role="status"></div></div></section>
+    <section class="card transparency"><div class="card-head"><h2>合约与手续费</h2><span class="muted">公开可核对</span></div><div class="contract-grid" id="contract-details"></div><details><summary>手续费如何收取与分配？</summary><p>每次成交，挂单方和吃单方各从自己收到的币中扣除 0.4%。例如，卖单成交 100 FLGNS、报价 1,000 DAI：吃单方支付 1,000 DAI，收到 99.6 FLGNS，手续费 0.4 FLGNS；挂单方收到 996 DAI，手续费 4 DAI。付款金额按原始挂单比例向上取整至最小单位，两边手续费分别按各代币精度向下取整；极小额成交的手续费可能为 0。分笔成交逐笔计算，累计净收可能与整单一次成交预估有微小差异。</p><p>两种代币分别收取的每笔手续费，其 60% 转至 <a id="fee-60" target="_blank" rel="noopener"></a>；剩余 40% 转至 SOURCE 地址 <a id="fee-40" target="_blank" rel="noopener"></a>。60% 份额按最小单位向下取整，尾差计入 40% 份额。</p></details><details><summary>撤单和到期后如何取回？</summary><p>挂单方可随时撤单，剩余托管币退回原钱包。到期订单不再允许成交，可在「我的订单」主动触发取回；任何人也可以触发已到期订单的退款，资金始终退回挂单方。到期不会自行发出链上交易。</p></details><details><summary>输入金额与代币转账说明</summary><p>支持 1000.25 和 1,000.25 格式；逗号仅作每三位分组，不作小数点。超出代币精度会要求修改，不会静默截断。授权按本次需要的额度进行。带转账税或转账限制的代币若无法按合约要求准确到账，交易会回退。</p></details></section>
+  </main>
+  <footer class="foot"><div class="wrap foot-in"><a class="brand" href="#dai"><span class="logo small-logo">F</span><span class="brand-t"><b>FLGNS OTC</b><small>flgns.org</small></span></a><p>FLGNS / DAI · LGNS · AiLGNS · RM<span>所有交易由你的钱包确认。请核对代币、合约和金额。</span></p><a href="https://anubisscan.io" target="_blank" rel="noopener">Anubis 浏览器 ↗</a></div></footer>
+  <div id="dialog-host"></div><div class="toast" id="toast" role="status" hidden></div>
+  <script src="config.js?v=bilateral-04"></script><script src="amounts.js?v=bilateral-04"></script><script src="wallet.js"></script><script src="app.js?v=bilateral-04"></script>
+</body>
+</html>
