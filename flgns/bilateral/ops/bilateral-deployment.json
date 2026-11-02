@@ -1,0 +1,52 @@
+{
+  "chainId": 6714,
+  "deployer": "0x89dd06754bb239b6c4c92bc47c8fa72889084e27",
+  "artifactSha256": "9529d6c1ff668249f69df68f574db95c3ecd3736cd54a33181a751244df4c511",
+  "planSha256": "977daeae79d7a1091c32fdd6cda1b8dba5ca8d649ea3d948a8103a7d8397e0c0",
+  "markets": {
+    "dai": {
+      "token": "0x83fd06f0846d9d90b3016bf670efe2e0b11cde14",
+      "address": "0xc4ea53316a3e16d8b6d34c6c24234af6660e7339",
+      "nonce": 391,
+      "tx": "0xbaeb7085437bd894f3a529fd973c15ee0c25eaa98a26ce2d9a6a6bac4e14c109",
+      "verified": true,
+      "block": 18065474,
+      "blockHash": "0x4d2661e50612125e58690d2401a24e1bb97652307f5cd78621c24461602f1d72",
+      "gasUsed": 1472942,
+      "runtimeKeccak256": "0x54ffe2a172ad189370d04c0eb78114e038837a3a1c157adfd2ce88742939fbf3"
+    },
+    "lgns": {
+      "token": "0x4d1d808a081fdac440703b3765fc61f8028c06b8",
+      "address": "0xf0330d8cca86a378387c4614fd45feb365de4046",
+      "nonce": 392,
+      "tx": "0x3263a8d2d40b7afe790016ab94ce353ba49176c85ed0a3ce868dda3d4aba435b",
+      "verified": true,
+      "block": 18065490,
+      "blockHash": "0x79c69bc6ec74cf1543cb9476b79dbd8022e8a3e8080297e087cfe350cbb9bd3b",
+      "gasUsed": 1472971,
+      "runtimeKeccak256": "0x6827f25d0d25c62594ac160d44787e1ab5cf714c90ac7d7ab191188386fc3bcd"
+    },
+    "ailgns": {
+      "token": "0x256edb652db43e721ec6a12b6b51b6967d3bb8cb",
+      "address": "0x738f6bc29a4c17c2b723e51edacd953910591196",
+      "nonce": 393,
+      "tx": "0x6c4ef9e341f79fa88a621ce854cfa9eba787a3bc296565ca5eae4ec693506f99",
+      "verified": true,
+      "block": 18065505,
+      "blockHash": "0x7181bd6e164d2788c36306206eb84d7b6ce76d0e6bbeda00354c5f8428808067",
+      "gasUsed": 1473000,
+      "runtimeKeccak256": "0x481fc68da2e32d124c7651112648da5656cb8a683ff0e293c5ad3ebae1db3811"
+    },
+    "rm": {
+      "token": "0x2e045e1380f5f5b6e7550328910a7377c9fce59d",
+      "address": "0x26cb1272f4fa0f54a9208a31391b983618cc3001",
+      "nonce": 394,
+      "tx": "0x4dfb7226aabd00f743f642e0793086a55d3ed6583ed71f0b3e64b34665b871ac",
+      "verified": true,
+      "block": 18065520,
+      "blockHash": "0x1a9c7708cbf3bc70045e29089887302b471010a735f8f9406ebae72660384c0b",
+      "gasUsed": 1473029,
+      "runtimeKeccak256": "0xe69324db8598933a262e02dda756b3aad916759ed6ab5cefd85aad9763a9e60c"
+    }
+  }
+}

@@ -117,6 +117,8 @@ def main():
         for b in range(st["scanned_to"] + 1, latest[chain] + 1, span):
             end = min(latest[chain], b + span - 1)
             logs = rpc(chain, "eth_getLogs", [{"address": tok, "fromBlock": hex(b), "toBlock": hex(end), "topics": [TRANSFER, None, "0x" + pad(SOURCE)]}])
+            # SOURCE -> SOURCE emits Transfer but adds no balance or distributable income.
+            logs = [l for l in logs if l["topics"][1].lower() != "0x" + pad(SOURCE)]
             income += sum(int(l["data"], 16) for l in logs)
             for l in logs:  # 记下每一笔，最后发邮件
                 frm = "0x" + l["topics"][1][26:]
