@@ -1,0 +1,65 @@
+name: FLGNS deploy four new OTC markets
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Verify the saved plan, or deploy exactly that plan
+        type: choice
+        options: [verify, deploy]
+        default: verify
+
+permissions:
+  contents: read
+  actions: read
+
+# Must be identical to the existing keeper's group: no concurrent signer nonce.
+concurrency:
+  group: otc-refund-keeper
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install signing and ABI libraries
+        run: python -m pip install eth-account==0.13.4 eth-abi==5.2.0
+      - name: Recover previous deployment journal if present
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prior_url=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=flgns-deployment-journal&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].archive_download_url // empty')
+          if [ -n "$prior_url" ]; then
+            gh api "$prior_url" > "$RUNNER_TEMP/flgns-journal.zip"
+            python - <<'PY'
+          import os, zipfile
+          from pathlib import Path
+          with zipfile.ZipFile(Path(os.environ['RUNNER_TEMP']) / 'flgns-journal.zip') as archive:
+              candidates = [n for n in archive.namelist() if n == 'deployment.json']
+              if len(candidates) != 1:
+                  raise SystemExit('Prior deployment artifact lacks one unambiguous deployment.json; recover it before retrying')
+              Path('flgns/ops/deployment.json').write_bytes(archive.read(candidates[0]))
+          PY
+          fi
+      - name: Verify fixed plan and any earlier receipts
+        run: python flgns/ops/deploy.py
+      - name: Deploy only saved nonce and address plan
+        if: inputs.mode == 'deploy'
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+        run: python flgns/ops/deploy.py --broadcast
+      - name: Preserve journal even if a receipt or RPC fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flgns-deployment-journal
+          path: flgns/ops/deployment.json
+          if-no-files-found: warn
+          retention-days: 90
