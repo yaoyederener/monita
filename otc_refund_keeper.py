@@ -26,6 +26,8 @@ ESCROWS = [
     ["gLGNS（Anubis）", "anubis", "0x2b0ab121d60f823fffc4cef75af26055df388e2b", 7],
     ["AWAKE NFT 卡牌（Anubis）", "anubis", "0x8c67912b3ed44f4512c2f22b7b2263f6659396ed", 6],
     ["AiLGNS 抵押借款（Anubis）", "anubis", "0x242ab392571d325d814a48892ac16115a6d285dc", 10],
+    ["LGNS 抵押借款（Anubis）", "anubis", "0x439cb33e9c5d7a26dd1fa503efe6fd3033ac173b", 10],
+    ["gLGNS 抵押借款（Anubis）", "anubis", "0x00e674bb1559557966a6c2244c36d12a63218a5f", 10],
     ["AiLGNS 抵押借款 · 旧单向合约（已下架，只退旧单）", "anubis", "0x8d84d678d195e770caad263d1c37967ec796165c", 9],  # 双向版重新部署后填地址（旧的 0x8d84…165c 单向版没有任何借款，弃用）
 ]
 LOAN_SEL_COUNT = "0x9d11ed75"  # loansCount()
