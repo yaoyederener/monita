@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "chainId": 6714,
+  "deployer": "0x89dd06754bb239b6c4c92bc47c8fa72889084e27",
+  "artifactSha256": "a869218e2a55ea352acab591f2364deaf4de56fca8261f132898d4293f774c47",
+  "anchorBlock": 18054778,
+  "anchorHash": "0x4b192dfcb500557d123ca3f93c245536c961be67184f99c3c707f4e5322822d0",
+  "maximumCostWei": "85496952000000000",
+  "hardCapWei": "2000000000000000000",
+  "splitter": "0xeee877c1b6285b82890bdcd027d2715f658ecf23",
+  "splitBaseline": {
+    "0xffffbe730e2cde54d8928d36f547e41deb66aaaa": "0",
+    "0x2e045e1380f5f5b6e7550328910a7377c9fce59d": "0"
+  },
+  "markets": [
+    {
+      "name": "dai",
+      "token": "0x83fd06f0846d9d90b3016bf670efe2e0b11cde14",
+      "nonce": 336,
+      "gas": 1781129,
+      "gasPrice": 12000000000,
+      "address": "0x79308e458a84070caeb10de89914f7f1eace081c"
+    },
+    {
+      "name": "lgns",
+      "token": "0x4d1d808a081fdac440703b3765fc61f8028c06b8",
+      "nonce": 337,
+      "gas": 1781167,
+      "gasPrice": 12000000000,
+      "address": "0x7bc2ba0f3189ef0c39385436d5a272f360900714"
+    },
+    {
+      "name": "ailgns",
+      "token": "0x256edb652db43e721ec6a12b6b51b6967d3bb8cb",
+      "nonce": 338,
+      "gas": 1781206,
+      "gasPrice": 12000000000,
+      "address": "0xd18d48a28345d948d18b7840a5b33dced56f7eab"
+    },
+    {
+      "name": "rm",
+      "token": "0x2e045e1380f5f5b6e7550328910a7377c9fce59d",
+      "nonce": 339,
+      "gas": 1781244,
+      "gasPrice": 12000000000,
+      "address": "0x52105b21ac346e69d4eb7259b270238280ecc069"
+    }
+  ]
+}

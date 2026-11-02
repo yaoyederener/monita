@@ -1,0 +1,74 @@
+name: FLGNS isolated OTC refunds and fee split
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Submit refunds and approved FLGNS/RM splits (otherwise dry-run)
+        type: boolean
+        default: false
+  # Fixed live deployments are verified. Missing SOURCE approvals fail closed;
+  # no split is sent and no fee checkpoint advances until approval is sufficient.
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: otc-refund-keeper
+  cancel-in-progress: false
+
+jobs:
+  keeper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install eth-account==0.13.4 eth-abi==5.2.0
+      - name: Recover deployment and last keeper state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for artifact_name in flgns-deployment-v2-journal flgns-keeper-state; do
+            prior_url=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].archive_download_url // empty')
+            if [ -n "$prior_url" ]; then
+              gh api "$prior_url" > "$RUNNER_TEMP/${artifact_name}.zip"
+              python - "$RUNNER_TEMP/${artifact_name}.zip" <<'PY'
+          from pathlib import Path
+          import sys, zipfile
+          permitted = {'live-deployment-plan.json', 'deployment.json', 'keeper-state.json', 'keeper-transactions.json'}
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              for name in archive.namelist():
+                  filename = Path(name).name
+                  if filename in permitted:
+                      Path('flgns/ops', filename).write_bytes(archive.read(name))
+          PY
+            fi
+          done
+          test -f flgns/ops/deployment.json
+          test -f flgns/ops/live-deployment-plan.json
+      - name: Read-only complete scan
+        if: inputs.execute != true && github.event_name != 'schedule'
+        run: python flgns/ops/keeper.py --plan flgns/ops/live-deployment-plan.json
+      - name: Refund and split only the four verified new markets
+        if: inputs.execute == true || github.event_name == 'schedule'
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+        run: python flgns/ops/keeper.py --plan flgns/ops/live-deployment-plan.json --execute
+      - name: Preserve checkpoint and transaction journal on every outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flgns-keeper-state
+          path: |
+            flgns/ops/keeper-state.json
+            flgns/ops/keeper-transactions.json
+          if-no-files-found: warn
+          retention-days: 90
