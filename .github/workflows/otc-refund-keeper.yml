@@ -69,6 +69,14 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u otc_fee_split.py
 
+      - name: Auto-match crossing OTC orders (profit goes to the buyback contract)
+        if: always()
+        continue-on-error: true
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u otc_matcher.py
+
       - name: Buy back AiLGNS with Anubis income and split 40/30/30
         if: always()
         continue-on-error: true

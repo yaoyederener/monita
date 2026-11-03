@@ -25,6 +25,7 @@ from notify_mail import send as send_mail
 BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"  # 回购分账合约地址（2026-11-03 部署）
 START = 18104818  # 回购合约部署所在区块：从这里开始算收入
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
+MATCHER = "0xdcc5354175d60ffc8364e71e792fcd66366f00fe"  # OTC 撮合合约：退回收款钱包的是本金，不算收入（利润直接进回购合约）
 LGNS, DAI, AIL = "0x4d1d808a081fdac440703b3765fc61f8028c06b8", "0x83fd06f0846d9d90b3016bf670efe2e0b11cde14", "0x256edb652db43e721ec6a12b6b51b6967d3bb8cb"
 LGNS_OTC, AIL_OTC = "0xb6a7a3be9a17ad241665ab9bddbd9a573d488818", "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"
 LGNS_PAIR, AIL_PAIR = "0x32a4586797e3f561f41c0f47ca57ed08d64f3dc0", "0x0a1cce65d995c6c5100e6f5ba3c388ef34cecaf0"  # token0 = 币，token1 = DAI
@@ -114,7 +115,7 @@ def income(state, latest):
         for b in range(st["scanned_to"] + 1, latest + 1, 5000):
             end = min(latest, b + 4999)
             logs = rpc("anubis", "eth_getLogs", [{"address": tok, "fromBlock": hex(b), "toBlock": hex(end), "topics": [TRANSFER, None, "0x" + pad(SOURCE)]}])
-            inc += sum(int(l["data"], 16) for l in logs if "0x" + l["topics"][1][26:] not in (SOURCE, BUYBACK))
+            inc += sum(int(l["data"], 16) for l in logs if "0x" + l["topics"][1][26:] not in (SOURCE, BUYBACK, MATCHER))
             st["scanned_to"] = end
         st["income"] = str(inc)
 
