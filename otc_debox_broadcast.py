@@ -1,6 +1,6 @@
 """AiLGNS OTC 挂单播报：把托管合约里正在挂的买单、卖单发到 DeBox 群。
 
-有新挂单时马上播报一次；没有新挂单时，每隔 DEBOX_SUMMARY_HOURS 小时（默认 2）播报一次当前挂单汇总。没有挂单就不发。
+有新挂单时播报一次（一小时最多一次，没播的新挂单攒到下次）；没有新挂单时，每隔 DEBOX_SUMMARY_HOURS 小时（默认 2）播报一次当前挂单汇总。没有挂单就不发。
 需要的环境变量（放在 GitHub Secrets）：
   DEBOX_API_KEY     DeBox 机器人的 App Key（BotMother → /mybots → 机器人管理页）
   DEBOX_API_SECRET  DeBox 机器人的 App Secret（可选，用于签名）
@@ -141,7 +141,7 @@ def main():
         reason = None
     elif args.test:
         reason = "test"
-    elif new_ids:
+    elif new_ids and time.time() - state.get("last_summary", 0) >= 3600:  # 站长要求：营销群一小时最多播一次，新挂单攒到下一小时一起播
         reason = "new"
     elif due:
         reason = "summary"
@@ -153,7 +153,8 @@ def main():
         if not args.dry_run and send(text):
             state["last_summary"] = time.time()
     if not args.dry_run:
-        state["next_id"] = count
+        if reason or not new_ids:  # 新挂单还没播出去就先不往后挪，下一小时一起播
+            state["next_id"] = count
         os.makedirs(os.path.dirname(STATE), exist_ok=True)
         with open(STATE, "w") as f:
             json.dump(state, f)
