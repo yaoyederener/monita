@@ -80,8 +80,20 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u otc_buyback.py
 
-      - name: Broadcast OTC orders to DeBox group
+      - name: Sell Polygon income to DAI and bridge it to Anubis for the buyback
         if: always()
+        continue-on-error: true
+        env:
+          OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          OPS_EMAILS: ${{ secrets.OPS_EMAILS }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u polygon_bridge.py
+
+      - name: Broadcast OTC orders to DeBox group
+        # 营销群只发网站的每小时播报（挂单、好单、成交合成一条，站长要求）；这里只在手动测试时运行
+        if: ${{ always() && inputs.debox_test }}
         continue-on-error: true
         env:
           DEBOX_API_KEY: ${{ secrets.DEBOX_API_KEY }}
@@ -135,7 +147,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # 一个一个加：某个文件还没生成时（比如 gas_alert.json），不能连累别的状态文件都存不上（之前就因为这样每 5 分钟重发一次邮件）
-          for f in data/otc_broadcast.json data/fee_split.json data/buyback.json data/kv_backup.json data/site_guard.json data/gas_alert.json; do
+          for f in data/otc_broadcast.json data/fee_split.json data/buyback.json data/kv_backup.json data/site_guard.json data/gas_alert.json data/polygon_bridge.json; do
             if [ -f "$f" ]; then git add "$f"; fi
           done
           git diff --cached --quiet && exit 0
