@@ -134,7 +134,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/otc_broadcast.json data/fee_split.json data/buyback.json data/kv_backup.json data/site_guard.json data/gas_alert.json 2>/dev/null || true
+          # 一个一个加：某个文件还没生成时（比如 gas_alert.json），不能连累别的状态文件都存不上（之前就因为这样每 5 分钟重发一次邮件）
+          for f in data/otc_broadcast.json data/fee_split.json data/buyback.json data/kv_backup.json data/site_guard.json data/gas_alert.json; do
+            if [ -f "$f" ]; then git add "$f"; fi
+          done
           git diff --cached --quiet && exit 0
           git commit -m "Update OTC broadcast and fee split state"
           for i in 1 2 3; do
