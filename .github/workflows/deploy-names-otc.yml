@@ -1,4 +1,4 @@
-name: Deploy Names v2 + OTC (one-time)
+name: Deploy Names v3 + OTC (one-time)
 
 on:
   workflow_dispatch:
