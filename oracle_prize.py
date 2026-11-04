@@ -32,7 +32,7 @@ NAMES = ["0xbc408e9d7350967e7247c917a086cb4ece0ed988", "0x93af23fe74e5180f54f099
 PAID = "0x26c4308021cef5cdbc618fee8b61faf9de6b8f7e4e49fac43869dc1a26756408"  # Paid(payer, token, amount, costDai)
 OWN = {SOURCE, "0x89dd06754bb239b6c4c92bc47c8fa72889084e27"}  # 站长自己付的不算收入
 START = 18161697  # 域名合约（第 3 版）部署区块
-START_TS = 1793808000  # 2026-11-05 00:00 北京时间：从这一刻起的域名收入才留奖金（第一期 11 月 6 日开奖 = 11 月 5 日收入 × 20%）
+START_TS = 1793721600  # 2026-11-04 00:00 北京时间：从这一刻起的域名收入留 20% 奖金（11 月 4 日的 20% = 开局奖池，第一期 11 月 6 日开奖）
 SHARE_BPS = 2000  # 20%
 SITE = "https://ailgns.dev/api/oracle"
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "oracle_prize.json")
