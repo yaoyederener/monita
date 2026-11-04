@@ -1,8 +1,8 @@
-"""🔮 AiLGNS 每日预言家：从域名收入里留出 20% 当奖金，并把奖金自动发给中奖的人。
+"""🔮 AiLGNS 每日预言家：从域名收入里留出 70% 当奖金（2026-11-05 起；之前是 20%），并把奖金自动发给中奖的人。
 
 钱怎么走（不改任何合约）：
   域名注册 / 续费的钱直接进回购分账合约 BUYBACK（0x99f4）。
-  ① 每次运行先读两个域名合约的 Paid 事件，累计「应留奖金」= 域名收入（costDai）× 20%（站长自己付的不算，和网站日报同一口径）。
+  ① 每次运行先读两个域名合约的 Paid 事件，累计「应留奖金」= 域名收入（costDai）× 70%（站长自己付的不算，和网站日报同一口径）。
   ② BUYBACK 里有 DAI 时，用合约自带的 refund(DAI) 把它退回收款钱包 SOURCE：
      其中「应留奖金」那部分留在 SOURCE 当奖金池；其余部分记进 otc_buyback.py 的待处理收入，同一次运行里马上被回购分账取走。
      （先从 DAI 里留，不够再从 AiLGNS 里按现价留；用 LGNS 付的域名费，应留奖金先记账，等下次有 DAI / AiLGNS 进来再留。）
@@ -33,7 +33,7 @@ PAID = "0x26c4308021cef5cdbc618fee8b61faf9de6b8f7e4e49fac43869dc1a26756408"  # P
 OWN = {SOURCE, "0x89dd06754bb239b6c4c92bc47c8fa72889084e27"}  # 站长自己付的不算收入
 START = 18161697  # 域名合约（第 3 版）部署区块
 START_TS = 1793721600  # 2026-11-04 00:00 北京时间：从这一刻起的域名收入留 20% 奖金（11 月 4 日的 20% = 开局奖池，第一期 11 月 6 日开奖）
-SHARE_BPS = 2000  # 20%
+SHARE_BPS = 7000  # 70%（站长 2026-11-05 决定：合伙人先不分，收入的 70% 回馈参与的客户；之前的收入按 20% 已经算过，不追溯）
 SITE = "https://ailgns.dev/api/oracle"
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "oracle_prize.json")
 BUY_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "buyback.json")
