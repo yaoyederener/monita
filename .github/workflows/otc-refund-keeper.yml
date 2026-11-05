@@ -82,6 +82,7 @@ jobs:
         continue-on-error: true
         env:
           OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
+          POOL_KEY: ${{ secrets.POOL_KEY }}
           BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}

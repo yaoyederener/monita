@@ -1,20 +1,21 @@
-"""🔮 AiLGNS 每日预言家：从域名收入里留出 70% 当奖金（2026-11-05 起；之前是 20%），并把奖金自动发给中奖的人。
+"""🔮 AiLGNS 每日预言家：从域名收入里留出 70% 当奖金，奖金只以 AiLGNS 发放（2026-11-05 站长定）。
 
-钱怎么走（不改任何合约）：
+钱怎么走（不改任何合约，奖池钱包和 keeper 都只以普通用户身份操作）：
   域名注册 / 续费的钱直接进回购分账合约 BUYBACK（0x99f4）。
-  ① 每次运行先读两个域名合约的 Paid 事件，累计「应留奖金」= 域名收入（costDai）× 70%（站长自己付的不算，和网站日报同一口径）。
-  ② BUYBACK 里有 DAI 时，用合约自带的 refund(DAI) 把它退回收款钱包 SOURCE：
-     其中「应留奖金」那部分留在 SOURCE 当奖金池；其余部分记进 otc_buyback.py 的待处理收入，同一次运行里马上被回购分账取走。
-     （先从 DAI 里留，不够再从 AiLGNS 里按现价留；用 LGNS 付的域名费，应留奖金先记账，等下次有 DAI / AiLGNS 进来再留。）
-  发奖先用 DAI，DAI 不够用 AiLGNS（按现价折算）。
-  ③ 读 ailgns.dev/api/oracle?pay=1 的待发奖金，用触发钱包按 SOURCE 给它的 DAI 授权额度 transferFrom(SOURCE → 中奖钱包)，发完回报网站。
+  ① 每次运行先读域名合约的 Paid 事件，累计「应留奖金」= 域名收入（costDai）× 70%（站长自己付的不算）。
+  ② BUYBACK 里有 DAI / AiLGNS 时，用合约自带的 refund() 退回收款钱包 SOURCE；「应留奖金」那部分立刻用
+     SOURCE 给触发钱包的授权额度 transferFrom 到【奖池钱包 POOL】；其余照常回购分账。
+  ③ 奖池钱包里 DAI 累计满 100，就在本站 OTC 吃最便宜的卖单买 AiLGNS（限价 ≤ DEX 现价 × 1.5），币留在奖池钱包。
+  ④ 读 ailgns.dev/api/oracle?pay=1 的待发奖金，按网站算好的 AiLGNS 数量从奖池钱包直接 transfer 给中奖人；
+     奖池 AiLGNS 不够就先买，还不够就这轮不发、下轮再试（永远不发 DAI）。
 必须在 otc_buyback.py 之前运行（工作流里排在它前面）。
-需要：OTC_KEEPER_KEY（触发钱包）、BACKUP_KEY（读写网站发奖记录）；SOURCE 先给触发钱包授权 DAI 发奖额度（网站预言家页面用 0xedb9 连接后有按钮）。
+需要：OTC_KEEPER_KEY（触发钱包）、POOL_KEY（奖池钱包 0xd69f…dba4）、BACKUP_KEY（读写网站发奖记录）。
     python oracle_prize.py --dry-run   # 只算，不发交易
 """
 import argparse
 import json
 import os
+import time
 import urllib.request
 
 from eth_account import Account
@@ -38,6 +39,12 @@ SITE = "https://ailgns.dev/api/oracle"
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "oracle_prize.json")
 BUY_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "buyback.json")
 TX = "https://anubisscan.io/tx/"
+POOL_ADDR = "0xd69fd045e23c8a45c6b3f6b9a4ef66592d51dba4"  # 奖池钱包（只放奖池的钱，私钥在 GitHub Secret POOL_KEY）
+OTC = "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"  # AiLGNS/DAI OTC 合约
+BOOK = "https://ailgns.dev/api/book?m=ailgns&fresh=1"
+BUY_MIN = 100 * 10**18  # 奖池 DAI 满 100 就去 OTC 买 AiLGNS
+BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
+MAX_U = (1 << 256) - 1
 
 
 def sel(sig):
@@ -95,61 +102,142 @@ def main():
             json.dump(st, f)
 
     keeper = Account.from_key(os.environ["OTC_KEEPER_KEY"]) if os.environ.get("OTC_KEEPER_KEY") else None
-    # ② 从 BUYBACK 里的 DAI 留出奖金（退回 SOURCE，多退的记回 otc_buyback 的待处理收入）
+    pool = Account.from_key(os.environ["POOL_KEY"]) if os.environ.get("POOL_KEY") else None
+    pool_addr = pool.address.lower() if pool else POOL_ADDR
+    bal = lambda tok, who: num(tok, "0x70a08231" + pad(who))
+    now_ts = int(time.time())
+
+    # 欠奖池但还没转过去的（授权不够等原因），每次先补转
+    def move_to_pool(tok, amount, why):
+        key = "to_pool_dai" if tok == DAI else "to_pool_ail"
+        if amount <= 0 or not keeper or dry:
+            return
+        allow = num(tok, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address))
+        have = bal(tok, SOURCE)
+        n = min(amount, allow, have)
+        if n <= 0:
+            st[key] = str(int(st.get(key, "0")) + amount)
+            print(f"⚠️ 欠奖池 {amount / 1e18:.6f} {'DAI' if tok == DAI else 'AiLGNS'} 没转成（授权 {allow / 1e18:.4f}，余额 {have / 1e18:.4f}），记账下次再转")
+            return
+        h = send_tx("anubis", keeper, tok, "0x23b872dd" + pad(SOURCE) + pad(pool_addr) + f"{n:064x}", "奖金转入奖池钱包")
+        st[key] = str(int(st.get(key, "0")) + amount - n)
+        print(f"{why}：{n / 1e18:.6f} {'DAI' if tok == DAI else 'AiLGNS'} 转入奖池钱包 {TX}{h}")
+    for tok, key in ((DAI, "to_pool_dai"), (AIL, "to_pool_ail")):
+        owe_pool = int(st.get(key, "0"))
+        if owe_pool > 0:
+            st[key] = "0"
+            move_to_pool(tok, owe_pool, "补转欠款")
+
+    # ② 从 BUYBACK 里留出奖金：refund 回 SOURCE，应留的那份马上转进奖池钱包；多退的记回 otc_buyback 的待处理收入
     for tok, name in ((DAI, "DAI"), (AIL, "AiLGNS")):
-        carry = num(tok, "0x70a08231" + pad(BUYBACK))
+        carry = bal(tok, BUYBACK)
         if owed <= 0 or carry <= 0 or not keeper or dry:
             continue
         want = owed if tok == DAI else owed * r_ail // r_dai  # AiLGNS 按现价折算
         keep = min(carry, want)
         h = send_tx("anubis", keeper, BUYBACK, sel("refund(address)") + pad(tok), f"退回 {name} 留奖金")
         bs = json.load(open(BUY_STATE))
-        bs[tok]["income"] = str(int(bs[tok]["income"]) + carry - keep)  # 多退的这部分由 otc_buyback.py 照常回购分账
+        bs[tok]["income"] = str(int(bs[tok]["income"]) + carry - keep)
         with open(BUY_STATE, "w") as f:
             json.dump(bs, f)
-        if tok == DAI:
-            owed, held = owed - keep, held + keep
-        else:
-            owed, held_ail = max(0, owed - keep * r_dai // r_ail), held_ail + keep
-        save()  # 退回已经上链：两份记账马上存，后面出错也不会错账
+        owed = owed - keep if tok == DAI else max(0, owed - keep * r_dai // r_ail)
+        save()
         print(f"退回 {carry / 1e18:.6f} {name} 到收款钱包：留 {keep / 1e18:.6f} 当奖金，其余照常回购分账 {TX}{h}")
+        move_to_pool(tok, keep, "留出的奖金")
 
-    # ③ 发奖
+    # ③ 奖池 DAI 满 100 → 在本站 OTC 吃最便宜的卖单买 AiLGNS（限价 ≤ DEX × 1.5）
+    def buy_ailgns(budget, why):
+        if not pool or dry or budget < 10**18:
+            return 0, 0
+        cap = r_dai * BUY_CAP / r_ail  # 每枚最多付多少 DAI（两种币都是 18 位小数）
+        bk = http(BOOK)
+        w, frm = bk["orders"][2:], int(bk.get("from", 0))
+        ws = [w[k:k + 64] for k in range(0, len(w), 64)]
+        n_ord = int(ws[1], 16) if len(ws) > 1 else 0
+        sells = []
+        for k in range(n_ord):
+            o = ws[2 + k * 7: 9 + k * 7]
+            if len(o) < 7:
+                break
+            sell, is_open, expiry = int(o[1], 16) == 1, int(o[2], 16) == 1, int(o[3], 16)
+            give_t, want_t, give_l = int(o[4], 16), int(o[5], 16), int(o[6], 16)
+            if not (sell and is_open and give_l > 0 and expiry > now_ts and give_t > 0):
+                continue
+            px = want_t / give_t
+            if px <= cap:
+                sells.append((px, frm + k, give_t, want_t, give_l))
+        sells.sort()
+        if not sells:
+            print(f"OTC 没有 ≤ {cap:.3f} DAI/枚 的卖单，先不买")
+            return 0, 0
+        if num(DAI, "0xdd62ed3e" + pad(pool_addr) + pad(OTC)) < budget:
+            send_tx("anubis", pool, DAI, "0x095ea7b3" + pad(OTC) + f"{MAX_U:064x}", "奖池钱包授权 OTC 用 DAI")
+        spent = got = 0
+        for px, oid, give_t, want_t, give_l in sells:
+            if budget - spent < 10**18:
+                break
+            amount = min(give_l, (budget - spent) * give_t // want_t)
+            pay = -(-amount * want_t // give_t)  # 向上取整
+            while pay > budget - spent and amount > 0:
+                amount -= 10**12
+                pay = -(-amount * want_t // give_t)
+            if pay < 10**18 or amount <= 0:
+                continue
+            data = "0x6fe4a448" + f"{oid:064x}" + f"{amount:064x}" + f"{pay:064x}"  # fill(id, amount, pay)
+            try:
+                h = send_tx("anubis", pool, OTC, data, f"奖池买入 AiLGNS #{oid}")
+            except Exception as e:  # 被人抢先吃了等情况：跳过这张
+                print(f"吃单 #{oid} 失败，跳过：{str(e)[:120]}")
+                continue
+            spent += pay
+            got += amount * 99 // 100  # 吃单方手续费 1%，从收到的币里扣
+            print(f"{why}：吃单 #{oid} 花 {pay / 1e18:.2f} DAI 买到约 {amount * 99 / 100 / 1e18:.6f} AiLGNS（{px:.3f} DAI/枚） {TX}{h}")
+        return spent, got
+    pool_dai = bal(DAI, pool_addr)
+    if pool_dai >= BUY_MIN:
+        buy_ailgns(pool_dai - 2 * 10**18, "奖池换币")  # 留 2 DAI 当 Gas（Anubis 链 Gas 就是 DAI）
+
+    # ④ 发奖：只发 AiLGNS，按网站算好的数量，从奖池钱包直接转给中奖人
     key = os.environ.get("BACKUP_KEY")
     sent, short = [], []
+    px_otc = 0.0
+    try:
+        px_otc = float(((http(SITE).get("funds") or {}).get("otc") or {}).get("px") or 0)
+    except Exception:
+        pass
+    if not px_otc:
+        px_otc = r_dai / r_ail
     if key:
         todo = http(SITE + "?pay=1&key=" + key).get("pay", [])
         for p in todo:
-            amt = int(round(p["amt"] * 100)) * 10**16
-            if not keeper or dry:
-                short.append(f"{p['name']} {p['amt']} DAI（dry-run）")
+            ail = float(p.get("ail") or 0) or p["amt"] / px_otc
+            n = int(round(ail * 10**6)) * 10**12
+            if not pool or dry:
+                short.append(f"{p['name']} {ail:.6f} AiLGNS（dry-run）")
                 continue
-            # 先用 DAI 发；DAI 不够就用 AiLGNS 按现价折算
-            tok, n = (DAI, amt) if amt <= held else (AIL, amt * r_ail // r_dai)
-            pool = held if tok == DAI else held_ail
-            allow = num(tok, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address))
-            bal = num(tok, "0x70a08231" + pad(SOURCE))
-            if n > pool or n > allow or n > bal:
-                short.append(f"{p['name']} {p['amt']} DAI（奖金池 {held / 1e18:.2f} DAI + {held_ail / 1e18:.4f} AiLGNS，授权 {allow / 1e18:.4f}）")
+            have = bal(AIL, pool_addr)
+            if have < n:  # 不够就先买
+                need_dai = int((n - have) * px_otc * 1.03)
+                buy_ailgns(min(need_dai, bal(DAI, pool_addr) - 2 * 10**18), "发奖补币")
+                have = bal(AIL, pool_addr)
+            if have < n:
+                short.append(f"{p['name']} {ail:.6f} AiLGNS（奖池只有 {have / 1e18:.6f}，下轮再发）")
                 continue
-            data = "0x23b872dd" + pad(SOURCE) + pad(p["a"]) + f"{n:064x}"  # transferFrom(SOURCE, 中奖钱包, n)
-            h = send_tx("anubis", keeper, tok, data, "发预言家奖金")
-            if tok == DAI:
-                held -= n
-            else:
-                held_ail -= n
-            save()
-            http(SITE, {"action": "paid", "id": p["id"], "tx": h, "key": key})
-            st["paid"] = (st.get("paid") or [])[-200:] + [{"id": p["id"], "amt": p["amt"], "tx": h}]
-            sent.append(f"{p['day']} { {'jackpot': '🎯 大奖', 'closest': '🥇 最接近', 'second': '🥈 第二', 'king': '💰 贡献王'}.get(p['kind'], p['kind']) } {p['name']}：{p['amt']} DAI {TX}{h}")
+            h = send_tx("anubis", pool, AIL, "0xa9059cbb" + pad(p["a"]) + f"{n:064x}", "发预言家奖金")
+            http(SITE, {"action": "paid", "id": p["id"], "tx": h, "key": key, "ail": round(n / 1e18, 6)})
+            st["paid"] = (st.get("paid") or [])[-200:] + [{"id": p["id"], "amt": p["amt"], "ail": round(n / 1e18, 6), "tx": h}]
+            sent.append(f"{p['day']} { {'jackpot': '🔮 神算子', 'closest': '👁 天眼通', 'second': '🌿 地灵通', 'king': '💰 贡献王'}.get(p['kind'], p['kind']) } {p['name']}：{n / 1e18:.6f} AiLGNS（≈ {p['amt']} DAI） {TX}{h}")
+    # 记账：奖池钱包链上实际余额（网站也直接读链，这里只是留个记录）
+    held, held_ail = bal(DAI, pool_addr), bal(AIL, pool_addr)
     if not dry:
         save()
+    print(f"奖池钱包 {pool_addr}：{held / 1e18:.2f} DAI + {held_ail / 1e18:.6f} AiLGNS")
     if sent:
         print("\n".join(sent))
         ops = [e.strip() for e in (os.environ.get("OPS_EMAILS") or "").split(",") if e.strip()]
-        send_mail("AiLGNS 预言家奖金已发", "\n".join(sent) + "\n\n—— AiLGNS 服务站", ops or None)
+        send_mail("AiLGNS 预言家奖金已发（AiLGNS）", "\n".join(sent) + "\n\n—— AiLGNS 服务站", ops or None)
     if short:
-        print("还没发（奖金池或授权不够）：" + "；".join(short))
+        print("还没发：" + "；".join(short))
 
 
 if __name__ == "__main__":
