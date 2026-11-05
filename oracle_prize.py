@@ -141,7 +141,7 @@ def main():
             save()
             http(SITE, {"action": "paid", "id": p["id"], "tx": h, "key": key})
             st["paid"] = (st.get("paid") or [])[-200:] + [{"id": p["id"], "amt": p["amt"], "tx": h}]
-            sent.append(f"{p['day']} {'🎯 大奖' if p['kind'] == 'jackpot' else '🥇 最接近'} {p['name']}：{p['amt']} DAI {TX}{h}")
+            sent.append(f"{p['day']} { {'jackpot': '🎯 大奖', 'closest': '🥇 最接近', 'second': '🥈 第二', 'king': '💰 贡献王'}.get(p['kind'], p['kind']) } {p['name']}：{p['amt']} DAI {TX}{h}")
     if not dry:
         save()
     if sent:
