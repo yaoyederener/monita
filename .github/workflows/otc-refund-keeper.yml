@@ -90,6 +90,15 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u oracle_prize.py
 
+      - name: Oracle anchor - write today's prediction fingerprint on-chain after 21:00 BJT
+        if: always()
+        continue-on-error: true
+        env:
+          POOL_KEY: ${{ secrets.POOL_KEY }}
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u oracle_anchor.py
+
       - name: Buy back AiLGNS with Anubis income and split 40/30/30
         if: always()
         continue-on-error: true
