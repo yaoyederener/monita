@@ -1,4 +1,4 @@
-"""🔮 AiLGNS 每日预言家：从域名收入里留出 70% 当奖金，奖金只以 AiLGNS 发放（2026-11-05 站长定）。
+"""🔮 AiLGNS 每日预言家：奖金只以 AiLGNS 发放。2026-11-07 起域名收入不再往奖池留（SHARE_BPS = 0），回购合约里的域名收入每次全额退回收款钱包；奖池只用现有余额发奖。
 
 钱怎么走（不改任何合约，奖池钱包和 keeper 都只以普通用户身份操作）：
   域名注册 / 续费的钱直接进回购分账合约 BUYBACK（0x99f4）。
@@ -34,7 +34,7 @@ PAID = "0x26c4308021cef5cdbc618fee8b61faf9de6b8f7e4e49fac43869dc1a26756408"  # P
 OWN = {SOURCE, "0x89dd06754bb239b6c4c92bc47c8fa72889084e27"}  # 站长自己付的不算收入
 START = 18161697  # 域名合约（第 3 版）部署区块
 START_TS = 1793721600  # 2026-11-04 00:00 北京时间：从这一刻起的域名收入留 20% 奖金（11 月 4 日的 20% = 开局奖池，第一期 11 月 6 日开奖）
-SHARE_BPS = 7000  # 70%（站长 2026-11-05 决定：合伙人先不分，收入的 70% 回馈参与的客户；之前的收入按 20% 已经算过，不追溯）
+SHARE_BPS = 0  # 0%（站长 2026-11-07 决定：奖池已经够大，域名收入不再往奖池留，也不补之前的欠款，全部退回收款钱包；之前是 70%，再之前 20%）
 SITE = "https://ailgns.dev/api/oracle"
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "oracle_prize.json")
 BUY_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "buyback.json")
@@ -42,6 +42,7 @@ TX = "https://anubisscan.io/tx/"
 POOL_ADDR = "0xd69fd045e23c8a45c6b3f6b9a4ef66592d51dba4"  # 奖池钱包（只放奖池的钱，私钥在 GitHub Secret POOL_KEY）
 OTC = "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"  # AiLGNS/DAI OTC 合约
 BOOK = "https://ailgns.dev/api/book?m=ailgns&fresh=1"
+REFUND_MIN = 10 * 10**18  # 回购合约里攒到 10 DAI 才退一次，省 Gas
 BUY_MIN = 100 * 10**18  # 奖池 DAI 满 100 就去 OTC 买 AiLGNS
 BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
 MAX_U = (1 << 256) - 1
@@ -91,6 +92,9 @@ def main():
             st["start_ok"] = True
     st["income"] = str(int(st["income"]) + new_cost)
     owed = int(st["owed"]) + new_cost * SHARE_BPS // 10000
+    if SHARE_BPS == 0:  # 站长 2026-11-07：不补欠款，欠账一笔勾销
+        owed = 0
+        st["to_pool_dai"] = st["to_pool_ail"] = "0"
     held, held_ail = int(st["held"]), int(st.get("held_ail", "0"))
     w = rpc("anubis", "eth_call", [{"to": AIL_PAIR, "data": "0x0902f1ac"}, "latest"])[2:]
     r_ail, r_dai = int(w[:64], 16), int(w[64:128], 16)  # AiLGNS 现价 = r_dai / r_ail
@@ -131,18 +135,22 @@ def main():
     # ② 从 BUYBACK 里留出奖金：refund 回 SOURCE，应留的那份马上转进奖池钱包；多退的记回 otc_buyback 的待处理收入
     for tok, name in ((DAI, "DAI"), (AIL, "AiLGNS")):
         carry = bal(tok, BUYBACK)
-        if owed <= 0 or carry <= 0 or not keeper or dry:
+        if carry <= 0 or not keeper or dry:
             continue
-        want = owed if tok == DAI else owed * r_ail // r_dai  # AiLGNS 按现价折算
+        if carry < REFUND_MIN and tok == DAI:
+            print(f"回购合约里只有 {carry / 1e18:.4f} {name}，不到 {REFUND_MIN / 1e18:.0f} 先不退（省 Gas）")
+            continue
+        want = owed if tok == DAI else owed * r_ail // r_dai  # AiLGNS 按现价折算（SHARE_BPS = 0 时恒为 0）
         keep = min(carry, want)
-        h = send_tx("anubis", keeper, BUYBACK, sel("refund(address)") + pad(tok), f"退回 {name} 留奖金")
-        bs = json.load(open(BUY_STATE))
-        bs[tok]["income"] = str(int(bs[tok]["income"]) + carry - keep)
-        with open(BUY_STATE, "w") as f:
-            json.dump(bs, f)
+        h = send_tx("anubis", keeper, BUYBACK, sel("refund(address)") + pad(tok), f"退回 {name} 到收款钱包")
+        if SHARE_BPS > 0:  # 只有在分账/留奖池时才把退回的钱记成「待回购收入」；现在全部留在收款钱包，不记账，免得恢复分账时被一次性分掉
+            bs = json.load(open(BUY_STATE))
+            bs[tok]["income"] = str(int(bs[tok]["income"]) + carry - keep)
+            with open(BUY_STATE, "w") as f:
+                json.dump(bs, f)
         owed = owed - keep if tok == DAI else max(0, owed - keep * r_dai // r_ail)
         save()
-        print(f"退回 {carry / 1e18:.6f} {name} 到收款钱包：留 {keep / 1e18:.6f} 当奖金，其余照常回购分账 {TX}{h}")
+        print(f"退回 {carry / 1e18:.6f} {name} 到收款钱包：留 {keep / 1e18:.6f} 当奖金 {TX}{h}")
         move_to_pool(tok, keep, "留出的奖金")
 
     # ③ 奖池 DAI 满 100 → 在本站 OTC 吃最便宜的卖单买 AiLGNS（限价 ≤ DEX × 1.5）
