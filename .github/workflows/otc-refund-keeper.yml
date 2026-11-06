@@ -57,8 +57,10 @@ jobs:
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
         run: python -c "import notify_mail; ok = notify_mail.send('AiLGNS 服务站：测试邮件', '邮件通知已经设置好了。以后有新挂单、收到付款、完成分账，都会发到这个邮箱。'); raise SystemExit(0 if ok else 1)"
 
+      # 站长 2026-11-07：分账暂停（要加人、改比例，改成链下分账表后再开）。收入照常进收款钱包 0xedb9，只是不分。
+      # 恢复：GitHub 仓库 Settings → Secrets and variables → Actions → Variables 新建 SPLIT_ON = 1
       - name: Split new OTC fees 30/40/30
-        if: always()
+        if: ${{ always() && vars.SPLIT_ON == '1' }}
         continue-on-error: true
         env:
           OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
@@ -100,7 +102,7 @@ jobs:
         run: python -u oracle_anchor.py
 
       - name: Buy back AiLGNS with Anubis income and split 40/30/30
-        if: always()
+        if: ${{ always() && vars.SPLIT_ON == '1' }}
         continue-on-error: true
         env:
           OTC_KEEPER_KEY: ${{ secrets.OTC_KEEPER_KEY }}
