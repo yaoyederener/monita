@@ -14,18 +14,21 @@ import time
 from eth_account import Account
 
 from chains import rpc, send_tx
-from otc_buyback import DAI, DAI_RESERVE, GAS_TIP, KEEPER_LOW, LGNS_OTC, AIL_OTC, SOURCE, num, orders, pad, sel, take
+from otc_buyback import DAI, DAI_RESERVE, GAS_TIP, KEEPER_LOW, LGNS_OTC, AIL_OTC, LGNS_PAIR, AIL_PAIR, SOURCE, num, orders, pad, sel, spot, take
 
 MATCHER = "0xdcc5354175d60ffc8364e71e792fcd66366f00fe"  # 撮合合约地址（2026-11-03 部署，区块 18174407）
 MAX_ROUNDS = 30
 MAX_TX = 5  # 每次最多发 5 笔撮合
 MIN_PROFIT = 3 * 10**17  # 至少赚 0.3 DAI 才撮合（够付 Gas）
 FEE = 0.99  # 每次吃单扣 1%
+BAND = 0.10  # 🛡️ 站长 2026-11-07 定：只撮合离 DEX 市价 10% 以内的单；买单出价高过市价 10%、卖单要价低于市价 10% 的是客户手滑，不吃（前端也不让这种单提交）
 TX = "https://anubisscan.io/tx/"
 
 
-def best_pair(book, now):
+def best_pair(book, now, dex=None):
     live = [o for o in book if o[3] and o[4] > now and o[7] > 0]
+    if dex:  # dex = DAI/币 的原始单位比价；离市价超过 BAND 的亏损单不碰
+        live = [o for o in live if ((o[6] / o[5] >= dex * (1 - BAND)) if o[2] else (o[5] / o[6] <= dex * (1 + BAND)))]
     sells = sorted((o for o in live if o[2]), key=lambda o: o[6] / o[5])  # 要价从低到高
     buys = sorted((o for o in live if not o[2]), key=lambda o: -o[5] / o[6])  # 出价从高到低
     for s in sells:
@@ -47,9 +50,14 @@ def main():
     if not MATCHER:
         print("撮合合约还没部署，只检查")
     sent = 0
-    for name, otc in (("LGNS", LGNS_OTC), ("AiLGNS", AIL_OTC)):
+    for name, otc, pair in (("LGNS", LGNS_OTC, LGNS_PAIR), ("AiLGNS", AIL_OTC, AIL_PAIR)):
+        try:
+            t, d = spot(pair)
+            dex = d / t if t else None  # DAI 原始单位 / 币原始单位，和挂单的 want/give 同一口径
+        except Exception:
+            dex = None
         while sent < MAX_TX:
-            p = best_pair(orders(otc), time.time() + 120)
+            p = best_pair(orders(otc), time.time() + 120, dex)
             if not p:
                 print(f"{name}：没有能撮合的单")
                 break
