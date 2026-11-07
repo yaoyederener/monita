@@ -26,7 +26,7 @@ TX = "https://anubisscan.io/tx/"
 
 
 def best_pair(book, now, dex=None):
-    live = [o for o in book if o[3] and o[4] > now and o[7] > 0]
+    live = [o for o in book if o[3] and o[4] > now and o[7] > 0 and (take(o, 10**40)[1] if o[2] else o[7]) >= 10**18]  # 剩不到 1 DAI 的零头单不算（之前零头卖单排第一导致周转算成 0）
     if dex and BAND:  # BAND 为 None 时不过滤（2026-11-07 晚取消价格带）
         live = [o for o in live if ((o[6] / o[5] >= dex * (1 - BAND)) if o[2] else (o[5] / o[6] <= dex * (1 + BAND)))]
     sells = sorted((o for o in live if o[2]), key=lambda o: o[6] / o[5])  # 要价从低到高
