@@ -10,7 +10,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -q eth-account requests
+      - run: pip install -q "eth-account==0.13.4"
       - name: Probe direct DEX buy/sell with 1 DAI
         env:
           ARB_KEY: ${{ secrets.ARB_KEY }}
