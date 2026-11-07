@@ -1,0 +1,24 @@
+name: arb-probe
+# 手动触发：用套利钱包 1 DAI 实测「直接在交易对上买 / 卖 AiLGNS」通不通，并校准折损率（gh workflow run arb-probe）
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q eth-account requests
+      - name: Probe direct DEX buy/sell with 1 DAI
+        env:
+          ARB_KEY: ${{ secrets.ARB_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u arb_keeper.py --probe
+      - name: Save probe result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/arb.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "arb probe result" && git pull --rebase -q origin main && git push origin HEAD:main)

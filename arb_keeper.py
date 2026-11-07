@@ -57,10 +57,58 @@ def bal(tok, who):
     return num(tok, "0x70a08231" + pad(who))
 
 
+def probe(acct, me, st):
+    """实测：用 1 DAI 直接在交易对上买 AiLGNS（不走官方 router），再原样卖回去。验证普通钱包能不能直接买 / 卖，并校准折损率"""
+    dai0, ail0 = bal(DAI, me), bal(AIL, me)
+    r_tok, r_dai = spot(AIL_PAIR)
+    put = 10**18
+    want = dex_out(put, r_dai, r_tok) * 95 // 100  # 买：DAI 进 → 币出，留 5% 余量
+    print(f"[probe] 买：1 DAI 换 ≥ {want / 1e18:.6f} AiLGNS（理论 {dex_out(put, r_dai, r_tok) / 1e18:.6f}）")
+    send_tx("anubis", acct, DAI, "0xa9059cbb" + pad(AIL_PAIR) + f"{put:064x}", "probe 转 1 DAI 进交易对")
+    try:
+        h1 = send_tx("anubis", acct, AIL_PAIR, sel("swap(uint256,uint256,address,bytes)") + f"{want:064x}" + f"{0:064x}" + pad(me) + f"{128:064x}" + f"{0:064x}", "probe DEX 买入")
+    except Exception as e:
+        print(f"[probe] ❌ 直接买入失败（{str(e)[:160]}）。1 DAI 留在交易对里了（会被下一笔 swap 吃掉，当学费）。结论：普通钱包不能直接在 DEX 买 AiLGNS，只能走「OTC 低价吃 → DEX 卖」一条腿")
+        st["probe"] = {"t": int(time.time()), "buy": False, "err": str(e)[:200]}
+        save(st)
+        return
+    got = bal(AIL, me) - ail0
+    eff_buy = (dex_out(put, r_dai, r_tok) / got) if got else 0
+    print(f"[probe] ✅ 直接买入成功：到手 {got / 1e18:.6f} AiLGNS（理论/实收 = {eff_buy:.4f}） {TX}{h1}")
+    r_tok, r_dai = spot(AIL_PAIR)
+    out_min = dex_out(got, r_tok, r_dai) * 90 // 100  # 卖：币进 → DAI 出，留 10% 余量（有税）
+    send_tx("anubis", acct, AIL, "0xa9059cbb" + pad(AIL_PAIR) + f"{got:064x}", "probe 转币进交易对")
+    try:
+        h2 = send_tx("anubis", acct, AIL_PAIR, sel("swap(uint256,uint256,address,bytes)") + f"{0:064x}" + f"{out_min:064x}" + pad(me) + f"{128:064x}" + f"{0:064x}", "probe DEX 卖出")
+    except Exception as e:
+        print(f"[probe] ❌ 直接卖出失败（{str(e)[:160]}）。币留在交易对里了。结论：直接买能，直接卖不能")
+        st["probe"] = {"t": int(time.time()), "buy": True, "sell": False, "err": str(e)[:200]}
+        save(st)
+        return
+    back = bal(DAI, me) - (dai0 - put)
+    theo = dex_out(got, r_tok, r_dai)
+    eff_sell = back / theo if theo else 0
+    st["probe"] = {"t": int(time.time()), "buy": True, "sell": True, "got": got / 1e18, "back": back / 1e18, "buy_eff": round(1 / eff_buy, 4) if eff_buy else None, "sell_eff": round(eff_sell, 4)}
+    if 0.5 < eff_sell < 1.01: st["sell_eff"] = round(eff_sell, 4)
+    if eff_buy and 0.9 < 1 / eff_buy < 1.01: st["buy_eff"] = round(1 / eff_buy, 4)
+    save(st)
+    print(f"[probe] ✅ 直接卖出成功：1 DAI 买的币卖回 {back / 1e18:.4f} DAI（卖出折损 {(1 - eff_sell) * 100:.2f}%，买入折损 {(eff_buy - 1) * 100:.2f}%）。两条腿都通。 {TX}{h2}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
-    dry = ap.parse_args().dry_run
+    ap.add_argument("--probe", action="store_true", help="用 1 DAI 实测直接买卖是否可行，并校准折损率")
+    args = ap.parse_args()
+    dry = args.dry_run
+    if args.probe:
+        key = os.environ.get("ARB_KEY")
+        if not key: raise SystemExit("probe 需要 ARB_KEY")
+        acct = Account.from_key(key)
+        st = load()
+        if bal(DAI, acct.address.lower()) < 3 * 10**18: raise SystemExit("套利钱包 DAI 不足 3，先转 20 DAI 进来")
+        probe(acct, acct.address.lower(), st)
+        return
     key = os.environ.get("ARB_KEY")
     acct = Account.from_key(key) if key else None
     me = acct.address.lower() if acct else ARB_ADDR
