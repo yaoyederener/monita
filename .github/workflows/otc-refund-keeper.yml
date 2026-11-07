@@ -92,6 +92,15 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u oracle_prize.py
 
+      - name: Reg bot - register names for customers who delegated (batch step 2)
+        if: always()
+        continue-on-error: true
+        env:
+          REG_KEY: ${{ secrets.REG_KEY }}
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u reg_bot.py
+
       - name: Oracle anchor - write today's prediction fingerprint on-chain after 21:00 BJT
         if: always()
         continue-on-error: true
