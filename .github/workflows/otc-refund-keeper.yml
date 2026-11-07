@@ -101,7 +101,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u reg_bot.py
 
-      - name: Med nag - remind the owner to take KarXT (10:00 / 22:00 BJT) until checked
+      - name: Med nag - owner medication check-in reminder (10:00 / 22:00 BJT) until checked
         if: always()
         continue-on-error: true
         env:
