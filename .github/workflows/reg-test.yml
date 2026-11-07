@@ -1,0 +1,24 @@
+name: reg-test
+# 手动：代注册机器人全流程小额测试（套利钱包当客户，花 5 DAI 注册一个 5 位数）
+on:
+  workflow_dispatch:
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q "eth-account==0.13.4"
+      - name: Customer side - approve + sign + order
+        env:
+          ARB_KEY: ${{ secrets.ARB_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u reg_test.py
+      - name: Bot side - process the order
+        env:
+          REG_KEY: ${{ secrets.REG_KEY }}
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u reg_bot.py
