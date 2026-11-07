@@ -5,7 +5,7 @@
   ① 每次运行先读域名合约的 Paid 事件，累计「应留奖金」= 域名收入（costDai）× 70%（站长自己付的不算）。
   ② BUYBACK 里有 DAI / AiLGNS 时，用合约自带的 refund() 退回收款钱包 SOURCE；「应留奖金」那部分立刻用
      SOURCE 给触发钱包的授权额度 transferFrom 到【奖池钱包 POOL】；其余照常回购分账。
-  ③ 奖池钱包里 DAI 累计满 100，就在本站 OTC 吃最便宜的卖单买 AiLGNS（限价 ≤ DEX 现价 × 1.5），币留在奖池钱包。
+  ③ 奖池钱包里闲置 DAI 满 100，就在本站 OTC 挂一张买单（买一上面一点点，≤ 卖一、≤ DEX × 1.02）等人来卖；发奖急用币时才撤单吃卖单（限价 ≤ DEX × 1.5）。
   ④ 读 ailgns.dev/api/oracle?pay=1 的待发奖金，按网站算好的 AiLGNS 数量从奖池钱包直接 transfer 给中奖人；
      奖池 AiLGNS 不够就先买，还不够就这轮不发、下轮再试（永远不发 DAI）。
 必须在 otc_buyback.py 之前运行（工作流里排在它前面）。
@@ -22,6 +22,7 @@ from eth_account import Account
 from eth_utils import keccak
 
 from chains import rpc, send_tx
+from otc_buyback import orders as read_orders
 from notify_mail import send as send_mail
 
 BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"
@@ -45,6 +46,11 @@ BOOK = "https://ailgns.dev/api/book?m=ailgns&fresh=1"
 REFUND_MIN = 10 * 10**18  # 回购合约里攒到 10 DAI 才退一次，省 Gas
 BUY_MIN = 100 * 10**18  # 奖池 DAI 满 100 就去 OTC 买 AiLGNS
 BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
+# 🪧 站长 2026-11-07 定：奖池换币不再吃卖单，改成在 OTC 挂买单（挂在买一上面一点点），等人来卖：不付 1% 手续费、不吃别人的价，盘口还多一层真实买方深度。
+#    只挂一张，奖池所有闲置 DAI 都挂上（留 2 DAI 当 Gas）；价格偏离目标 1% 以上或 1 天内到期就撤了重挂；发奖急需币时先撤单再吃单。
+BID_TTL = 7 * 86400
+BID_DRIFT = 0.01
+BID_MIN = BUY_MIN  # 挂单起步 100 DAI
 MAX_U = (1 << 256) - 1
 
 
@@ -198,9 +204,49 @@ def main():
             got += amount * 99 // 100  # 吃单方手续费 1%，从收到的币里扣
             print(f"{why}：吃单 #{oid} 花 {pay / 1e18:.2f} DAI 买到约 {amount * 99 / 100 / 1e18:.6f} AiLGNS（{px:.3f} DAI/枚） {TX}{h}")
         return spent, got
-    pool_dai = bal(DAI, pool_addr)
-    if pool_dai >= BUY_MIN:
-        buy_ailgns(pool_dai - 2 * 10**18, "奖池换币")  # 留 2 DAI 当 Gas（Anubis 链 Gas 就是 DAI）
+    # 奖池自己挂在 OTC 的买单（maker = 奖池钱包、买币、还开着）
+    def pool_bids():
+        return [o for o in read_orders(OTC) if o[1] == pool_addr and not o[2] and o[3] and o[7] > 0]
+
+    def cancel_bids(why):
+        for o in pool_bids():
+            if dry:
+                print(f"（dry-run）会撤买单 #{o[0]}：{why}")
+                continue
+            h = send_tx("anubis", pool, OTC, "0x40e58ee5" + f"{o[0]:064x}", f"奖池撤买单 #{o[0]}")
+            print(f"撤买单 #{o[0]}（{why}），{o[7] / 1e18:.2f} DAI 退回奖池 {TX}{h}")
+
+    def maintain_bid():
+        """奖池换币：维持一张挂在买一上面一点点的买单（≤ 卖一、≤ DEX × 1.02、≤ DEX × BUY_CAP）"""
+        book = [o for o in read_orders(OTC) if o[3] and o[4] > now_ts + 60 and o[7] > 0 and o[1] != pool_addr]
+        bids = [o[5] / o[6] for o in book if not o[2]]
+        asks = [o[6] / o[5] for o in book if o[2]]
+        dex = r_dai / r_ail
+        target = max(bids) * 1.001 if bids else dex * 0.98
+        target = min(target, dex * 1.02, dex * BUY_CAP, (min(asks) * 0.999) if asks else target)
+        mine = pool_bids()
+        free = bal(DAI, pool_addr) - 2 * 10**18
+        stale = [o for o in mine if abs(o[5] / o[6] - target) > target * BID_DRIFT or o[4] < now_ts + 86400]
+        if len(mine) > 1 or stale or (mine and free >= BID_MIN):
+            cancel_bids("价格偏了 / 快到期 / 有新 DAI 要并进来" if mine else "")
+            free = (bal(DAI, pool_addr) - 2 * 10**18) if not dry else free + sum(o[7] for o in mine)
+            mine = []
+        if mine:
+            o = mine[0]
+            print(f"奖池买单 #{o[0]} 在挂：{o[5] / o[6]:.3f} DAI/枚，剩 {o[7] / 1e18:.2f} DAI（目标 {target:.3f}，买一 {max(bids) if bids else 0:.3f} / 卖一 {min(asks) if asks else 0:.3f} / DEX {dex:.3f}）")
+            return
+        if free < BID_MIN:
+            print(f"奖池闲置 DAI {max(free, 0) / 1e18:.2f}，不到 {BID_MIN / 1e18:.0f}，先不挂")
+            return
+        want = free * 10**18 // int(target * 1e18)
+        if dry:
+            print(f"（dry-run）会挂买单：{free / 1e18:.2f} DAI 买 {want / 1e18:.6f} AiLGNS（{target:.3f} DAI/枚；买一 {max(bids) if bids else 0:.3f} / 卖一 {min(asks) if asks else 0:.3f} / DEX {dex:.3f}）")
+            return
+        if num(DAI, "0xdd62ed3e" + pad(pool_addr) + pad(OTC)) < free:
+            send_tx("anubis", pool, DAI, "0x095ea7b3" + pad(OTC) + f"{MAX_U:064x}", "奖池钱包授权 OTC 用 DAI")
+        h = send_tx("anubis", pool, OTC, "0x9128a740" + f"{0:064x}" + f"{free:064x}" + f"{want:064x}" + f"{BID_TTL:064x}", "奖池挂买单")
+        st["bid"] = {"t": now_ts, "dai": round(free / 1e18, 2), "px": round(target, 3), "tx": h}
+        print(f"奖池挂买单：{free / 1e18:.2f} DAI 买 {want / 1e18:.6f} AiLGNS（{target:.3f} DAI/枚，7 天） {TX}{h}")
 
     # ④ 发奖：只发 AiLGNS，按网站算好的数量，从奖池钱包直接转给中奖人
     key = os.environ.get("BACKUP_KEY")
@@ -221,8 +267,10 @@ def main():
                 short.append(f"{p['name']} {ail:.6f} AiLGNS（dry-run）")
                 continue
             have = bal(AIL, pool_addr)
-            if have < n:  # 不够就先买
+            if have < n:  # 不够就先买：钱挂在买单里的话先撤回来
                 need_dai = int((n - have) * px_otc * 1.03)
+                if bal(DAI, pool_addr) - 2 * 10**18 < need_dai:
+                    cancel_bids("发奖要用钱")
                 buy_ailgns(min(need_dai, bal(DAI, pool_addr) - 2 * 10**18), "发奖补币")
                 have = bal(AIL, pool_addr)
             if have < n:
@@ -232,6 +280,12 @@ def main():
             http(SITE, {"action": "paid", "id": p["id"], "tx": h, "key": key, "ail": round(n / 1e18, 6)})
             st["paid"] = (st.get("paid") or [])[-200:] + [{"id": p["id"], "amt": p["amt"], "ail": round(n / 1e18, 6), "tx": h}]
             sent.append(f"{p['day']} { {'jackpot': '🔮 神算子', 'closest': '👁 天眼通', 'second': '🌿 地灵通', 'king': '💰 贡献王'}.get(p['kind'], p['kind']) } {p['name']}：{n / 1e18:.6f} AiLGNS（≈ {p['amt']} DAI） {TX}{h}")
+    # ⑤ 发完奖，剩下的闲置 DAI 挂成买单（奖池换币）
+    if pool:
+        try:
+            maintain_bid()
+        except Exception as e:
+            print(f"奖池挂买单出错（下轮再试）：{str(e)[:160]}")
     # 记账：奖池钱包链上实际余额（网站也直接读链，这里只是留个记录）
     held, held_ail = bal(DAI, pool_addr), bal(AIL, pool_addr)
     if not dry:
