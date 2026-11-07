@@ -32,6 +32,11 @@ AIL = "0x256edb652db43e721ec6a12b6b51b6967d3bb8cb"
 AIL_PAIR = "0x0a1cce65d995c6c5100e6f5ba3c388ef34cecaf0"  # token0 = AiLGNS，token1 = DAI
 NAMES = ["0xbc408e9d7350967e7247c917a086cb4ece0ed988", "0x93af23fe74e5180f54f0996fa6bb6c157775f7f3"]
 PAID = "0x26c4308021cef5cdbc618fee8b61faf9de6b8f7e4e49fac43869dc1a26756408"  # Paid(payer, token, amount, costDai)
+REG = "0xa15b66031269f1c32be8db1e4353108dc76c84574a7c6697527e431ad921462a"  # NameRegistered：data 里有 label（和 Paid 同一笔交易）
+# ⚡ 极速预言家资金池（站长 2026-11-08 定：批量注册的收入 10% 留运营收入、90% 进这个专用钱包，和每日奖池分开；普通注册照旧 70/30）
+FAST_POOL = "0x8610bf581b1c10cb7d372f93b8cdcde382a7c1d1"
+FAST_BPS = 9000
+BT_API = "https://ailgns.dev/api/batch-mark?days=5"  # 网站给的「批量注册」名字清单
 OWN = {SOURCE, "0x89dd06754bb239b6c4c92bc47c8fa72889084e27"}  # 站长自己付的不算收入
 START = 18161697  # 域名合约（第 3 版）部署区块
 START_TS = 1793721600  # 2026-11-04 00:00 北京时间：从这一刻起的域名收入留 20% 奖金（11 月 4 日的 20% = 开局奖池，第一期 11 月 6 日开奖）
@@ -82,9 +87,24 @@ def main():
 
     # ① 新的域名收入 → 应留奖金
     new_cost = 0
+    fast_cost = 0  # 批量注册（打了标记）的收入，单独算
+    try:
+        tagged = set(http(BT_API).get("labels") or [])
+    except Exception:
+        tagged = set()
+    def dec_label(data):  # NameRegistered 的 data 里 ABI string
+        try:
+            h = data[2:]; off = int(h[:64], 16) // 32; ln = int(h[off * 64:off * 64 + 64], 16)
+            return bytes.fromhex(h[(off + 1) * 64:(off + 1) * 64 + ln * 2]).decode("utf-8").lower()
+        except Exception:
+            return ""
     for b in range(st["scanned_to"] + 1, latest + 1, 5000):
         end = min(latest, b + 4999)
         for c in NAMES:
+            regs = {}
+            if tagged:
+                for r in rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(b), "toBlock": hex(end), "topics": [REG]}]):
+                    regs[r["transactionHash"]] = dec_label(r["data"])
             for l in rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(b), "toBlock": hex(end), "topics": [PAID]}]):
                 if "0x" + l["topics"][1][26:] in OWN:
                     continue
@@ -92,11 +112,19 @@ def main():
                     bt = int(rpc("anubis", "eth_getBlockByNumber", [l["blockNumber"], False])["timestamp"], 16)
                     if bt < START_TS:
                         continue
-                new_cost += int(l["data"][2 + 64:2 + 128], 16)
+                cost = int(l["data"][2 + 64:2 + 128], 16)
+                if regs.get(l["transactionHash"]) in tagged:
+                    fast_cost += cost
+                else:
+                    new_cost += cost
         st["scanned_to"] = end
         if not st.get("start_ok") and int(rpc("anubis", "eth_getBlockByNumber", [hex(end), False])["timestamp"], 16) >= START_TS:
             st["start_ok"] = True
     st["income"] = str(int(st["income"]) + new_cost)
+    st["fast_income"] = str(int(st.get("fast_income", "0")) + fast_cost)
+    st["fast_owed"] = str(int(st.get("fast_owed", "0")) + fast_cost * FAST_BPS // 10000)  # 欠极速资金池的（90%）
+    if fast_cost:
+        print(f"批量注册收入 {fast_cost / 1e18:.2f} DAI → 90% 应转极速资金池 {fast_cost * FAST_BPS / 10000 / 1e18:.2f}")
     owed = int(st["owed"]) + new_cost * SHARE_BPS // 10000
     if not st.get("owed_cleared"):  # 站长 2026-11-07：之前欠奖池的一笔勾销，只留从现在起每笔域名收入的 70%
         owed = new_cost * SHARE_BPS // 10000
@@ -133,6 +161,17 @@ def main():
         h = send_tx("anubis", keeper, tok, "0x23b872dd" + pad(SOURCE) + pad(pool_addr) + f"{n:064x}", "奖金转入奖池钱包")
         st[key] = str(int(st.get(key, "0")) + amount - n)
         print(f"{why}：{n / 1e18:.6f} {'DAI' if tok == DAI else 'AiLGNS'} 转入奖池钱包 {TX}{h}")
+    # ⚡ 欠极速资金池的 DAI：从谷歌社交账号钱包用周转授权转到 FAST_POOL（专用钱包，和每日奖池分开）
+    fast_owe = int(st.get("fast_owed", "0"))
+    if fast_owe > 0 and keeper and not dry:
+        allow = num(DAI, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address)); have = bal(DAI, SOURCE)
+        n = min(fast_owe, allow, have)
+        if n > 10**17:
+            h = send_tx("anubis", keeper, DAI, "0x23b872dd" + pad(SOURCE) + pad(FAST_POOL) + f"{n:064x}", "批量注册收入 90% 转入极速资金池")
+            st["fast_owed"] = str(fast_owe - n)
+            print(f"极速资金池：{n / 1e18:.2f} DAI 已转入 {FAST_POOL} {TX}{h}")
+        else:
+            print(f"⚠️ 欠极速资金池 {fast_owe / 1e18:.2f} DAI 没转成（授权 {allow / 1e18:.2f}，余额 {have / 1e18:.2f}），下轮再转")
     for tok, key in ((DAI, "to_pool_dai"), (AIL, "to_pool_ail")):
         owe_pool = int(st.get(key, "0"))
         if owe_pool > 0:
