@@ -21,7 +21,8 @@ from otc_buyback import AIL, AIL_OTC, AIL_PAIR, DAI, num, orders, pad, sel, spot
 
 ARB_ADDR = "0x06cc2a46d7ad17496c2de9c61362808e06b44437"
 MAX_DAI = int(float(os.environ.get("ARB_MAX_DAI", "300")) * 1e18)  # 单笔最多动用多少 DAI
-MIN_PROFIT = int(float(os.environ.get("ARB_MIN_PROFIT", "1")) * 1e18)  # 单笔净利至少 1 DAI（站长 2026-11-08 定：大于 1u 就做，每笔必须有利润）
+MIN_PROFIT = int(float(os.environ.get("ARB_MIN_PROFIT", "1")) * 1e18)
+PATH_B = os.environ.get("ARB_PATH_B", "0") == "1"  # 路径 B（DEX 买 → OTC 卖）：2026-11-07 实测普通钱包直接在交易对买 AiLGNS 会 TRANSFER_FAILED，默认关；只有 probe 证明买得通才开  # 单笔净利至少 1 DAI（站长 2026-11-08 定：大于 1u 就做，每笔必须有利润）
 MIN_BPS = int(os.environ.get("ARB_MIN_BPS", "30"))  # 且至少 0.3%
 GAS_KEEP = 2 * 10**18  # 钱包永远留 2 DAI 付 Gas（Anubis 链 Gas 就是 DAI）
 FEE = 99  # OTC 吃单到手 99%
@@ -95,12 +96,45 @@ def probe(acct, me, st):
     print(f"[probe] ✅ 直接卖出成功：1 DAI 买的币卖回 {back / 1e18:.4f} DAI（卖出折损 {(1 - eff_sell) * 100:.2f}%，买入折损 {(eff_buy - 1) * 100:.2f}%）。两条腿都通。 {TX}{h2}")
 
 
+def probe_sell(acct, me, st):
+    """只测卖出：钱包里已有的 AiLGNS（最多 0.002 个）直接转进交易对 swap 成 DAI，验证「OTC 低价吃 → DEX 卖」这条腿通不通"""
+    ail = bal(AIL, me)
+    if ail < 10**14: raise SystemExit("套利钱包没有 AiLGNS，先转 0.002 个进来再测卖出")
+    put = min(ail, 2 * 10**15)
+    dai0 = bal(DAI, me)
+    r_tok, r_dai = spot(AIL_PAIR)
+    theo = dex_out(put, r_tok, r_dai)
+    out_min = theo * 85 // 100
+    print(f"[probe] 卖：{put / 1e18:.6f} AiLGNS 理论换 {theo / 1e18:.4f} DAI")
+    send_tx("anubis", acct, AIL, "0xa9059cbb" + pad(AIL_PAIR) + f"{put:064x}", "probe 转币进交易对")
+    try:
+        h2 = send_tx("anubis", acct, AIL_PAIR, sel("swap(uint256,uint256,address,bytes)") + f"{0:064x}" + f"{out_min:064x}" + pad(me) + f"{128:064x}" + f"{0:064x}", "probe DEX 卖出")
+    except Exception as e:
+        print(f"[probe] ❌ 直接卖出失败（{str(e)[:160]}）。结论：普通钱包直接买、直接卖都不行，DEX 套利做不了")
+        st["probe"] = {"t": int(time.time()), "buy": False, "sell": False, "err": str(e)[:200]}
+        save(st)
+        return
+    back = bal(DAI, me) - dai0
+    eff_sell = back / theo if theo else 0
+    st["probe"] = {"t": int(time.time()), "buy": False, "sell": True, "sold": put / 1e18, "back": back / 1e18, "sell_eff": round(eff_sell, 4)}
+    if 0.5 < eff_sell < 1.01: st["sell_eff"] = round(eff_sell, 4)
+    save(st)
+    print(f"[probe] ✅ 直接卖出成功：{put / 1e18:.6f} AiLGNS 卖得 {back / 1e18:.4f} DAI（折损 {(1 - eff_sell) * 100:.2f}%）。路径 A（OTC 低价吃 → DEX 卖）可以开。 {TX}{h2}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--probe", action="store_true", help="用 1 DAI 实测直接买卖是否可行，并校准折损率")
+    ap.add_argument("--probe-sell", action="store_true", help="只测卖出：用钱包里已有的 ≤0.002 AiLGNS 直接卖进交易对")
     args = ap.parse_args()
     dry = args.dry_run
+    if args.probe_sell:
+        key = os.environ.get("ARB_KEY")
+        if not key: raise SystemExit("probe 需要 ARB_KEY")
+        acct = Account.from_key(key)
+        probe_sell(acct, acct.address.lower(), load())
+        return
     if args.probe:
         key = os.environ.get("ARB_KEY")
         if not key: raise SystemExit("probe 需要 ARB_KEY")
@@ -138,7 +172,7 @@ def main():
         if profit > MIN_PROFIT and profit * 10000 > pay * MIN_BPS and (best is None or profit > best["profit"]):
             best = {"path": "A", "o": o, "amount": amount, "pay": pay, "got": got, "out": out, "profit": profit}
     # 路径 B：DEX 买币 → 卖进 OTC 买单（到手 99% DAI）
-    for o in bids:
+    for o in (bids if PATH_B else []):
         price = o[5] / o[6]  # 每币多少 DAI
         # 这张买单最多还能吃多少 DAI：左手是对方剩的 DAI(giveLeft)，要付的币 = pay
         max_dai = min(o[7], budget * 2)
