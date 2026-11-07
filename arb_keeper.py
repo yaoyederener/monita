@@ -17,6 +17,7 @@ import time
 from eth_account import Account
 
 from chains import rpc, send_tx
+import order_age
 from otc_buyback import AIL, AIL_OTC, AIL_PAIR, DAI, num, orders, pad, sel, spot, take
 
 ARB_ADDR = "0x06cc2a46d7ad17496c2de9c61362808e06b44437"
@@ -156,7 +157,9 @@ def main():
         print("本金不足（留 2 DAI 当 Gas），不操作")
         return
     now = time.time() + 60
-    book = [o for o in orders(AIL_OTC) if o[3] and o[4] > now and o[7] > 0 and o[1] != me]
+    raw = orders(AIL_OTC)
+    seen = order_age.note(AIL_OTC, raw, now)  # 🕐 让客户先吃：挂出不到 2 分钟的单不碰
+    book = [o for o in raw if o[3] and o[4] > now and o[7] > 0 and o[1] != me and not order_age.fresh(seen, o[0], now)]
     asks = sorted([o for o in book if o[2]], key=lambda o: o[6] / o[5])  # 卖 AiLGNS：give=币 want=DAI
     bids = sorted([o for o in book if not o[2]], key=lambda o: -(o[5] / o[6]))  # 买 AiLGNS：give=DAI want=币
     best = None

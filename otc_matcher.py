@@ -14,6 +14,7 @@ import time
 from eth_account import Account
 
 from chains import rpc, send_tx
+import order_age
 from otc_buyback import DAI, DAI_RESERVE, GAS_TIP, KEEPER_LOW, LGNS_OTC, AIL_OTC, LGNS_PAIR, AIL_PAIR, SOURCE, num, orders, pad, sel, spot, take
 
 MATCHER = "0xdcc5354175d60ffc8364e71e792fcd66366f00fe"  # 撮合合约地址（2026-11-03 部署，区块 18174407）
@@ -57,7 +58,9 @@ def main():
         except Exception:
             dex = None
         while sent < MAX_TX:
-            p = best_pair(orders(otc), time.time() + 120, dex)
+            raw = orders(otc)
+            seen = order_age.note(otc, raw)  # 🕐 让客户先吃：挂出不到 2 分钟的单不撮合
+            p = best_pair([o for o in raw if not order_age.fresh(seen, o[0])], time.time() + 120, dex)
             if not p:
                 print(f"{name}：没有能撮合的单")
                 break
