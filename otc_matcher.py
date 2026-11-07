@@ -19,7 +19,7 @@ from otc_buyback import DAI, DAI_RESERVE, GAS_TIP, KEEPER_LOW, LGNS_OTC, AIL_OTC
 MATCHER = "0xdcc5354175d60ffc8364e71e792fcd66366f00fe"  # 撮合合约地址（2026-11-03 部署，区块 18174407）
 MAX_ROUNDS = 30
 MAX_TX = 5  # 每次最多发 5 笔撮合
-MIN_PROFIT = 3 * 10**17  # 至少赚 0.3 DAI 才撮合（够付 Gas）
+MIN_PROFIT = 1 * 10**18  # 至少赚 1 DAI 才撮合（站长 2026-11-08：有空间就秒，1u 都要）
 FEE = 0.99  # 每次吃单扣 1%
 BAND = None  # 站长 2026-11-07 晚取消：LGNS 在 DEX 卖出扣 50% 税，按 DEX 价划线会误伤正常单；客户挂错价就让机器人秒掉，吃亏学乖。（原来 0.10 = 🛡️ 站长 2026-11-07 定：只撮合离 DEX 市价 10% 以内的单；买单出价高过市价 10%、卖单要价低于市价 10% 的是客户手滑，不吃（前端也不让这种单提交）
 TX = "https://anubisscan.io/tx/"
