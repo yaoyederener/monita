@@ -1,0 +1,16 @@
+name: site-errors
+# 手动：打印网站前端自动上报的最近程序错误（/api/err，不含钱包地址），排查客户报错用
+on:
+  workflow_dispatch:
+jobs:
+  e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print recent errors
+        env:
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+        run: |
+          curl -s "https://ailgns.dev/api/err?key=$BACKUP_KEY" | python3 -c '
+          import sys, json, datetime
+          for x in json.load(sys.stdin)["list"][:40]:
+              print(datetime.datetime.utcfromtimestamp(x["t"]/1000).strftime("%m-%d %H:%M"), "x"+str(x.get("n",1)), x.get("p"), "|", x.get("m"), "|", x.get("ua","")[:60], "|", x.get("v",""))'
