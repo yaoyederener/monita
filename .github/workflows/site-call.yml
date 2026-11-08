@@ -1,0 +1,19 @@
+name: site-call
+# 手动：用站长口令调用网站的一个内部接口并打印返回（排查用）。path 例：/api/otc-watch?grouptest=1
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "接口路径（会自动带上 key）"
+        required: true
+jobs:
+  c:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call
+        env:
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          P: ${{ github.event.inputs.path }}
+        run: |
+          SEP=$([[ "$P" == *\?* ]] && echo "&" || echo "?")
+          curl -sS --max-time 120 "https://ailgns.dev${P}${SEP}key=$BACKUP_KEY" | sed "s/$BACKUP_KEY/***/g"
