@@ -33,8 +33,9 @@ def main():
         print("oracle_anchor: 缺 POOL_KEY / BACKUP_KEY，跳过"); return
     now = datetime.now(BJ)
     day = now.strftime("%Y-%m-%d")
-    if now.hour < DRAW_H or (now.hour == DRAW_H and now.minute < 1):
-        print(f"oracle_anchor: {day} 还没到 21:00 封卷，跳过"); return
+    cut_h = 9 if day >= "2026-11-10" else DRAW_H  # 站长 2026-11-09：11 月 10 日起早 9 点封卷（锁定 12 小时），封卷一到就写指纹
+    if now.hour < cut_h or (now.hour == cut_h and now.minute < 1):
+        print(f"oracle_anchor: {day} 还没到 {cut_h}:00 封卷，跳过"); return
     p = http(f"{SITE}/api/oracle?proof={day}")
     if p.get("anchor"):
         print(f"oracle_anchor: {day} 已存证 {p['anchor']['tx']}"); return
