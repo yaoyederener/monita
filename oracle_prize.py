@@ -29,6 +29,7 @@ BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
 DAI = "0x83fd06f0846d9d90b3016bf670efe2e0b11cde14"
 AIL = "0x256edb652db43e721ec6a12b6b51b6967d3bb8cb"
+LGNS = "0x4d1d808a081fdac440703b3765fc61f8028c06b8"  # 9 位小数；客户用 LGNS 付的域名费会停在回购合约里
 AIL_PAIR = "0x0a1cce65d995c6c5100e6f5ba3c388ef34cecaf0"  # token0 = AiLGNS，token1 = DAI
 NAMES = ["0xbc408e9d7350967e7247c917a086cb4ece0ed988", "0x93af23fe74e5180f54f0996fa6bb6c157775f7f3"]
 PAID = "0x26c4308021cef5cdbc618fee8b61faf9de6b8f7e4e49fac43869dc1a26756408"  # Paid(payer, token, amount, costDai)
@@ -49,6 +50,7 @@ POOL_ADDR = "0xd69fd045e23c8a45c6b3f6b9a4ef66592d51dba4"  # 奖池钱包（只�
 OTC = "0x4e730be6d46be71223ded5a32dc45799f6d4bc15"  # AiLGNS/DAI OTC 合约
 BOOK = "https://ailgns.dev/api/book?m=ailgns&fresh=1"
 REFUND_MIN = 10 * 10**18  # 回购合约里攒到 10 DAI 才退一次，省 Gas
+LGNS_REFUND_MIN = 100 * 10**9  # LGNS 攒到 100 个才退一次
 BUY_MIN = 100 * 10**18  # 奖池 DAI 满 100 就去 OTC 买 AiLGNS
 BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
 # 🪧 站长 2026-11-07 定：奖池换币不再吃卖单，改成在 OTC 挂买单（挂在买一上面一点点），等人来卖：不付 1% 手续费、不吃别人的价，盘口还多一层真实买方深度。
@@ -194,6 +196,18 @@ def main():
         save()
         print(f"退回 {carry / 1e18:.6f} {name} 到收款钱包：留 {keep / 1e18:.6f} 当奖金 {TX}{h}")
         move_to_pool(tok, keep, "留出的奖金")
+
+    # ②b LGNS 域名费：整笔退回收款钱包，不留奖金、不换币（站长 2026-11-10：自动退回钱包）
+    try:
+        lg = bal(LGNS, BUYBACK)
+        if lg >= LGNS_REFUND_MIN:
+            if keeper and not dry:
+                h = send_tx("anubis", keeper, BUYBACK, sel("refund(address)") + pad(LGNS), "退回 LGNS 到收款钱包")
+                print(f"退回 {lg / 1e9:.2f} LGNS 到收款钱包 {TX}{h}")
+            else:
+                print(f"回购合约里有 {lg / 1e9:.2f} LGNS，正式运行时会整笔退回收款钱包")
+    except Exception as e:
+        print(f"⚠️ 退回 LGNS 没成：{e}")
 
     # ③ 奖池 DAI 满 100 → 在本站 OTC 吃最便宜的卖单买 AiLGNS（限价 ≤ DEX × 1.5）
     def buy_ailgns(budget, why):
