@@ -1,0 +1,22 @@
+name: fast-test
+# 极速预言家真钱小额测试（套利钱包当客户）。改 fast_test.run 推上来就跑一次；也可以手动点。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [fast_test.run]
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q "eth-account==0.13.4"
+      - name: Test wallet - register numeric names and bet
+        env:
+          ARB_KEY: ${{ secrets.ARB_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u fast_test.py
