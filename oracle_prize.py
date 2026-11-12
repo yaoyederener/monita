@@ -37,6 +37,7 @@ REG = "0xa15b66031269f1c32be8db1e4353108dc76c84574a7c6697527e431ad921462a"  # Na
 # ⚡ 极速预言家资金池（站长 2026-11-08 定：批量注册的收入 10% 留运营收入、90% 进这个专用钱包，和每日奖池分开；普通注册照旧 70/30）
 FAST_POOL = "0x8610bf581b1c10cb7d372f93b8cdcde382a7c1d1"
 FAST_BPS = 9000
+FAST_ON = False  # 站长 2026-11-11：极速预言家上线前，批量注册的收入先按普通注册分（30% 谷歌社交账号钱包、70% 每日奖池）；极速预言家上线时改回 True
 BT_API = "https://ailgns.dev/api/batch-mark?days=5"  # 网站给的「批量注册」名字清单
 OWN = {SOURCE, "0x89dd06754bb239b6c4c92bc47c8fa72889084e27"}  # 站长自己付的不算收入
 START = 18161697  # 域名合约（第 3 版）部署区块
@@ -115,7 +116,7 @@ def main():
                     if bt < START_TS:
                         continue
                 cost = int(l["data"][2 + 64:2 + 128], 16)
-                if regs.get(l["transactionHash"]) in tagged:
+                if FAST_ON and regs.get(l["transactionHash"]) in tagged:
                     fast_cost += cost
                 else:
                     new_cost += cost
