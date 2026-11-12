@@ -24,6 +24,7 @@ from eth_utils import keccak
 from chains import rpc, send_tx
 from otc_buyback import orders as read_orders
 from notify_mail import send as send_mail
+from fast_oracle import FAST_START, numeric_regs
 
 BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
@@ -34,11 +35,11 @@ AIL_PAIR = "0x0a1cce65d995c6c5100e6f5ba3c388ef34cecaf0"  # token0 = AiLGNS，tok
 NAMES = ["0xbc408e9d7350967e7247c917a086cb4ece0ed988", "0x93af23fe74e5180f54f0996fa6bb6c157775f7f3"]
 PAID = "0x26c4308021cef5cdbc618fee8b61faf9de6b8f7e4e49fac43869dc1a26756408"  # Paid(payer, token, amount, costDai)
 REG = "0xa15b66031269f1c32be8db1e4353108dc76c84574a7c6697527e431ad921462a"  # NameRegistered：data 里有 label（和 Paid 同一笔交易）
-# ⚡ 极速预言家资金池（站长 2026-11-08 定：批量注册的收入 10% 留运营收入、90% 进这个专用钱包，和每日奖池分开；普通注册照旧 70/30）
+# ⚡ 极速预言家资金池（站长 2026-11-12 定稿）：上线区块（fast_oracle.FAST_START）之后【新注册的纯数字 .ailgns 域名】的收入，
+#   10% 留运营收入、90% 进这个专用钱包，和每日奖池分开；其它域名收入（含纯数字域名的续费）照旧 70/30。
+#   FAST_START 没填 = 还没上线，全部照旧。哪些算「纯数字新注册」用 fast_oracle.numeric_regs 判断，和发票是同一个函数。
 FAST_POOL = "0x8610bf581b1c10cb7d372f93b8cdcde382a7c1d1"
 FAST_BPS = 9000
-FAST_ON = False  # 站长 2026-11-11：极速预言家上线前，批量注册的收入先按普通注册分（30% 谷歌社交账号钱包、70% 每日奖池）；极速预言家上线时改回 True
-BT_API = "https://ailgns.dev/api/batch-mark?days=5"  # 网站给的「批量注册」名字清单
 OWN = {SOURCE, "0x89dd06754bb239b6c4c92bc47c8fa72889084e27"}  # 站长自己付的不算收入
 START = 18161697  # 域名合约（第 3 版）部署区块
 START_TS = 1793721600  # 2026-11-04 00:00 北京时间：从这一刻起的域名收入留 20% 奖金（11 月 4 日的 20% = 开局奖池，第一期 11 月 6 日开奖）
@@ -90,25 +91,16 @@ def main():
 
     # ① 新的域名收入 → 应留奖金
     new_cost = 0
-    fast_cost = 0  # 批量注册（打了标记）的收入，单独算
-    try:
-        tagged = set(http(BT_API).get("labels") or [])
-    except Exception:
-        tagged = set()
-    def dec_label(data):  # NameRegistered 的 data 里 ABI string
-        try:
-            h = data[2:]; off = int(h[:64], 16) // 32; ln = int(h[off * 64:off * 64 + 64], 16)
-            return bytes.fromhex(h[(off + 1) * 64:(off + 1) * 64 + ln * 2]).decode("utf-8").lower()
-        except Exception:
-            return ""
+    fast_cost = 0  # 极速预言家的票款（上线后新注册的纯数字 .ailgns 域名），单独算
     for b in range(st["scanned_to"] + 1, latest + 1, 5000):
         end = min(latest, b + 4999)
         for c in NAMES:
-            regs = {}
-            if tagged:
-                for r in rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(b), "toBlock": hex(end), "topics": [REG]}]):
-                    regs[r["transactionHash"]] = dec_label(r["data"])
-            for l in rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(b), "toBlock": hex(end), "topics": [PAID]}]):
+            fast_on = bool(FAST_START) and c == NAMES[0] and end >= FAST_START
+            ls = rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(b), "toBlock": hex(end), "topics": [[PAID, REG]] if fast_on else [PAID]}])
+            fast_paid = {(r[5], r[6]) for r in numeric_regs(ls) if r[0] >= FAST_START} if fast_on else set()  # (交易, Paid 日志序号)
+            for l in ls:
+                if l["topics"][0] != PAID:
+                    continue
                 if "0x" + l["topics"][1][26:] in OWN:
                     continue
                 if not st.get("start_ok"):  # 开始时间前的收入不算
@@ -116,7 +108,7 @@ def main():
                     if bt < START_TS:
                         continue
                 cost = int(l["data"][2 + 64:2 + 128], 16)
-                if FAST_ON and regs.get(l["transactionHash"]) in tagged:
+                if (l["transactionHash"], int(l["logIndex"], 16)) in fast_paid:
                     fast_cost += cost
                 else:
                     new_cost += cost
@@ -127,7 +119,7 @@ def main():
     st["fast_income"] = str(int(st.get("fast_income", "0")) + fast_cost)
     st["fast_owed"] = str(int(st.get("fast_owed", "0")) + fast_cost * FAST_BPS // 10000)  # 欠极速资金池的（90%）
     if fast_cost:
-        print(f"批量注册收入 {fast_cost / 1e18:.2f} DAI → 90% 应转极速资金池 {fast_cost * FAST_BPS / 10000 / 1e18:.2f}")
+        print(f"极速预言家票款 {fast_cost / 1e18:.2f} DAI → 90% 应转极速资金池 {fast_cost * FAST_BPS / 10000 / 1e18:.2f}")
     owed = int(st["owed"]) + new_cost * SHARE_BPS // 10000
     if not st.get("owed_cleared"):  # 站长 2026-11-07：之前欠奖池的一笔勾销，只留从现在起每笔域名收入的 70%
         owed = new_cost * SHARE_BPS // 10000
@@ -170,7 +162,7 @@ def main():
         allow = num(DAI, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address)); have = bal(DAI, SOURCE)
         n = min(fast_owe, allow, have)
         if n > 10**17:
-            h = send_tx("anubis", keeper, DAI, "0x23b872dd" + pad(SOURCE) + pad(FAST_POOL) + f"{n:064x}", "批量注册收入 90% 转入极速资金池")
+            h = send_tx("anubis", keeper, DAI, "0x23b872dd" + pad(SOURCE) + pad(FAST_POOL) + f"{n:064x}", "极速预言家票款 90% 转入极速资金池")
             st["fast_owed"] = str(fast_owe - n)
             print(f"极速资金池：{n / 1e18:.2f} DAI 已转入 {FAST_POOL} {TX}{h}")
         else:
