@@ -41,12 +41,15 @@ FAST_START = 18976231  # 上线区块（2026-11-12 开闸）。之前注册的�
 # 🆕 新规则（站长 2026-11-14 定稿）。V2_START = 新规则生效的区块；None = 还没开闸，一切照旧。开闸时和网站 lib/fast.js 填同一个数。
 #   ① 票：不再只认纯数字域名。任何新注册的 .ailgns 域名都行，但要「批量」——同一个钱包 600 个区块（约 10 分钟）内注册 2 个及以上，每个都算票（付多少 DAI 多少票）。
 #      链上看不出客户点没点批量按钮，所以用「10 分钟内买了 2 个以上」来认，机器人和网站各自从链上数，数出来一样。落单的一个不算票，收入照旧进每日奖池。
-#   ② 返奖：猜中的人只拿回自己那几张票钱的 90%（每张 0.9 DAI），不分别人的钱；没猜中的票钱（每张 0.9 DAI）归运营收入，攒够 OPS_MIN 由极速池转回收款钱包。
+#   ② 返奖（站长 2026-11-14 改口：不是只返 90%）：猜中每张票发 1.9 DAI = 本金 1 + 净赚 0.9，不分别人的钱；没猜中一分不返。
+#      每张票只有 0.9 DAI 进了极速池，所以猜中的人多拿的那 1 DAI 是从没猜中的票钱里出的。运营收入 = 这一期下注的新票 × 0.9 − 猜中的新票 × 1.9，可能是负数（那一期赔出去的比收进来的多），累计起来攒够 OPS_MIN 才转回收款钱包。
+#      长期看十个数字猜中一个，每张票平均赔 0.19、留 0.71；但有人重仓一个数字猜中时，极速池要先垫钱。池里的钱不够发时不打折，等钱够了再发并发邮件报警。
 #   ③ 老票：V2_START 之前买的（纯数字域名）按旧规则用完——同一期的老票下注进老奖池，猜中的按票数分，没人中滚存。一个钱包两种票都有时先用老票。
 V2_START = None
 PAIR_BLOCKS = 600
 OPS_PREFIX = "ailgns-fast-ops"
 OPS_MIN = 20 * 10**18
+WIN2_PER_TICKET = 19 * 10**17  # 新票猜中每张发 1.9 DAI
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"  # 收款钱包（谷歌社交账号钱包）
 # 🤖 代注册机器人钱包（网站 names-batch.js 里的 REG）：客户授权 DAI 给它，它替客户注册，域名直接归客户。链上看「付款的人」是它，不是客户。
 #   老规则：页面写明「交给机器人代点的不算票」→ 它付款的注册一律不算老票。
@@ -312,14 +315,15 @@ def settle_rounds(st, result_of):
         pay = {w: pot * n // tot for w, n in win.items()} if tot else {}
         st["carry"] = str(pot - sum(pay.values()))  # 老奖池：没人中整池滚存；有人中只剩分不尽的零头
         for w, n2 in win2.items():
-            pay[w] = pay.get(w, 0) + n2 * POT_PER_TICKET
-        if lose2:
-            st["ops"] = str(int(st.get("ops", "0")) + lose2 * POT_PER_TICKET)
+            pay[w] = pay.get(w, 0) + n2 * WIN2_PER_TICKET
+        ops = tk2 * POT_PER_TICKET - sum(win2.values()) * WIN2_PER_TICKET  # 这一期新票的运营收入：收进来的 − 赔出去的（可能是负数）
+        if ops:
+            st["ops"] = str(int(st.get("ops", "0")) + ops)
         for w, v in pay.items():
             if v > 0:
                 st["due"].append({"r": rid, "w": w, "dai": str(v)})
         detail.append({"round": rid, "digit": res[0], "block": res[1], "tickets": stake // POT_PER_TICKET, "pot": pot, "win_tickets": tot, "pay": pay, "carry": int(st["carry"]), "bets": bets,
-                       "tickets2": tk2, "win2": sum(win2.values()), "ret2": sum(win2.values()) * POT_PER_TICKET, "ops": lose2 * POT_PER_TICKET})
+                       "tickets2": tk2, "win2": sum(win2.values()), "ret2": sum(win2.values()) * WIN2_PER_TICKET, "ops": ops})
         # 老票全用完了、老奖池里还剩滚存：已经没有人能再赢它，归运营收入（只在新规则生效后）
         if V2_START and int(st["carry"]) > 0 and not st["bal"] and not any(x[2] for b in st["rounds"].values() for x in b):
             st["ops"] = str(int(st.get("ops", "0")) + int(st["carry"])); detail[-1]["carry_to_ops"] = int(st["carry"]); st["carry"] = "0"
@@ -339,9 +343,16 @@ def settle(tickets, bets, ts_of, result_of):
 
 
 def liabilities(st):
-    """按这份账，极速池现在应该备着多少 DAI：没用的票（老票 + 新票）× 0.9 + 老奖池滚存 + 还没开奖的下注 × 0.9 + 中了还没发的 + 还没转回去的运营收入"""
+    """按这份账，极速池现在应该备着多少 DAI（= 收进来还没花掉的钱）：没用的票（老票 + 新票）× 0.9 + 老奖池滚存 + 还没开奖的下注 × 0.9 + 中了还没发的 + 还没转回去的运营收入"""
     open_tk = sum(x[2] + (x[4] if len(x) > 4 else 0) for b in st["rounds"].values() for x in b)
     return (sum(st["bal"].values()) + sum(st.get("bal2", {}).values()) + open_tk) * POT_PER_TICKET + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"]) + ops_due(st)
+
+
+def worst_case(st):
+    """最坏情况要备多少：所有没用的新票、没开奖的新票下注全都猜中（每张 1.9）。运营收入只在留够这个数以后才往外转，免得有人重仓猜中时池里没钱发"""
+    open1 = sum(x[2] for b in st["rounds"].values() for x in b)
+    open2 = sum((x[4] if len(x) > 4 else 0) for b in st["rounds"].values() for x in b)
+    return (sum(st["bal"].values()) + open1) * POT_PER_TICKET + (sum(st.get("bal2", {}).values()) + open2) * WIN2_PER_TICKET + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"])
 
 
 def ops_due(st):
@@ -426,10 +437,16 @@ def pay_out(st, pool, dry, fresh_paid, note):
     px = min(px, dex * BUY_CAP) if px else dex  # 本站 OTC 预言机价（读不到就用 DEX 现价）
     dai_bal, ail_bal = bal_of(DAI, FAST_POOL), bal_of(AIL, FAST_POOL)
     liab = liabilities(st)
-    if dai_bal + int(ail_bal * dex * 0.9) + 10**16 < liab:  # 账上该备的钱比钱包里的多：先停发，查清楚再说
+    total = sum(int(d["dai"]) for d in todo)
+    have = dai_bal + int(ail_bal * dex * 0.9) + 10**16
+    if not V2_START and have < liab:  # 老规则：账上该备的钱比钱包里的多，说明账有问题，先停发查清楚
         note(f"⚠️ 极速池钱不够：按账应备 {liab / 1e18:.2f} DAI，钱包只有 {dai_bal / 1e18:.2f} DAI + {ail_bal / 1e18:.4f} AiLGNS。本轮不发奖。", True)
         return 0
-    total = sum(int(d["dai"]) for d in todo)
+    if V2_START and have < total + GAS_KEEP:  # 新规则：猜中的人拿的比他自己交的多，池里可能暂时垫不出。不打折，等钱够了再发
+        note(f"⚠️ 极速池的钱不够发这一轮的奖：要发 {total / 1e18:.2f} DAI，钱包只有 {dai_bal / 1e18:.2f} DAI + {ail_bal / 1e18:.4f} AiLGNS。本轮不发，钱够了自动补发；急的话往极速池钱包转 DAI。", True)
+        return 0
+    if V2_START and have < liab:
+        note(f"⚠️ 极速池的钱比账上该备的少：应备 {liab / 1e18:.2f} DAI，钱包 {dai_bal / 1e18:.2f} DAI + {ail_bal / 1e18:.4f} AiLGNS（有人猜中拿走的比他交的多）。奖照发，留意余额。", True)
     sells = open_sells(dex * BUY_CAP)
     q = quote(sells, total)
     use = max(px, q or 0)  # 卖单比预言机价贵 → 按实际买入价折，保证发出去的币都是奖池的钱买得起的
@@ -557,8 +574,8 @@ def run(dry, days):
         dai_bal, liab = bal_of(DAI, FAST_POOL), liabilities(st)
         if cnt("pending") != cnt("latest") or (latest > safe and read_ops(safe + 1, latest)):
             note("极速池钱包有交易还没确认，运营收入这轮先不转。")
-        elif dai_bal < liab + GAS_KEEP:
-            note(f"⚠️ 运营收入 {od / 1e18:.2f} DAI 先不转：极速池钱包 {dai_bal / 1e18:.2f} DAI，按账要备 {liab / 1e18:.2f} + 留 2 DAI Gas。", True)
+        elif dai_bal < worst_case(st) + od + GAS_KEEP:  # 转完以后，池里还要够付「没用的新票全猜中」的最坏情况
+            print(f"运营收入 {od / 1e18:.2f} DAI 这轮先不转：极速池钱包 {dai_bal / 1e18:.2f} DAI，要先留够最坏情况 {worst_case(st) / 1e18:.2f} + 2 DAI Gas。")
         elif dry or not pool:
             print(f"（dry-run）会把运营收入 {od / 1e18:.2f} DAI 从极速池转回收款钱包")
         else:
@@ -666,16 +683,22 @@ def main():
         assert st["rounds"][str(r0)][0] == [A, res[0], 2, "u1", 2] and st["rounds"][str(r0)][1] == [B, (res[0] + 1) % 10, 0, "u2", 5]
         assert liabilities(st) == (3 + 4 + 5 + 3 + 7) * POT_PER_TICKET
         dd = {x["round"] - r0: x for x in settle_rounds(st, result_of)}
-        assert dd[0]["pay"] == {A: 2 * POT_PER_TICKET + 2 * POT_PER_TICKET, C: 3 * POT_PER_TICKET}, dd[0]["pay"]  # A：老奖池 1.8（只有他的老票）+ 新票返 1.8；C：2.7
-        assert dd[0]["ops"] == 5 * POT_PER_TICKET and dd[0]["carry"] == 0 and dd[0]["tickets"] == 2 and dd[0]["tickets2"] == 10 and dd[0]["win2"] == 5
+        W2 = WIN2_PER_TICKET
+        assert dd[0]["pay"] == {A: 2 * POT_PER_TICKET + 2 * W2, C: 3 * W2}, dd[0]["pay"]  # A：老奖池 1.8（只有他的老票）+ 新票 2 张 × 1.9；C：3 张 × 1.9 = 5.7，不分 B 的钱
+        assert dd[0]["ops"] == 10 * POT_PER_TICKET - 5 * W2 and dd[0]["carry"] == 0 and dd[0]["tickets"] == 2 and dd[0]["tickets2"] == 10 and dd[0]["win2"] == 5  # 这一期运营收入 9 − 9.5 = −0.5（赔的比收的多）
         assert dd[1]["pay"] == {} and dd[1]["ops"] == 7 * POT_PER_TICKET and dd[1]["carry"] == 0
-        assert int(st["ops"]) == 12 * POT_PER_TICKET and ops_due(st) == 12 * POT_PER_TICKET
+        assert int(st["ops"]) == 17 * POT_PER_TICKET - 5 * W2 and ops_due(st) == 17 * POT_PER_TICKET - 5 * W2  # 累计 15.3 − 9.5 = 5.8
         paid_out = sum(int(d["dai"]) for d in st["due"])
-        assert paid_out + int(st["ops"]) + 3 * POT_PER_TICKET == 22 * POT_PER_TICKET, "票钱的 90% = 发给猜中的 + 归运营的 + 还没用的票"
-        assert liabilities(st) == 3 * POT_PER_TICKET + paid_out + 12 * POT_PER_TICKET
-        st["ops_paid"] = str(10 * POT_PER_TICKET)
-        assert ops_due(st) == 2 * POT_PER_TICKET and liabilities(st) == 3 * POT_PER_TICKET + paid_out + 2 * POT_PER_TICKET
-        print("\n✅ 验算通过（一次算完 = 接着算；钱进出对得上；买币计划对；新规则：批量才算票、猜中只返自己的 90%、没中的归运营）")
+        assert paid_out + int(st["ops"]) + 3 * POT_PER_TICKET == 22 * POT_PER_TICKET, "进极速池的钱（票钱的 90%）= 发给猜中的 + 运营收入 + 还没用的票"
+        assert liabilities(st) == 3 * POT_PER_TICKET + paid_out + ops_due(st)
+        assert worst_case(st) == 3 * W2 + paid_out
+        st["ops_paid"] = str(4 * POT_PER_TICKET)
+        assert ops_due(st) == 13 * POT_PER_TICKET - 5 * W2 and liabilities(st) == 3 * POT_PER_TICKET + paid_out + 13 * POT_PER_TICKET - 5 * W2
+        st2 = fresh(0)  # 一个人重仓猜中：运营收入是负的，不往外转
+        apply_events(st2, [(2, 0, C, "a", 10, 2, 1)], [(1000, 0, C, res[0], 10, "v1")], lambda b: fake_blk[b])
+        settle_rounds(st2, result_of)
+        assert st2["due"][0]["dai"] == str(10 * W2) and int(st2["ops"]) == 10 * POT_PER_TICKET - 10 * W2 and ops_due(st2) == 0
+        print("\n✅ 验算通过（一次算完 = 接着算；钱进出对得上；买币计划对；新规则：批量才算票、猜中每张发 1.9、没中的归运营）")
         return
 
     start = FAST_START if FAST_START and not a.days else latest - int((a.days or 3) * 86400)
