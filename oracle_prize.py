@@ -90,8 +90,35 @@ def main():
     if not st.get("start_ok") and int(rpc("anubis", "eth_getBlockByNumber", [hex(latest), False])["timestamp"], 16) < START_TS:
         st["scanned_to"] = latest  # 还没到开始时间：之前的收入都不算，直接跳过
 
+    # ⚡ 极速资金池的账以链上为准（站长 2026-11-14 发现账本多记了约 480 DAI 欠款）：
+    #   原来「转了多少」是程序自己记的。转账发出去以后，程序要是在存账本之前出错 / 超时，下一轮就不知道已经转过，会再转一次；
+    #   同样原因「扫到哪个区块」没存上，同一批域名费会被算两遍。现在两个数都从链上日志里数：
+    #   应转 = 上线后新注册的纯数字域名费 × 90%；已转 = 链上 DAI 从收款钱包转进极速资金池的合计；欠 = 应转 − 已转。
+    #   账本没存上也不要紧，下一轮从同一个区块重新数，数出来是一样的。
+    TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+    def fast_moved_in(a, b):  # 这段区块里，收款钱包 → 极速资金池转了多少 DAI（链上日志）
+        tot = 0
+        for x in range(a, b + 1, 5000):
+            y = min(b, x + 4999)
+            for l in rpc("anubis", "eth_getLogs", [{"address": DAI, "fromBlock": hex(x), "toBlock": hex(y), "topics": [TRANSFER, "0x" + pad(SOURCE), "0x" + pad(FAST_POOL)]}]):
+                tot += int(l["data"], 16)
+        return tot
+
+    if FAST_START and not st.get("fast_chain") and st["scanned_to"] >= FAST_START:  # 一次性：从上线那块到上次扫到的地方，按链上重数一遍
+        real = 0
+        for x in range(FAST_START, st["scanned_to"] + 1, 5000):
+            y = min(st["scanned_to"], x + 4999)
+            ls = rpc("anubis", "eth_getLogs", [{"address": NAMES[0], "fromBlock": hex(x), "toBlock": hex(y), "topics": [[PAID, REG]]}])
+            real += sum(r[3] for r in numeric_regs(ls) if r[0] >= FAST_START)
+        moved = fast_moved_in(FAST_START, st["scanned_to"])
+        print(f"极速资金池对账（按链上重数）：票款 {real / 1e18:.2f} DAI（账本原来记 {int(st.get('fast_income', '0')) / 1e18:.2f}），已转 {moved / 1e18:.2f} DAI，"
+              f"实际还欠 {max(0, real * FAST_BPS // 10000 - moved) / 1e18:.2f}（账本原来记 {int(st.get('fast_owed', '0')) / 1e18:.2f}）")
+        st["fast_income"], st["fast_moved"], st["fast_chain"] = str(real), str(moved), True
+
     # ① 新的域名收入 → 应留奖金
     new_cost = 0
+    fast_moved_new = 0  # 这一轮新扫到的「收款钱包 → 极速资金池」转账（链上）
     fast_cost = 0  # 极速预言家的票款（上线后新注册的纯数字 .ailgns 域名），单独算
     lgns_cost = 0  # 用 LGNS 付的域名费（按 DAI 标价）：只统计，不留奖金
     for b in range(st["scanned_to"] + 1, latest + 1, 5000):
@@ -116,12 +143,18 @@ def main():
                     lgns_cost += cost  # 站长 2026-11-14：客户用 LGNS 付的域名费不算进每日奖池（LGNS 整笔退回收款钱包，站长手动往奖池里加）
                 else:
                     new_cost += cost
+        if FAST_START and st.get("fast_chain") and end >= FAST_START:
+            fast_moved_new += fast_moved_in(max(b, FAST_START), end)
         st["scanned_to"] = end
         if not st.get("start_ok") and int(rpc("anubis", "eth_getBlockByNumber", [hex(end), False])["timestamp"], 16) >= START_TS:
             st["start_ok"] = True
     st["income"] = str(int(st["income"]) + new_cost)
     st["fast_income"] = str(int(st.get("fast_income", "0")) + fast_cost)
-    st["fast_owed"] = str(int(st.get("fast_owed", "0")) + fast_cost * FAST_BPS // 10000)  # 欠极速资金池的（90%）
+    if st.get("fast_chain"):  # 欠极速资金池的 = 应转（票款 × 90%）− 链上已转
+        st["fast_moved"] = str(int(st.get("fast_moved", "0")) + fast_moved_new)
+        st["fast_owed"] = str(max(0, int(st["fast_income"]) * FAST_BPS // 10000 - int(st["fast_moved"])))
+    else:
+        st["fast_owed"] = str(int(st.get("fast_owed", "0")) + fast_cost * FAST_BPS // 10000)
     if fast_cost:
         print(f"极速预言家票款 {fast_cost / 1e18:.2f} DAI → 90% 应转极速资金池 {fast_cost * FAST_BPS / 10000 / 1e18:.2f}")
     owed = int(st["owed"]) + new_cost * SHARE_BPS // 10000
@@ -146,6 +179,8 @@ def main():
         with open(STATE, "w") as f:
             json.dump(st, f)
 
+    if not dry:
+        save()  # 先把「扫到哪、收入多少、欠多少」存下来，再动钱
     keeper = Account.from_key(os.environ["OTC_KEEPER_KEY"]) if os.environ.get("OTC_KEEPER_KEY") else None
     pool = Account.from_key(os.environ["POOL_KEY"]) if os.environ.get("POOL_KEY") else None
     pool_addr = pool.address.lower() if pool else POOL_ADDR
@@ -166,6 +201,7 @@ def main():
             return
         h = send_tx("anubis", keeper, tok, "0x23b872dd" + pad(SOURCE) + pad(pool_addr) + f"{n:064x}", "奖金转入奖池钱包")
         st[key] = str(int(st.get(key, "0")) + amount - n)
+        save()  # 钱一转出去马上存账本，后面的步骤出错也不会忘了这笔
         print(f"{why}：{n / 1e18:.6f} {'DAI' if tok == DAI else 'AiLGNS'} 转入奖池钱包 {TX}{h}")
     # ⚡ 欠极速资金池的 DAI：从谷歌社交账号钱包用周转授权转到 FAST_POOL（专用钱包，和每日奖池分开）
     fast_owe = int(st.get("fast_owed", "0"))
@@ -175,6 +211,7 @@ def main():
         if n > 10**17:
             h = send_tx("anubis", keeper, DAI, "0x23b872dd" + pad(SOURCE) + pad(FAST_POOL) + f"{n:064x}", "极速预言家票款 90% 转入极速资金池")
             st["fast_owed"] = str(fast_owe - n)
+            save()  # 钱一转出去马上存账本
             print(f"极速资金池：{n / 1e18:.2f} DAI 已转入 {FAST_POOL} {TX}{h}")
         else:
             print(f"⚠️ 欠极速资金池 {fast_owe / 1e18:.2f} DAI 没转成（授权 {allow / 1e18:.2f}，留 Gas 后能转 {have / 1e18:.2f}），下轮再转")
