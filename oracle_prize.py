@@ -325,7 +325,7 @@ def main():
             h = send_tx("anubis", pool, AIL, "0xa9059cbb" + pad(p["a"]) + f"{n:064x}", "发预言家奖金")
             http(SITE, {"action": "paid", "id": p["id"], "tx": h, "key": key, "ail": round(n / 1e18, 6)})
             st["paid"] = (st.get("paid") or [])[-200:] + [{"id": p["id"], "amt": p["amt"], "ail": round(n / 1e18, 6), "tx": h}]
-            sent.append(f"{p['day']} { {'jackpot': '🔮 神算子', 'closest': '👁 天眼通', 'second': '🌿 地灵通', 'king': '💰 贡献王'}.get(p['kind'], p['kind']) } {p['name']}：{n / 1e18:.6f} AiLGNS（≈ {p['amt']} DAI） {TX}{h}")
+            sent.append(f"{p['day']} { {'jackpot': '🔮 神算子', 'closest': '👁 天眼通', 'second': '🌿 地灵通', 'king': '💰 贡献王', 'daily': '🎯 每日前三'}.get(p['kind'], p['kind']) } {p['name']}：{n / 1e18:.6f} AiLGNS（≈ {p['amt']} DAI） {TX}{h}")
     # ⑤ 发完奖，剩下的闲置 DAI 挂成买单（奖池换币）
     if pool:
         try:
