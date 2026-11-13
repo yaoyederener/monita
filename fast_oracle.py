@@ -38,6 +38,22 @@ REG = "0xa15b66031269f1c32be8db1e4353108dc76c84574a7c6697527e431ad921462a"  # Na
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 OWN = {"0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6", "0x89dd06754bb239b6c4c92bc47c8fa72889084e27"}  # 站长自己付的不算票
 FAST_START = 18976231  # 上线区块（2026-11-12 开闸）。之前注册的纯数字域名一律不算票（网站 lib/fast.js 里要填同一个数）
+# 🆕 新规则（站长 2026-11-14 定稿）。V2_START = 新规则生效的区块；None = 还没开闸，一切照旧。开闸时和网站 lib/fast.js 填同一个数。
+#   ① 票：不再只认纯数字域名。任何新注册的 .ailgns 域名都行，但要「批量」——同一个钱包 600 个区块（约 10 分钟）内注册 2 个及以上，每个都算票（付多少 DAI 多少票）。
+#      链上看不出客户点没点批量按钮，所以用「10 分钟内买了 2 个以上」来认，机器人和网站各自从链上数，数出来一样。落单的一个不算票，收入照旧进每日奖池。
+#   ② 返奖：猜中的人只拿回自己那几张票钱的 90%（每张 0.9 DAI），不分别人的钱；没猜中的票钱（每张 0.9 DAI）归运营收入，攒够 OPS_MIN 由极速池转回收款钱包。
+#   ③ 老票：V2_START 之前买的（纯数字域名）按旧规则用完——同一期的老票下注进老奖池，猜中的按票数分，没人中滚存。一个钱包两种票都有时先用老票。
+V2_START = None
+PAIR_BLOCKS = 600
+OPS_PREFIX = "ailgns-fast-ops"
+OPS_MIN = 20 * 10**18
+SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"  # 收款钱包（谷歌社交账号钱包）
+# 🤖 代注册机器人钱包（网站 names-batch.js 里的 REG）：客户授权 DAI 给它，它替客户注册，域名直接归客户。链上看「付款的人」是它，不是客户。
+#   老规则：页面写明「交给机器人代点的不算票」→ 它付款的注册一律不算老票。
+#     （2026-11-14 查出来：之前按付款钱包记票，把它替大奖得主注册的 278 个纯数字域名算成了 1,390 张票，极速池多收了约 674 DAI。站长同意改对并重算。）
+#   新规则：批量注册可以交给它代点，票记给域名的主人（下单的客户）。
+REG_BOT = "0x21425f852a1e0fb798fb9ebeb288def27bc0f2d1"
+STATE_V = 2  # 账本版本：记票的口径变了就加 1，下一轮自动从上线区块重新数一遍
 ROUND = 600
 TICKET_WEI = 10**18
 POT_PER_TICKET = 9 * 10**17  # 每张票 0.9 DAI 进奖池
@@ -108,10 +124,9 @@ def first_block_at(ts, latest):
     return lo
 
 
-def numeric_regs(ls):
-    """从域名合约的一批日志里挑出【新注册的纯数字域名】：[(区块, 注册日志序号, 付款钱包, costDai, 域名, 交易, Paid 日志序号)]
-    同一笔交易里 Paid 后面跟着 NameRegistered 才算（续费只有 Paid，不算）。站长自己付的不算。
-    oracle_prize.py 分钱也用这个函数，保证「进极速池的钱」和「发出去的票」是同一批域名。"""
+def all_regs(ls):
+    """从域名合约的一批日志里挑出【新注册】：[(区块, 注册日志序号, 付款钱包, costDai, 域名, 交易, Paid 日志序号, 域名主人)]
+    同一笔交易里 Paid 后面跟着 NameRegistered 才算（续费只有 Paid，不算）。站长自己付的不算。"""
     out, last_paid = [], {}
     ls = sorted(ls, key=lambda l: (int(l["blockNumber"], 16), int(l["logIndex"], 16)))
     for l in ls:
@@ -123,15 +138,63 @@ def numeric_regs(ls):
             continue
         paid = last_paid.pop(tx, None)
         lab = label_of(l["data"])
-        if not paid or paid[0] in OWN or not re.fullmatch(r"[0-9]+", lab):
+        if not paid or paid[0] in OWN:
             continue
-        out.append((int(l["blockNumber"], 16), int(l["logIndex"], 16), paid[0], paid[1], lab, tx, paid[2]))
+        owner = ("0x" + l["topics"][2][26:].lower()) if len(l["topics"]) > 2 else paid[0]
+        out.append((int(l["blockNumber"], 16), int(l["logIndex"], 16), paid[0], paid[1], lab, tx, paid[2], owner))
     return out
 
 
+def numeric_regs(ls):
+    """老规则的票：新注册的纯数字域名（格式同 all_regs）"""
+    return [r for r in all_regs(ls) if re.fullmatch(r"[0-9]+", r[4])]
+
+
+def pair_grants(regs):
+    """新规则：一批注册里哪些算票、什么时候发票。regs = [(区块, 序号, 钱包, …)]（只传新规则生效以后的）。
+    返回 {(区块, 序号): (发票区块, 发票序号, 先后)}，不在里面的 = 落单，不算票。
+    规则：同一个钱包，前一个注册在 600 个区块以内 → 自己注册那一刻发票；
+          前面没有、但后一个在 600 个区块以内（自己是这一批的第一个）→ 等第二个出现时一起发，排在第二个前面；
+          前后都没有 → 落单。"""
+    by, out = {}, {}
+    for r in sorted(regs, key=lambda r: (r[0], r[1])):
+        by.setdefault(r[2], []).append(r)
+    for L in by.values():
+        for k, r in enumerate(L):
+            if k > 0 and r[0] - L[k - 1][0] <= PAIR_BLOCKS:
+                out[(r[0], r[1])] = (r[0], r[1], 1)
+            elif k + 1 < len(L) and L[k + 1][0] - r[0] <= PAIR_BLOCKS:
+                out[(r[0], r[1])] = (L[k + 1][0], L[k + 1][1], 0)
+    return out
+
+
+def ticket_regs(ls):
+    """哪些新注册算票：[(发票区块, 发票序号, 钱包, costDai, 域名, 交易, Paid 序号, 注册区块, 版本 1/2, 先后)]
+    新规则那部分要看前后 600 个区块，所以传进来的日志要比自己要的范围往前多带 1200 个区块；调用的人只取发票区块（或注册区块）落在自己范围里的。"""
+    regs, out = all_regs(ls), []
+    who = lambda r: r[7] if r[2] == REG_BOT else r[2]  # 票记给谁：机器人代点的记给域名主人，自己点的记给付款钱包
+    new = [(r[0], r[1], who(r)) for r in regs if V2_START and r[0] >= V2_START]
+    g = pair_grants(new)
+    for r in regs:
+        if V2_START and r[0] >= V2_START:
+            at = g.get((r[0], r[1]))
+            if at:
+                out.append((at[0], at[1], who(r), r[3], r[4], r[5], r[6], r[0], 2, at[2]))
+        elif re.fullmatch(r"[0-9]+", r[4]) and r[2] != REG_BOT:  # 老规则：机器人代点的不算票
+            out.append((r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[0], 1, 1))
+    return out
+
+
+def fast_paid_in(ls, a, b):
+    """分钱用（oracle_prize.py）：注册区块落在 [a, b] 的票款 → {(交易, Paid 日志序号)}。
+    新规则下要等后面 600 个区块出完才知道一个注册是不是落单，所以调用的人传的日志要到 b + 600、从 a − 1200 起。"""
+    return {(r[5], r[6]) for r in ticket_regs(ls) if a <= r[7] <= b and r[7] >= (FAST_START or 0)}
+
+
 def read_tickets(a, b):
-    """[(区块, 序号, 钱包, 域名, 票数)]"""
-    return [(r[0], r[1], r[2], r[4], r[3] // TICKET_WEI) for r in numeric_regs(logs(NAMES_AIL, a, b, [[PAID, REG]])) if r[3] >= TICKET_WEI]
+    """[(发票区块, 发票序号, 钱包, 域名, 票数, 版本 1/2, 先后)]：发票区块落在 [a, b] 的"""
+    lo = max(FAST_START or a, a - 2 * PAIR_BLOCKS) if V2_START else a  # 新规则要往前多看 1200 个区块
+    return [(r[0], r[1], r[2], r[4], r[3] // TICKET_WEI, r[8], r[9]) for r in ticket_regs(logs(NAMES_AIL, lo, b, [[PAID, REG]])) if a <= r[0] <= b and r[3] >= TICKET_WEI]
 
 
 def memo_of(tx, prefix):
@@ -162,6 +225,18 @@ def read_bets(a, b):
     return out
 
 
+def read_ops(a, b):
+    """极速池已经转回收款钱包的运营收入（没猜中的新票钱）：只认极速池钱包自己直接发、并且带「ailgns-fast-ops」的 DAI 转账。返回合计（wei）"""
+    tot = 0
+    for l in logs(DAI, a, b, [TRANSFER, pad(FAST_POOL), pad(SOURCE)]):
+        tx = rpc("anubis", "eth_getTransactionByHash", [l["transactionHash"]])
+        if not tx or (tx.get("to") or "").lower() != DAI or tx["from"].lower() != FAST_POOL:
+            continue
+        if memo_of(tx, OPS_PREFIX) is not None:
+            tot += int(l["data"], 16)
+    return tot
+
+
 def read_paid(a, b):
     """已经发出去的奖：{"期号:钱包": [AiLGNS 数量, 交易]}。只认极速池钱包自己直接发、并且带「ailgns-fast-pay:期号」的 AiLGNS 转账"""
     out = {}
@@ -177,29 +252,43 @@ def read_paid(a, b):
 
 # ───────── 记账本（状态）：同一套函数既给一次算完的试算用，也给每 5 分钟接着算的正式运行用 ─────────
 def fresh(start):
-    return {"v": 1, "from": start, "to": start - 1, "bal": {}, "sold": 0, "names": 0, "carry": "0", "rounds": {}, "due": [], "paid": {}, "sent": [], "void": 0, "last": []}
+    return {"v": STATE_V, "from": start, "to": start - 1, "bal": {}, "sold": 0, "names": 0, "carry": "0", "rounds": {}, "due": [], "paid": {}, "sent": [], "void": 0, "last": []}
 
 
 def apply_events(st, tickets, bets, ts_of):
-    """按（区块, 序号）先后把新票、新下注记进账本。返回作废的下注"""
-    ev = sorted([(t[0], t[1], "T", t) for t in tickets] + [(x[0], x[1], "B", x) for x in bets])
+    """按（区块, 序号）先后把新票、新下注记进账本。返回作废的下注。
+    票分两种：bal = 老票（旧规则），bal2 = 新票（新规则）。下注先用老票，不够再用新票；一期里的下注记成 [钱包, 数字, 老票数, 交易, 新票数]。"""
+    ev = sorted([((t[0], t[1], t[6] if len(t) > 6 else 1), "T", t) for t in tickets] + [((x[0], x[1], 2), "B", x) for x in bets], key=lambda z: z[0])
     void = []
-    for blk, _, kind, e in ev:
+    for (blk, _, _), kind, e in ev:
         if kind == "T":
-            st["bal"][e[2]] = st["bal"].get(e[2], 0) + e[4]; st["sold"] += e[4]; st["names"] += 1
+            key = "bal2" if (e[5] if len(e) > 5 else 1) == 2 else "bal"
+            st.setdefault(key, {})
+            st[key][e[2]] = st[key].get(e[2], 0) + e[4]; st["sold"] += e[4]; st["names"] += 1
+            if key == "bal2":
+                st["sold2"] = st.get("sold2", 0) + e[4]
             continue
-        n = min(e[4], st["bal"].get(e[2], 0))
-        if n <= 0:
+        b2 = st.setdefault("bal2", {})
+        n1 = min(e[4], st["bal"].get(e[2], 0))
+        n2 = min(e[4] - n1, b2.get(e[2], 0))
+        if n1 + n2 <= 0:
             void.append(e); st["void"] += 1; continue
-        st["bal"][e[2]] -= n
-        if not st["bal"][e[2]]:
-            del st["bal"][e[2]]
-        st["rounds"].setdefault(str(ts_of(blk) // ROUND), []).append([e[2], e[3], n, e[5]])
+        if n1:
+            st["bal"][e[2]] -= n1
+            if not st["bal"][e[2]]:
+                del st["bal"][e[2]]
+        if n2:
+            b2[e[2]] -= n2
+            if not b2[e[2]]:
+                del b2[e[2]]
+        st["rounds"].setdefault(str(ts_of(blk) // ROUND), []).append([e[2], e[3], n1, e[5]] + ([n2] if n2 else []))
     return void
 
 
 def settle_rounds(st, result_of):
-    """按期号从小到大结算能结的期。result_of(期号) → (开奖数字, 开奖区块) 或 None（还没开）。返回这次结掉的各期明细"""
+    """按期号从小到大结算能结的期。result_of(期号) → (开奖数字, 开奖区块) 或 None（还没开）。返回这次结掉的各期明细。
+    老票：这一期所有老票 × 0.9 + 滚存 = 老奖池，猜中的按票数分，没人中滚存。
+    新票：猜中的每张返 0.9 DAI（只返自己的），没猜中的每张 0.9 DAI 记进 ops（运营收入，之后转回收款钱包）。"""
     detail = []
     for rid in sorted(int(k) for k in st["rounds"]):
         res = result_of(rid)
@@ -208,17 +297,32 @@ def settle_rounds(st, result_of):
         bets = st["rounds"].pop(str(rid))
         stake = sum(x[2] for x in bets) * POT_PER_TICKET
         pot = int(st["carry"]) + stake
-        win = {}
-        for w, d, n, _ in bets:
+        win, win2, lose2, tk2 = {}, {}, 0, 0
+        for x in bets:
+            w, d, n, n2 = x[0], x[1], x[2], (x[4] if len(x) > 4 else 0)
+            tk2 += n2
             if d == res[0]:
-                win[w] = win.get(w, 0) + n
+                if n:
+                    win[w] = win.get(w, 0) + n
+                if n2:
+                    win2[w] = win2.get(w, 0) + n2
+            else:
+                lose2 += n2
         tot = sum(win.values())
         pay = {w: pot * n // tot for w, n in win.items()} if tot else {}
-        st["carry"] = str(pot - sum(pay.values()))  # 没人中：整池滚存；有人中：只剩分不尽的零头
+        st["carry"] = str(pot - sum(pay.values()))  # 老奖池：没人中整池滚存；有人中只剩分不尽的零头
+        for w, n2 in win2.items():
+            pay[w] = pay.get(w, 0) + n2 * POT_PER_TICKET
+        if lose2:
+            st["ops"] = str(int(st.get("ops", "0")) + lose2 * POT_PER_TICKET)
         for w, v in pay.items():
             if v > 0:
                 st["due"].append({"r": rid, "w": w, "dai": str(v)})
-        detail.append({"round": rid, "digit": res[0], "block": res[1], "tickets": stake // POT_PER_TICKET, "pot": pot, "win_tickets": tot, "pay": pay, "carry": int(st["carry"]), "bets": bets})
+        detail.append({"round": rid, "digit": res[0], "block": res[1], "tickets": stake // POT_PER_TICKET, "pot": pot, "win_tickets": tot, "pay": pay, "carry": int(st["carry"]), "bets": bets,
+                       "tickets2": tk2, "win2": sum(win2.values()), "ret2": sum(win2.values()) * POT_PER_TICKET, "ops": lose2 * POT_PER_TICKET})
+        # 老票全用完了、老奖池里还剩滚存：已经没有人能再赢它，归运营收入（只在新规则生效后）
+        if V2_START and int(st["carry"]) > 0 and not st["bal"] and not any(x[2] for b in st["rounds"].values() for x in b):
+            st["ops"] = str(int(st.get("ops", "0")) + int(st["carry"])); detail[-1]["carry_to_ops"] = int(st["carry"]); st["carry"] = "0"
     return detail
 
 
@@ -235,9 +339,14 @@ def settle(tickets, bets, ts_of, result_of):
 
 
 def liabilities(st):
-    """按这份账，极速池现在应该备着多少 DAI：没用的票 × 0.9 + 滚存 + 还没开奖的下注 × 0.9 + 中了还没发的"""
-    open_tk = sum(x[2] for b in st["rounds"].values() for x in b)
-    return (sum(st["bal"].values()) + open_tk) * POT_PER_TICKET + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"])
+    """按这份账，极速池现在应该备着多少 DAI：没用的票（老票 + 新票）× 0.9 + 老奖池滚存 + 还没开奖的下注 × 0.9 + 中了还没发的 + 还没转回去的运营收入"""
+    open_tk = sum(x[2] + (x[4] if len(x) > 4 else 0) for b in st["rounds"].values() for x in b)
+    return (sum(st["bal"].values()) + sum(st.get("bal2", {}).values()) + open_tk) * POT_PER_TICKET + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"]) + ops_due(st)
+
+
+def ops_due(st):
+    """没猜中的新票钱，还有多少没转回收款钱包"""
+    return max(0, int(st.get("ops", "0")) - int(st.get("ops_paid", "0")))
 
 
 def reconcile(st):
@@ -390,6 +499,9 @@ def run(dry, days):
         print(f"还没到上线区块 {start}（现在 {latest}）。")
         return
     st = json.load(open(STATE)) if os.path.exists(STATE) and not days else fresh(start)
+    if st.get("v") != STATE_V:  # 记票口径变过：从上线区块重新数一遍（发过的奖从链上记录认，不会重发）
+        print(f"账本版本 {st.get('v')} → {STATE_V}：从区块 {start} 重新数")
+        st = fresh(start)
     if st.get("from") != start:
         raise SystemExit(f"状态文件的起点 {st.get('from')} 和 FAST_START {start} 对不上，先查清楚再跑")
     pool = None
@@ -410,6 +522,8 @@ def run(dry, days):
     if safe >= a:
         void = apply_events(st, read_tickets(a, safe), read_bets(a, safe), lambda b: block(b)[0])
         st["paid"].update(read_paid(a, safe))
+        if V2_START:
+            st["ops_paid"] = str(int(st.get("ops_paid", "0")) + read_ops(a, safe))  # 以链上为准：极速池已经转回收款钱包多少
         st["to"] = safe
         for v in void:
             print(f"作废下注：{v[2]} 猜 {v[3]} 压 {v[4]} 票（没票了） {v[5]}")
@@ -437,8 +551,27 @@ def run(dry, days):
         except Exception as e:
             note(f"⚠️ 极速发奖出错（下轮再试）：{str(e)[:200]}", True)
 
+    # ④ 运营收入转回收款钱包：没猜中的新票钱攒够 OPS_MIN 才转；奖没发完、有交易在路上、池里的钱不够兜底都不转
+    od = ops_due(st)
+    if od >= OPS_MIN and not st["due"]:
+        dai_bal, liab = bal_of(DAI, FAST_POOL), liabilities(st)
+        if cnt("pending") != cnt("latest") or (latest > safe and read_ops(safe + 1, latest)):
+            note("极速池钱包有交易还没确认，运营收入这轮先不转。")
+        elif dai_bal < liab + GAS_KEEP:
+            note(f"⚠️ 运营收入 {od / 1e18:.2f} DAI 先不转：极速池钱包 {dai_bal / 1e18:.2f} DAI，按账要备 {liab / 1e18:.2f} + 留 2 DAI Gas。", True)
+        elif dry or not pool:
+            print(f"（dry-run）会把运营收入 {od / 1e18:.2f} DAI 从极速池转回收款钱包")
+        else:
+            try:
+                from chains import send_tx
+                h = send_tx("anubis", pool, DAI, "0xa9059cbb" + pad(SOURCE)[2:] + f"{od:064x}" + OPS_PREFIX.encode().hex(), "极速池运营收入转回收款钱包")
+                # 不在这里记「已转」：已转多少只认链上日志（下一轮第 ① 步读到这笔才算），账本没存上也不会转两遍
+                print(f"✅ 运营收入 {od / 1e18:.2f} DAI 已从极速池转回收款钱包 {TX}{h}")
+            except Exception as e:
+                note(f"⚠️ 运营收入没转成（下轮再试）：{str(e)[:160]}", True)
+
     dai_bal, liab = bal_of(DAI, FAST_POOL), liabilities(st)
-    print(f"区块 {st['from']} → {st['to']}：卖出 {st['names']} 个纯数字域名 = {st['sold']} 票，没用的 {sum(st['bal'].values())} 票；滚存 {int(st['carry']) / 1e18:.4f} DAI；待发 {len(st['due'])} 笔")
+    print(f"区块 {st['from']} → {st['to']}：卖出 {st['names']} 个域名 = {st['sold']} 票（其中新票 {st.get('sold2', 0)}），没用的老票 {sum(st['bal'].values())} 张、新票 {sum(st.get('bal2', {}).values())} 张；运营收入累计 {int(st.get('ops', '0')) / 1e18:.2f}、还没转回 {ops_due(st) / 1e18:.2f}；滚存 {int(st['carry']) / 1e18:.4f} DAI；待发 {len(st['due'])} 笔")
     print(f"极速池钱包 {dai_bal / 1e18:.2f} DAI + {bal_of(AIL, FAST_POOL) / 1e18:.6f} AiLGNS；按账应备 {liab / 1e18:.2f} DAI")
     if dry:
         return
@@ -517,7 +650,32 @@ def main():
         assert small == [(7, E, E)], "不到 1 DAI 的补到 1 DAI"
         q = quote(sells, 5 * E)
         assert q and 1.01 < q < 1.12
-        print("\n✅ 验算通过（一次算完 = 接着算；钱进出对得上；买币计划对）")
+        # —— 新规则（2026-11-14）——
+        # 哪些算票：同一个钱包 600 个区块内注册 2 个以上
+        g = pair_grants([(100, 0, A), (400, 3, A), (2000, 0, A), (100, 1, B), (701, 0, B), (100, 2, C), (300, 0, C), (900, 5, C)])
+        assert g == {(100, 0): (400, 3, 0), (400, 3): (400, 3, 1), (100, 2): (300, 0, 0), (300, 0): (300, 0, 1), (900, 5): (900, 5, 1)}, g
+        # 返奖：A 老票 2 张 + 新票 5 张，B 新票 5 张，C 新票 10 张
+        st = fresh(0)
+        tk2 = [(1, 0, A, "88888", 2), (2, 5, A, "apple", 5, 2, 0), (2, 5, B, "pear", 5, 2, 1), (3, 0, C, "一二三", 10, 2, 1)]
+        b2 = [(1000, 0, A, res[0], 4, "u1"),            # A 压 4 张：先用 2 张老票，再用 2 张新票，猜中
+              (1000, 1, B, (res[0] + 1) % 10, 5, "u2"),  # B 5 张新票，没中 → 4.5 DAI 归运营
+              (1000, 2, C, res[0], 3, "u3"),             # C 3 张新票，猜中 → 只返 2.7，不分 B 的钱
+              (1001, 0, C, (res[1] + 1) % 10, 7, "u4")]  # C 剩下 7 张，没中 → 6.3 归运营
+        void = apply_events(st, tk2, b2, lambda b: fake_blk[b])
+        assert not void and st["bal"] == {} and st["bal2"] == {A: 3} and st["sold"] == 22 and st["sold2"] == 20
+        assert st["rounds"][str(r0)][0] == [A, res[0], 2, "u1", 2] and st["rounds"][str(r0)][1] == [B, (res[0] + 1) % 10, 0, "u2", 5]
+        assert liabilities(st) == (3 + 4 + 5 + 3 + 7) * POT_PER_TICKET
+        dd = {x["round"] - r0: x for x in settle_rounds(st, result_of)}
+        assert dd[0]["pay"] == {A: 2 * POT_PER_TICKET + 2 * POT_PER_TICKET, C: 3 * POT_PER_TICKET}, dd[0]["pay"]  # A：老奖池 1.8（只有他的老票）+ 新票返 1.8；C：2.7
+        assert dd[0]["ops"] == 5 * POT_PER_TICKET and dd[0]["carry"] == 0 and dd[0]["tickets"] == 2 and dd[0]["tickets2"] == 10 and dd[0]["win2"] == 5
+        assert dd[1]["pay"] == {} and dd[1]["ops"] == 7 * POT_PER_TICKET and dd[1]["carry"] == 0
+        assert int(st["ops"]) == 12 * POT_PER_TICKET and ops_due(st) == 12 * POT_PER_TICKET
+        paid_out = sum(int(d["dai"]) for d in st["due"])
+        assert paid_out + int(st["ops"]) + 3 * POT_PER_TICKET == 22 * POT_PER_TICKET, "票钱的 90% = 发给猜中的 + 归运营的 + 还没用的票"
+        assert liabilities(st) == 3 * POT_PER_TICKET + paid_out + 12 * POT_PER_TICKET
+        st["ops_paid"] = str(10 * POT_PER_TICKET)
+        assert ops_due(st) == 2 * POT_PER_TICKET and liabilities(st) == 3 * POT_PER_TICKET + paid_out + 2 * POT_PER_TICKET
+        print("\n✅ 验算通过（一次算完 = 接着算；钱进出对得上；买币计划对；新规则：批量才算票、猜中只返自己的 90%、没中的归运营）")
         return
 
     start = FAST_START if FAST_START and not a.days else latest - int((a.days or 3) * 86400)

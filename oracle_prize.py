@@ -24,7 +24,7 @@ from eth_utils import keccak
 from chains import rpc, send_tx
 from otc_buyback import orders as read_orders
 from notify_mail import send as send_mail
-from fast_oracle import FAST_START, numeric_regs
+from fast_oracle import FAST_START, V2_START, PAIR_BLOCKS, ticket_regs, fast_paid_in
 
 BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
@@ -105,28 +105,35 @@ def main():
                 tot += int(l["data"], 16)
         return tot
 
-    if FAST_START and not st.get("fast_chain") and st["scanned_to"] >= FAST_START:  # 一次性：从上线那块到上次扫到的地方，按链上重数一遍
+    if FAST_START and st.get("fast_chain") != 2 and st["scanned_to"] >= FAST_START:  # 一次性：从上线那块到上次扫到的地方，按链上重数一遍
         real = 0
         for x in range(FAST_START, st["scanned_to"] + 1, 5000):
             y = min(st["scanned_to"], x + 4999)
             ls = rpc("anubis", "eth_getLogs", [{"address": NAMES[0], "fromBlock": hex(x), "toBlock": hex(y), "topics": [[PAID, REG]]}])
-            real += sum(r[3] for r in numeric_regs(ls) if r[0] >= FAST_START)
+            real += sum(r[3] for r in ticket_regs(ls) if r[7] >= FAST_START)  # 2026-11-14：代注册机器人付款的不算票（fast_chain = 2 表示按这个口径重数过）
         moved = fast_moved_in(FAST_START, st["scanned_to"])
         print(f"极速资金池对账（按链上重数）：票款 {real / 1e18:.2f} DAI（账本原来记 {int(st.get('fast_income', '0')) / 1e18:.2f}），已转 {moved / 1e18:.2f} DAI，"
               f"实际还欠 {max(0, real * FAST_BPS // 10000 - moved) / 1e18:.2f}（账本原来记 {int(st.get('fast_owed', '0')) / 1e18:.2f}）")
-        st["fast_income"], st["fast_moved"], st["fast_chain"] = str(real), str(moved), True
+        st["fast_income"], st["fast_moved"], st["fast_chain"] = str(real), str(moved), 2
 
     # ① 新的域名收入 → 应留奖金
     new_cost = 0
     fast_moved_new = 0  # 这一轮新扫到的「收款钱包 → 极速资金池」转账（链上）
     fast_cost = 0  # 极速预言家的票款（上线后新注册的纯数字 .ailgns 域名），单独算
     lgns_cost = 0  # 用 LGNS 付的域名费（按 DAI 标价）：只统计，不留奖金
-    for b in range(st["scanned_to"] + 1, latest + 1, 5000):
-        end = min(latest, b + 4999)
+    # 极速新规则（V2_START 生效后）：一个注册算不算票，要看同一个钱包后面 600 个区块里有没有再注册一个。
+    # 所以域名收入的账晚 600 个区块（约 10 分钟）再记，等能看清了再分「进极速池」还是「进每日奖池」。
+    scan_to = latest - PAIR_BLOCKS - 1 if (V2_START and latest >= V2_START) else latest
+    for b in range(st["scanned_to"] + 1, scan_to + 1, 5000):
+        end = min(scan_to, b + 4999)
         for c in NAMES:
             fast_on = bool(FAST_START) and c == NAMES[0] and end >= FAST_START
             ls = rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(b), "toBlock": hex(end), "topics": [[PAID, REG]] if fast_on else [PAID]}])
-            fast_paid = {(r[5], r[6]) for r in numeric_regs(ls) if r[0] >= FAST_START} if fast_on else set()  # (交易, Paid 日志序号)
+            if fast_on and V2_START and end >= V2_START:  # 前面多看 1200 块、后面多看 600 块，才分得清哪些是一批
+                wide = rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(max(FAST_START, b - 2 * PAIR_BLOCKS)), "toBlock": hex(min(latest, end + PAIR_BLOCKS)), "topics": [[PAID, REG]]}])
+                fast_paid = fast_paid_in(wide, b, end)
+            else:
+                fast_paid = fast_paid_in(ls, b, end) if fast_on else set()  # (交易, Paid 日志序号)
             for l in ls:
                 if l["topics"][0] != PAID:
                     continue
