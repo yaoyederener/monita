@@ -1,4 +1,4 @@
-"""🔮 AiLGNS 每日预言家：域名收入的 70% 留作奖金（进奖池钱包买 AiLGNS），30% 退回收款钱包；奖金只以 AiLGNS 发放。2026-11-07 之前的欠款一笔勾销。
+"""🔮 AiLGNS 每日预言家：域名收入的 70% 留作奖金（进奖池钱包买 AiLGNS），30% 退回收款钱包；奖金只以 AiLGNS 发放。2026-11-14 起客户用 LGNS 付的域名费不算进奖池（站长手动加）。2026-11-07 之前的欠款一笔勾销。
 
 钱怎么走（不改任何合约，奖池钱包和 keeper 都只以普通用户身份操作）：
   域名注册 / 续费的钱直接进回购分账合约 BUYBACK（0x99f4）。
@@ -93,6 +93,7 @@ def main():
     # ① 新的域名收入 → 应留奖金
     new_cost = 0
     fast_cost = 0  # 极速预言家的票款（上线后新注册的纯数字 .ailgns 域名），单独算
+    lgns_cost = 0  # 用 LGNS 付的域名费（按 DAI 标价）：只统计，不留奖金
     for b in range(st["scanned_to"] + 1, latest + 1, 5000):
         end = min(latest, b + 4999)
         for c in NAMES:
@@ -110,7 +111,9 @@ def main():
                         continue
                 cost = int(l["data"][2 + 64:2 + 128], 16)
                 if (l["transactionHash"], int(l["logIndex"], 16)) in fast_paid:
-                    fast_cost += cost
+                    fast_cost += cost  # 极速预言家的票：不管用什么币付都要兑付，照旧 90% 进极速池
+                elif "0x" + l["topics"][2][26:] == LGNS:
+                    lgns_cost += cost  # 站长 2026-11-14：客户用 LGNS 付的域名费不算进每日奖池（LGNS 整笔退回收款钱包，站长手动往奖池里加）
                 else:
                     new_cost += cost
         st["scanned_to"] = end
@@ -126,9 +129,16 @@ def main():
         owed = new_cost * SHARE_BPS // 10000
         st["to_pool_dai"] = st["to_pool_ail"] = "0"
         st["owed_cleared"] = True
+    if not st.get("lgns_out"):  # 站长 2026-11-14：LGNS 付的不算进奖池。之前因为 LGNS 域名费记下的欠款一笔勾销，不再从收款钱包的 DAI 里补
+        print(f"LGNS 付的域名费不再计入奖池：之前记的欠款 {int(st['owed']) / 1e18:.2f} DAI 勾销，从这一轮起只算 DAI / AiLGNS 付的")
+        owed = new_cost * SHARE_BPS // 10000
+        st["lgns_out"] = True
+    st["lgns_income"] = str(int(st.get("lgns_income", "0")) + lgns_cost)
     held, held_ail = int(st["held"]), int(st.get("held_ail", "0"))
     w = rpc("anubis", "eth_call", [{"to": AIL_PAIR, "data": "0x0902f1ac"}, "latest"])[2:]
     r_ail, r_dai = int(w[:64], 16), int(w[64:128], 16)  # AiLGNS 现价 = r_dai / r_ail
+    if lgns_cost:
+        print(f"用 LGNS 付的域名费 {lgns_cost / 1e18:.2f} DAI 等值：不计入奖池")
     print(f"新域名收入 {new_cost / 1e18:.2f} DAI；应留奖金 {owed / 1e18:.2f}，已留 {held / 1e18:.2f} DAI + {held_ail / 1e18:.6f} AiLGNS")
 
     def save():
