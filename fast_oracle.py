@@ -45,11 +45,12 @@ FAST_START = 18976231  # 上线区块（2026-11-12 开闸）。之前注册的�
 #      每张票只有 0.9 DAI 进了极速池，所以猜中的人多拿的那 1 DAI 是从没猜中的票钱里出的。运营收入 = 这一期下注的新票 × 0.9 − 猜中的新票 × 1.9，可能是负数（那一期赔出去的比收进来的多），累计起来攒够 OPS_MIN 才转回收款钱包。
 #      长期看十个数字猜中一个，每张票平均赔 0.19、留 0.71；但有人重仓一个数字猜中时，极速池要先垫钱。池里的钱不够发时不打折，等钱够了再发并发邮件报警。
 #   ③ 老票：V2_START 之前买的（纯数字域名）按旧规则用完——同一期的老票下注进老奖池，猜中的按票数分，没人中滚存。一个钱包两种票都有时先用老票。
-V2_START = None
+V2_START = 19101866  # 2026-11-14 约 14:18 北京时间开闸（站长「开闸，上限 100 张」）
 PAIR_BLOCKS = 600
 OPS_PREFIX = "ailgns-fast-ops"
 OPS_MIN = 20 * 10**18
 WIN2_PER_TICKET = 19 * 10**17  # 新票猜中每张发 1.9 DAI
+CAP2 = 100  # 单注上限（站长 2026-11-14 定）：每个钱包每期最多押 100 张新票（所有数字加起来）。超出的部分不算下注，票还留在钱包里。防有人重仓押中把极速池掏空：最坏一个钱包一期垫 100 DAI。老票不限（老规则是大家分奖池，不用池子垫钱）。网站 lib/fast.js 的 CAP2 要填同一个数
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"  # 收款钱包（谷歌社交账号钱包）
 # 🤖 代注册机器人钱包（网站 names-batch.js 里的 REG）：客户授权 DAI 给它，它替客户注册，域名直接归客户。链上看「付款的人」是它，不是客户。
 #   老规则：页面写明「交给机器人代点的不算票」→ 它付款的注册一律不算老票。
@@ -272,8 +273,10 @@ def apply_events(st, tickets, bets, ts_of):
                 st["sold2"] = st.get("sold2", 0) + e[4]
             continue
         b2 = st.setdefault("bal2", {})
+        rid = str(ts_of(blk) // ROUND)
         n1 = min(e[4], st["bal"].get(e[2], 0))
-        n2 = min(e[4] - n1, b2.get(e[2], 0))
+        used2 = sum((x[4] if len(x) > 4 else 0) for x in st["rounds"].get(rid, []) if x[0] == e[2])  # 这个钱包这一期已经押了多少新票
+        n2 = max(0, min(e[4] - n1, b2.get(e[2], 0), CAP2 - used2))
         if n1 + n2 <= 0:
             void.append(e); st["void"] += 1; continue
         if n1:
@@ -284,7 +287,7 @@ def apply_events(st, tickets, bets, ts_of):
             b2[e[2]] -= n2
             if not b2[e[2]]:
                 del b2[e[2]]
-        st["rounds"].setdefault(str(ts_of(blk) // ROUND), []).append([e[2], e[3], n1, e[5]] + ([n2] if n2 else []))
+        st["rounds"].setdefault(rid, []).append([e[2], e[3], n1, e[5]] + ([n2] if n2 else []))
     return void
 
 
