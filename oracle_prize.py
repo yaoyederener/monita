@@ -24,7 +24,7 @@ from eth_utils import keccak
 from chains import rpc, send_tx
 from otc_buyback import orders as read_orders
 from notify_mail import send as send_mail
-from fast_oracle import FAST_START, V2_START, PAIR_BLOCKS, ticket_regs, fast_paid_in
+from fast_oracle import FAST_START, V2_START, PAIR_BLOCKS, FLOW_START, ticket_regs, fast_paid_in
 
 BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
@@ -120,12 +120,17 @@ def main():
     new_cost = 0
     fast_moved_new = 0  # 这一轮新扫到的「收款钱包 → 极速资金池」转账（链上）
     fast_cost = 0  # 极速预言家的票款（上线后新注册的纯数字 .ailgns 域名），单独算
+    flow_cost = 0  # 其中 FLOW_START 区块之后的票款：这部分每一笔都要转 90% 进极速奖池（站长 2026-11-14「让奖池跟着涨」）
+    flow_moved_new = 0  # FLOW_START 之后「收款钱包 → 极速奖池」的转账（链上）
     lgns_cost = 0  # 用 LGNS 付的域名费（按 DAI 标价）：只统计，不留奖金
     # 极速新规则（V2_START 生效后）：一个注册算不算票，要看同一个钱包后面 600 个区块里有没有再注册一个。
     # 所以域名收入的账晚 600 个区块（约 10 分钟）再记，等能看清了再分「进极速池」还是「进每日奖池」。
     scan_to = latest - PAIR_BLOCKS - 1 if (V2_START and latest >= V2_START) else latest
-    for b in range(st["scanned_to"] + 1, scan_to + 1, 5000):
-        end = min(scan_to, b + 4999)
+    # 一次最多扫几个区块：节点一次只给查 5000 个区块的日志。新规则下每段还要前面多看 1200、后面多看 600，所以一段只扫 3000（3000 + 1800 < 5000）。
+    # （2026-11-14 发现：原来固定 5000，机器人要是停了 50 分钟以上，补扫时这一步会一直报错卡住）
+    step = 3000 if (V2_START and latest >= V2_START) else 5000
+    for b in range(st["scanned_to"] + 1, scan_to + 1, step):
+        end = min(scan_to, b + step - 1)
         for c in NAMES:
             fast_on = bool(FAST_START) and c == NAMES[0] and end >= FAST_START
             ls = rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(b), "toBlock": hex(end), "topics": [[PAID, REG]] if fast_on else [PAID]}])
@@ -146,18 +151,30 @@ def main():
                 cost = int(l["data"][2 + 64:2 + 128], 16)
                 if (l["transactionHash"], int(l["logIndex"], 16)) in fast_paid:
                     fast_cost += cost  # 极速预言家的票：不管用什么币付都要兑付，照旧 90% 进极速池
+                    if int(l["blockNumber"], 16) >= FLOW_START:
+                        flow_cost += cost
                 elif "0x" + l["topics"][2][26:] == LGNS:
                     lgns_cost += cost  # 站长 2026-11-14：客户用 LGNS 付的域名费不算进每日奖池（LGNS 整笔退回收款钱包，站长手动往奖池里加）
                 else:
                     new_cost += cost
         if FAST_START and st.get("fast_chain") and end >= FAST_START:
             fast_moved_new += fast_moved_in(max(b, FAST_START), end)
+        if end >= FLOW_START:
+            flow_moved_new += fast_moved_in(max(b, FLOW_START), end)
         st["scanned_to"] = end
         if not st.get("start_ok") and int(rpc("anubis", "eth_getBlockByNumber", [hex(end), False])["timestamp"], 16) >= START_TS:
             st["start_ok"] = True
     st["income"] = str(int(st["income"]) + new_cost)
     st["fast_income"] = str(int(st.get("fast_income", "0")) + fast_cost)
-    if st.get("fast_chain"):  # 欠极速资金池的 = 应转（票款 × 90%）− 链上已转
+    st["flow_income"] = str(int(st.get("flow_income", "0")) + flow_cost)
+    st["flow_moved"] = str(int(st.get("flow_moved", "0")) + flow_moved_new)
+    if st.get("fast_chain") and st["scanned_to"] >= FLOW_START:
+        # 💰 FLOW_START 之后：每一笔票款都转 90%，只看这之后的票款和这之后已转的；之前多转进奖池的钱不再抵账，留在池里当储备
+        st["fast_moved"] = str(int(st.get("fast_moved", "0")) + fast_moved_new)
+        st["fast_owed"] = str(max(0, int(st["flow_income"]) * FAST_BPS // 10000 - int(st["flow_moved"])))
+        if flow_cost or flow_moved_new:
+            print(f"极速奖池（跟着买票涨）：开闸后票款累计 {int(st['flow_income']) / 1e18:.2f} DAI，应转 {int(st['flow_income']) * FAST_BPS / 10000 / 1e18:.2f}，已转 {int(st['flow_moved']) / 1e18:.2f}，还欠 {int(st['fast_owed']) / 1e18:.2f}")
+    elif st.get("fast_chain"):  # 欠极速资金池的 = 应转（票款 × 90%）− 链上已转
         st["fast_moved"] = str(int(st.get("fast_moved", "0")) + fast_moved_new)
         st["fast_owed"] = str(max(0, int(st["fast_income"]) * FAST_BPS // 10000 - int(st["fast_moved"])))
     else:
