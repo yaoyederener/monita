@@ -91,6 +91,56 @@ jobs:
             sleep 4
           done
 
+  # 🤖 代注册机器人（批量注册「交给机器人代点」）+ 代烧机器人：单独一个任务，和 refund 并行（站长 2026-11-14：代点要快）。
+  #   原来排在 5 分钟任务里，客户下单后最长要等 5 分钟才开始注册。现在这个任务一起来先跑一遍代烧，然后 4 分钟里每 10 秒看一次有没有新的代注册委托。
+  #   两个机器人共用同一个钱包（REG_KEY），所以放在同一个任务里一前一后跑，绝不并行；同一时间只允许一个 reg 任务（concurrency）。
+  reg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    concurrency:
+      group: reg-bot
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install signer
+        run: pip install "eth-account==0.13.4"
+
+      - name: Burn bot - burn names for jackpot winners who delegated (approve once, bot burns)
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          REG_KEY: ${{ secrets.REG_KEY }}
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u burn_bot.py
+
+      - name: Reg bot - register names for customers who delegated, checking every 10 seconds
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 7
+        shell: bash
+        env:
+          REG_KEY: ${{ secrets.REG_KEY }}
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          end=$(( $(date +%s) + 240 ))
+          n=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            n=$(( n + 1 ))
+            python -u reg_bot.py > /tmp/reg.log 2>&1 || true
+            if ! grep -q "没有待办" /tmp/reg.log; then echo "== 第 $n 次，$(date -u +%H:%M:%S) UTC"; cat /tmp/reg.log; fi
+            sleep 10
+          done
+          echo "这一轮看了 $n 次"
+
   refund:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -158,24 +208,7 @@ jobs:
 
       # ⚡ 极速预言家的结算发奖挪到下面单独的 fast 任务里了（站长 2026-11-14「做成秒发」）：这里不再跑，免得两处同时发奖
 
-      - name: Reg bot - register names for customers who delegated (batch step 2)
-        if: always()
-        continue-on-error: true
-        env:
-          REG_KEY: ${{ secrets.REG_KEY }}
-          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
-          PYTHONUNBUFFERED: "1"
-        run: python -u reg_bot.py
-
-      - name: Burn bot - burn names for jackpot winners who delegated (approve once, bot burns)
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 4
-        env:
-          REG_KEY: ${{ secrets.REG_KEY }}
-          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
-          PYTHONUNBUFFERED: "1"
-        run: python -u burn_bot.py
+      # 🤖 代注册、代烧机器人挪到上面单独的 reg 任务里了（站长 2026-11-14：代点要快）：这里不再跑，免得两处同时用同一个钱包发交易
 
       - name: Med nag - owner medication check-in reminder (10:00 / 22:00 BJT) until checked
         if: always()
