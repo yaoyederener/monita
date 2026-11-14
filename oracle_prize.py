@@ -54,6 +54,7 @@ BOOK = "https://ailgns.dev/api/book?m=ailgns&fresh=1"
 REFUND_MIN = 10 * 10**18  # 回购合约里攒到 10 DAI 才退一次，省 Gas
 LGNS_REFUND_MIN = 100 * 10**9  # LGNS 攒到 100 个才退一次
 BUY_MIN = 100 * 10**18  # 奖池 DAI 满 100 就去 OTC 买 AiLGNS
+TAKE_FROM_SOURCE = False  # 站长 2026-11-15：「不要再自动扣我的钱了」。False = 机器人不再从谷歌社交账号钱包转任何钱去每日奖池 / 极速资金池，奖池由站长自己手动转。想恢复改回 True 前要先把 fast_owed / to_pool_* 的旧账清零，不然会一口气把欠的全拿走
 GAS_KEEP = 2 * 10**18  # 站长 2026-11-13：从谷歌社交账号钱包转 DAI 时给它留 2 DAI 当 Gas（DAI 就是 Anubis 的 Gas 币）。之前欠款没补齐时会把它拿到 0，站长自己发不出交易
 BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
 # 🪧 站长 2026-11-07 定：奖池换币不再吃卖单，改成在 OTC 挂买单（挂在买一上面一点点），等人来卖：不付 1% 手续费、不吃别人的价，盘口还多一层真实买方深度。
@@ -223,6 +224,12 @@ def main():
         key = "to_pool_dai" if tok == DAI else "to_pool_ail"
         if amount <= 0 or not keeper or dry:
             return
+        if not TAKE_FROM_SOURCE:  # 不从站长钱包拿钱：只记个数给站长看，不算欠款
+            nk = "not_moved_dai" if tok == DAI else "not_moved_ail"
+            st[nk] = str(int(st.get(nk, "0")) + amount)
+            save()
+            print(f"{why}：{amount / 1e18:.6f} {'DAI' if tok == DAI else 'AiLGNS'} 没转（站长关了自动转奖池），留在收款钱包")
+            return
         allow = num(tok, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address))
         have = max(0, bal(tok, SOURCE) - (GAS_KEEP if tok == DAI else 0))  # DAI 留 2 个当 Gas，不够的记账下次再转
         n = min(amount, allow, have)
@@ -236,7 +243,9 @@ def main():
         print(f"{why}：{n / 1e18:.6f} {'DAI' if tok == DAI else 'AiLGNS'} 转入奖池钱包 {TX}{h}")
     # ⚡ 欠极速资金池的 DAI：从谷歌社交账号钱包用周转授权转到 FAST_POOL（专用钱包，和每日奖池分开）
     fast_owe = int(st.get("fast_owed", "0"))
-    if fast_owe > 0 and keeper and not dry:
+    if fast_owe > 0 and not TAKE_FROM_SOURCE:
+        print(f"极速资金池：按老规则该转 {fast_owe / 1e18:.2f} DAI，站长关了自动转，没转")
+    elif fast_owe > 0 and keeper and not dry:
         allow = num(DAI, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address)); have = max(0, bal(DAI, SOURCE) - GAS_KEEP)  # 留 2 DAI 当 Gas
         n = min(fast_owe, allow, have)
         if n > 10**17:
@@ -248,7 +257,7 @@ def main():
             print(f"⚠️ 欠极速资金池 {fast_owe / 1e18:.2f} DAI 没转成（授权 {allow / 1e18:.2f}，留 Gas 后能转 {have / 1e18:.2f}），下轮再转")
     for tok, key in ((DAI, "to_pool_dai"), (AIL, "to_pool_ail")):
         owe_pool = int(st.get(key, "0"))
-        if owe_pool > 0:
+        if owe_pool > 0 and TAKE_FROM_SOURCE:
             st[key] = "0"
             move_to_pool(tok, owe_pool, "补转欠款")
 
