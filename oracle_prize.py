@@ -159,15 +159,22 @@ def main():
                     new_cost += cost
         if FAST_START and st.get("fast_chain") and end >= FAST_START:
             fast_moved_new += fast_moved_in(max(b, FAST_START), end)
-        if end >= FLOW_START:
-            flow_moved_new += fast_moved_in(max(b, FLOW_START), end)
         st["scanned_to"] = end
         if not st.get("start_ok") and int(rpc("anubis", "eth_getBlockByNumber", [hex(end), False])["timestamp"], 16) >= START_TS:
             st["start_ok"] = True
     st["income"] = str(int(st["income"]) + new_cost)
     st["fast_income"] = str(int(st.get("fast_income", "0")) + fast_cost)
     st["flow_income"] = str(int(st.get("flow_income", "0")) + flow_cost)
-    st["flow_moved"] = str(int(st.get("flow_moved", "0")) + flow_moved_new)
+    # 「已转多少」每一轮都数到最新区块，不跟着上面晚 600 块的扫描走。
+    # （2026-11-14 上线当天的错：它原来跟着晚 600 块，机器人刚转的那笔接下来 10 分钟里数不到，下一轮又照「应转 − 已转」重转了一遍。）
+    if latest >= FLOW_START:
+        mv_from = max(FLOW_START, int(st.get("flow_moved_to", FLOW_START - 1)) + 1)
+        if "flow_moved_to" not in st:
+            st["flow_moved"] = "0"  # 第一次用新数法：从开闸区块重数一遍，免得和老数法的数叠在一起
+        if mv_from <= latest:
+            flow_moved_new = fast_moved_in(mv_from, latest)
+            st["flow_moved"] = str(int(st.get("flow_moved", "0")) + flow_moved_new)
+            st["flow_moved_to"] = latest
     if st.get("fast_chain") and st["scanned_to"] >= FLOW_START:
         # 💰 FLOW_START 之后：每一笔票款都转 90%，只看这之后的票款和这之后已转的；之前多转进奖池的钱不再抵账，留在池里当储备
         st["fast_moved"] = str(int(st.get("fast_moved", "0")) + fast_moved_new)
