@@ -27,6 +27,70 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ⚡ 极速预言家：结算 + 发奖，单独一个任务，和下面的 refund 并行（站长 2026-11-14「做成秒发」）。
+  #   每期在整 10 分钟结束，开奖数字要等 20 个区块确认（约 21 秒）。定时器每 5 分钟（约第 51 秒）触发一次：
+  #   · 离本期结束不到 5 分半 → 先等着，卡在「结束后第 23 秒」结算发奖，再补两次（防节点慢）。中奖的人大约开奖后半分钟到一分钟收到。
+  #   · 离本期结束还早（上一期刚结束）→ 马上补扫一遍，兜底。
+  #   发没发过只认链上的发奖记录，重复跑不会重复发；同一时间只允许一个极速任务在跑（concurrency）。
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    concurrency:
+      group: fast-oracle
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install signer
+        run: pip install "eth-account==0.13.4"
+
+      - name: Fast oracle - settle and pay winners right after each draw
+        continue-on-error: true
+        timeout-minutes: 7
+        shell: bash
+        env:
+          FAST_POOL_KEY: ${{ secrets.FAST_POOL_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          OPS_EMAILS: ${{ secrets.OPS_EMAILS }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          now=$(date +%s); to_end=$(( 600 - now % 600 )); wait=$(( to_end + 23 ))
+          if [ "$wait" -le 330 ]; then
+            echo "离本期结束还有 ${to_end} 秒：等到开奖后第 23 秒再结算发奖"
+            sleep "$wait"
+            for i in 1 2 3; do
+              echo "== 第 $i 次，$(date -u +%H:%M:%S) UTC"
+              python -u fast_oracle.py --run || true
+              if [ "$i" -lt 3 ]; then sleep 8; fi
+            done
+          else
+            echo "离本期结束还有 ${to_end} 秒：现在补扫一遍"
+            python -u fast_oracle.py --run
+          fi
+
+      - name: Save fast oracle state
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f data/fast_oracle.json ]; then git add data/fast_oracle.json; fi
+          git diff --cached --quiet && exit 0
+          git commit -m "Update fast oracle state"
+          for i in 1 2 3 4; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            sleep 4
+          done
+
   refund:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -92,17 +156,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u oracle_prize.py
 
-      - name: Fast oracle - settle 10-minute rounds and pay winners in AiLGNS (idle until FAST_START is set)
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 4
-        env:
-          FAST_POOL_KEY: ${{ secrets.FAST_POOL_KEY }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          OPS_EMAILS: ${{ secrets.OPS_EMAILS }}
-          PYTHONUNBUFFERED: "1"
-        run: python -u fast_oracle.py --run
+      # ⚡ 极速预言家的结算发奖挪到下面单独的 fast 任务里了（站长 2026-11-14「做成秒发」）：这里不再跑，免得两处同时发奖
 
       - name: Reg bot - register names for customers who delegated (batch step 2)
         if: always()
