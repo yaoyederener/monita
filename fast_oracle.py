@@ -64,7 +64,20 @@ POT_PER_TICKET = 9 * 10**17  # 每张票 0.9 DAI 进奖池
 PREFIX = "ailgns-fast:"
 PAY_PREFIX = "ailgns-fast-pay:"
 CONFIRM = 20  # 只认 20 个块之前的数据，防链重组
-BET_RE = re.compile(r"^([0-9]):([1-9][0-9]{0,8})$")
+BET_RE = re.compile(r"^([0-9]{1,10}):([1-9][0-9]{0,8})$")
+MULTI_START = 19103400  # 一笔下注押多个数字，从这个区块起才认（约 2026-11-14 14:44 北京时间；网站 lib/fast.js 的 MULTI_START 填同一个数）
+
+
+def decode_bet(memo, blk):
+    """下注附言 → [(数字, 每个数字几张)]。老写法「7:3」= 数字 7 压 3 张；新写法「0123:1」= 0、1、2、3 各压 1 张。
+    多个数字的写法只在 MULTI_START 之后认，数字不能重复；不合规返回 []。同一笔里的数字按写的顺序一个个记，票不够时排在后面的先没有。"""
+    m = BET_RE.match(memo or "")
+    if not m:
+        return []
+    ds = m.group(1)
+    if len(ds) > 1 and (blk < MULTI_START or len(set(ds)) != len(ds)):
+        return []
+    return [(int(c), int(m.group(2))) for c in ds]
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fast_oracle.json")
 SITE = "https://ailgns.dev/api/oracle"
 TX = "https://anubisscan.io/tx/"
@@ -214,7 +227,7 @@ def memo_of(tx, prefix):
 
 
 def read_bets(a, b):
-    """[(区块, 序号, 钱包, 数字, 票数, 交易)]：给极速池转 0 DAI，且交易是钱包自己直接发给 DAI 合约的"""
+    """[(区块, 序号, 钱包, 数字, 票数, 交易, 这笔里的第几个数字)]：给极速池转 0 DAI，且交易是钱包自己直接发给 DAI 合约的"""
     out = []
     for l in logs(DAI, a, b, [TRANSFER, None, pad(FAST_POOL)]):
         if int(l["data"], 16) != 0:
@@ -223,9 +236,9 @@ def read_bets(a, b):
         frm = "0x" + l["topics"][1][26:].lower()
         if not tx or (tx.get("to") or "").lower() != DAI or tx["from"].lower() != frm:
             continue
-        m = BET_RE.match(memo_of(tx, PREFIX) or "")
-        if m:
-            out.append((int(l["blockNumber"], 16), int(l["logIndex"], 16), frm, int(m.group(1)), int(m.group(2)), l["transactionHash"]))
+        blk = int(l["blockNumber"], 16)
+        for k, (d, n) in enumerate(decode_bet(memo_of(tx, PREFIX), blk)):
+            out.append((blk, int(l["logIndex"], 16), frm, d, n, l["transactionHash"], k))  # k = 这笔里的第几个数字（排序用）
     return out
 
 
@@ -262,9 +275,10 @@ def fresh(start):
 def apply_events(st, tickets, bets, ts_of):
     """按（区块, 序号）先后把新票、新下注记进账本。返回作废的下注。
     票分两种：bal = 老票（旧规则），bal2 = 新票（新规则）。下注先用老票，不够再用新票；一期里的下注记成 [钱包, 数字, 老票数, 交易, 新票数]。"""
-    ev = sorted([((t[0], t[1], t[6] if len(t) > 6 else 1), "T", t) for t in tickets] + [((x[0], x[1], 2), "B", x) for x in bets], key=lambda z: z[0])
+    ev = sorted([((t[0], t[1], t[6] if len(t) > 6 else 1), "T", t) for t in tickets] + [((x[0], x[1], 2, x[6] if len(x) > 6 else 0), "B", x) for x in bets], key=lambda z: z[0])
     void = []
-    for (blk, _, _), kind, e in ev:
+    for key, kind, e in ev:
+        blk = key[0]
         if kind == "T":
             key = "bal2" if (e[5] if len(e) > 5 else 1) == 2 else "bal"
             st.setdefault(key, {})
