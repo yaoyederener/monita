@@ -131,6 +131,16 @@ def main():
         print(f"周榜：{r['settled']} 这一周已结算")
     for x in r.get("stuck") or []:
         print(f"⚠️ 有一笔卡在「发放中」：{x['a']} {x['amt']} DAI（{x['id']}）——不会自动重发，要人工到链上核对")
+    # 钥匙自检（不发任何交易）：WEEKLY_KEY 对应的钱包是不是网站登记的周榜钱包，结果记进状态文件，方便核对
+    try:
+        k_acct = Account.from_key(os.environ["WEEKLY_KEY"]) if os.environ.get("WEEKLY_KEY") else None
+        chk = "没配" if not k_acct else ("对得上" if k_acct.address.lower() == (r.get("pool") or "").lower() else "对不上")
+    except Exception:
+        chk = "格式不对"
+    print(f"周榜钱包钥匙：{chk}")
+    if st.get("key") != chk and not dry:
+        st["key"] = chk
+        save()
     # 上一轮发出去了、但网站没记上的：只补记账
     for pid, rec in list(st["sent"].items()):
         if rec and rec.get("tx") and not dry:
