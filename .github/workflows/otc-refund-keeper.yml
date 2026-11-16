@@ -258,6 +258,15 @@ jobs:
         run: |
           if [ "${{ vars.ARB_ON }}" = "1" ]; then python -u arb_keeper.py; else python -u arb_keeper.py --dry-run; fi
 
+      - name: Bid maker DRY RUN (reads chain only, no key, no transactions; logs to data/bid_maker.json)
+        if: always()
+        continue-on-error: true
+        env:
+          BID_SIZE: ${{ vars.BID_SIZE || '5' }}
+          BID_MARGIN: ${{ vars.BID_MARGIN || '0.002' }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u bid_maker.py
+
       - name: Sell Polygon income to DAI and bridge it to Anubis for the buyback
         if: always()
         continue-on-error: true
@@ -325,7 +334,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # 一个一个加：某个文件还没生成时（比如 gas_alert.json），不能连累别的状态文件都存不上（之前就因为这样每 5 分钟重发一次邮件）
-          for f in data/otc_broadcast.json data/fee_split.json data/buyback.json data/oracle_prize.json data/weekly_prize.json data/fast_oracle.json data/kv_backup.json data/site_guard.json data/gas_alert.json data/polygon_bridge.json data/arb.json data/order_seen.json; do
+          for f in data/otc_broadcast.json data/fee_split.json data/buyback.json data/oracle_prize.json data/weekly_prize.json data/fast_oracle.json data/kv_backup.json data/site_guard.json data/gas_alert.json data/polygon_bridge.json data/arb.json data/order_seen.json data/bid_maker.json; do
             if [ -f "$f" ]; then git add "$f"; fi
           done
           git diff --cached --quiet && exit 0
