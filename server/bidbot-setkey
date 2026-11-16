@@ -1,0 +1,24 @@
+#!/bin/bash
+# 把做市钱包私钥放到服务器上并启动机器人。私钥只在这里输入一次，不显示、不进聊天、不进命令历史。
+set -euo pipefail
+ME="0x06cc2a46d7ad17496c2de9c61362808e06b44437"
+read -r -s -p "粘贴做市钱包私钥后按回车（屏幕上不会显示）：" K; echo
+K="${K#0x}"
+[ ${#K} -eq 64 ] || { echo "❌ 长度不对（应该是 64 位十六进制），没保存"; exit 1; }
+ADDR=$(K="$K" /opt/bidbot/venv/bin/python -c 'import os; from eth_account import Account; print(Account.from_key(os.environ["K"]).address.lower())')
+[ "$ADDR" = "$ME" ] || { echo "❌ 这把私钥对应的地址是 $ADDR，不是做市钱包 $ME，没保存"; exit 1; }
+umask 077
+{
+  echo "ARB_KEY=$K"
+  echo "BID_SIZE=${BID_SIZE:-1}"
+  echo "BID_MARGIN=${BID_MARGIN:-0.001}"
+  echo "BID_MAX_LOSS=${BID_MAX_LOSS:-20}"
+  echo "BID_RESET=$(date +%s)"
+} > /etc/bidbot.env
+chmod 600 /etc/bidbot.env
+unset K
+systemctl enable -q bidbot
+systemctl restart bidbot
+sleep 4
+echo "✅ 私钥已保存（/etc/bidbot.env，只有 root 能读），机器人已启动。最近的日志："
+journalctl -u bidbot -n 8 --no-pager | cut -c1-200
