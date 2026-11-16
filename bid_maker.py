@@ -91,7 +91,7 @@ def main():
     bk = book()
     live = [o for o in bk.values() if o[1] and o[2] > now and o[5] > 0]
     bids = sorted((price(o) for o in live if not o[0] and o[3] * 1e-18 >= 1), reverse=True)
-    asks = sorted(price(o) for o in live if o[0])
+    asks = sorted(price(o) for o in live if o[0] and o[5] * o[4] // o[3] >= 10**18)  # 不到 1 DAI 的渣单不算
     best_bid, best_ask = (bids[0] if bids else 0), (asks[0] if asks else 0)
     # 不能挂到卖一之上（买单 ≥ 卖单会被撮合掉，等于按卖一价吃单）：这时压到卖一下面一分钱。压低了更不会亏
     crossed = bool(best_ask) and bid >= best_ask
@@ -205,6 +205,8 @@ def my_orders(now):
             continue
         if sell:
             p = want / give
+            if left * want // give < 10**18:
+                continue  # 剩下不到 1 DAI 的卖单是成交剩的渣（页面上也不显示），不能让它把买单价压住（2026-11-17 实盘第一轮就被两张 820.05 的渣单压到 820.04）
             others_ask = p if not others_ask else min(others_ask, p)
         elif give >= 10**18:
             others_bid = max(others_bid, give / want)
