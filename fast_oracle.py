@@ -65,8 +65,8 @@ def v3(rid): return bool(V3_ROUND) and int(rid) >= V3_ROUND
 #   NEW_BLOCK = 发票区块 ≥ 它的票是「新票」（bal3）：猜中每张 9.5、1 DAI 全进池、每钱包每期上限 20 张。
 #   V4_ROUND  = 从这一期起，NEW_BLOCK 之前的票（bal2）改回 1.9 / 0.9 进池 / 每期上限 100 张。两个数都是 None = 还没开闸，照旧。
 #   一笔下注先用最老的纯数字票（bal），再用新票（bal3），最后才用 1.9 的老票（bal2）。一期里的下注记成 [钱包, 数字, 最老的票, 交易, 1.9 的票, 9.5 的票]。
-NEW_BLOCK = None
-V4_ROUND = None
+NEW_BLOCK = 19375289  # 2026-11-18 凌晨开闸，和网站 lib/fast.js 同一个数
+V4_ROUND = 2991558  # 同上
 WINN_PER_TICKET, POTN_PER_TICKET, CAPN = WIN3_PER_TICKET, POT3_PER_TICKET, CAP3
 def v4(rid): return bool(V4_ROUND) and int(rid) >= V4_ROUND
 def win2_of(rid): return WIN2_PER_TICKET if v4(rid) else WIN3_PER_TICKET if v3(rid) else WIN2_PER_TICKET
