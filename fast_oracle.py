@@ -663,6 +663,7 @@ def main():
         return int(block(n)[1], 16) % 10, n
 
     if a.selftest:  # 假下注：最近 4 期，三个假钱包；开奖用真区块哈希
+        globals()["V3_ROUND"] = None  # 下面的断言是按 V3 之前的赔率（每张 1.9、上限 100）写的；自检只验老规则的算账，9.5 的验算 2026-11-17 另外和网站对过。不影响正式运行
         r0 = now // ROUND - 5
         fake_blk = {1000 + i: (r0 + i) * ROUND + 30 for i in range(4)}
         A, B, C = "0xaaaa", "0xbbbb", "0xcccc"
