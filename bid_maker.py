@@ -170,6 +170,11 @@ MIN_ORDER = 20 * 10**18        # 本金不到 20 DAI 就不挂
 MIN_SELL = 10**15              # 手里的币不到 0.001 枚不值得卖
 DURATION = 1800                # 挂单有效期 30 分钟
 MAX_LOSS = float(os.environ.get("BID_MAX_LOSS", "20"))
+# 站长 2026-11-17：买单尽量贴着 DEX 到手价挂（余量很薄）。贴得这么近，成交到卖出那一两秒里 DEX 价稍微一动就会「卖出价略低于买入价」。
+# 每笔成交卖家付的 1% 手续费已经进了收入钱包，所以允许做市钱包这头最多让 SLACK（默认 0.3%）把币卖掉——两个钱包合起来仍然是赚的；
+# 再低就不卖：先撤单、拿着币每个块重试，STUCK_MAX 秒还卖不掉才停机叫人
+SLACK = float(os.environ.get("BID_SELL_SLACK", "0.003"))
+STUCK_MAX = int(os.environ.get("BID_STUCK_MAX", "600"))
 MAX_U = (1 << 256) - 1
 TX = "https://anubisscan.io/tx/"
 
@@ -241,6 +246,18 @@ def live(st):
             except Exception as e:
                 print(f"[实盘] 撤单 #{oid} 没成功：{str(e)[:120]}")
 
+    def stuck(why, mine):
+        """币暂时卖不出合适的价：不停机，先撤单（别再接新的），拿着币下个块再试；拖太久才停机"""
+        if not st.get("stuck"):
+            st["stuck"] = now
+            print(f"[实盘] ⏳ {why}。先撤单，拿着币每个块重试，最多等 {STUCK_MAX} 秒")
+            cancel_all(mine)
+        elif now - st["stuck"] > STUCK_MAX:
+            st.pop("stuck", None)
+            return halt(why + f"（等了 {STUCK_MAX} 秒还是卖不掉）", mine)
+        elif (now - st["stuck"]) % 30 < 2:
+            print(f"[实盘] ⏳ 还在等：{why}")
+
     def halt(why, mine):
         print(f"::error::[实盘] ⛔ 停机：{why}")
         cancel_all(mine)
@@ -263,9 +280,10 @@ def live(st):
         cost_px = st.get("cost_px") or st.get("live_bid") or 0
         expect = dex_net(coins, r_tok, r_dai)
         # cost_px = 0：钱包里本来就有的零头（不是买单接来的），按市价卖掉，顺便实测一次到手率
-        if cost_px and expect < coins * cost_px:
-            return halt(f"手里 {coins:.4f} 枚，现在去 DEX 卖只得 {expect:.2f} DAI，低于成本 {coins * cost_px:.2f}（每枚 {cost_px:.2f}）。没卖，币留在钱包", mine)
-        min_out = max(int(expect * 0.997 * 1e18), int(coins * cost_px * 1e18) + 1)  # 最低到手：不低于成本
+        floor = coins * cost_px * (1 - SLACK)
+        if cost_px and expect < floor:
+            return stuck(f"手里 {coins:.4f} 枚，现在去 DEX 卖只得 {expect:.2f} DAI，低于底线 {floor:.2f}（买入每枚 {cost_px:.2f}，最多让 {SLACK * 100:.1f}%）", mine)
+        min_out = max(int(expect * 0.997 * 1e18), int(floor * 1e18) + 1)  # 最低到手：不低于底线
         try:
             if int(call(AIL, "0xdd62ed3e" + pad(ME) + pad(ROUTER)), 16) < ail:
                 tx(AIL, "0x095ea7b3" + pad(ROUTER) + f"{MAX_U:064x}", "授权官方路由卖 AiLGNS（只这一次）")
@@ -274,7 +292,8 @@ def live(st):
             tx(ROUTER, data, f"DEX 卖出 {coins:.4f} AiLGNS")
             back = (bal(DAI, ME) - d0) / 1e18
         except Exception as e:
-            return halt(f"DEX 卖出没成功（{str(e)[:160]}）。币还在钱包里", mine)
+            return stuck(f"DEX 卖出没成功（{str(e)[:120]}）", mine)
+        st.pop("stuck", None)
         pnl = back - coins * cost_px
         st["real_coins"] = round(st.get("real_coins", 0) + coins, 6)
         st["real_pnl"] = round(st.get("real_pnl", 0) + pnl, 4)
@@ -309,8 +328,10 @@ def live(st):
     coins = max(0.01, min(SIZE, can / (r_dai / r_tok * (1 - SELL_TAX))))
     net = dex_net(coins, r_tok, r_dai) / coins
     bid = int(net * (1 - MARGIN) * 100) / 100
-    if others_ask and bid >= others_ask:
-        bid = int(round((others_ask - 0.01) * 100)) / 100
+    # 站长 2026-11-17：买单可以高过本站的卖单，只看 DEX 到手价（以前压在卖一下面一分钱）。别人想「买走卖单再卖给我们」两头各扣 1%，是亏的，钻不了空子
+    if left_ail * 1e18 >= MIN_SELL:
+        print(f"[实盘] 手里还有 {left_ail:.4f} 枚没卖掉，先不挂新单")
+        return
     # 站长 2026-11-17「单子没挂上去」：原来每成交一次就把旧单撤掉重挂，盘口上那张单老在换号——网站盘口有十来秒缓存，客户经常看不到；
     # 更糟的是客户点了旧单的「卖出」，旧单已被撤，他那笔交易会失败。现在改成：价格还对的旧单留着不动，卖回来的 DAI 另挂一张补上；
     # 只有价格不对 / 快过期的才撤；同价的单攒到 4 张以上再合成一张
