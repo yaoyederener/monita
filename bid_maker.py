@@ -301,8 +301,10 @@ def live(st):
     if equity < st["peak"] - MAX_LOSS:
         return halt(f"总资产 {equity:.2f} DAI，比最高点 {st['peak']:.2f} 少了超过 {MAX_LOSS:g} DAI（如果是你自己把钱转走了，改 BID_RESET 就行）", mine)
 
-    # ③ 挂单
-    net = dex_net(SIZE, r_tok, r_dai) / SIZE
+    # ③ 挂单。站长 2026-11-17：钱包里的 DAI 全部拿去挂（留 2 DAI 付 Gas），最多 SIZE 枚；出价按「这张单真被一次吃完、一次卖进 DEX」的到手价算
+    can = max(0, dai + locked - GAS_KEEP) / 1e18
+    coins = max(0.01, min(SIZE, can / (r_dai / r_tok * (1 - SELL_TAX))))
+    net = dex_net(coins, r_tok, r_dai) / coins
     bid = int(net * (1 - MARGIN) * 100) / 100
     if others_ask and bid >= others_ask:
         bid = int(round((others_ask - 0.01) * 100)) / 100
