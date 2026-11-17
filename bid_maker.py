@@ -311,31 +311,43 @@ def live(st):
     bid = int(net * (1 - MARGIN) * 100) / 100
     if others_ask and bid >= others_ask:
         bid = int(round((others_ask - 0.01) * 100)) / 100
-    budget = min(int(SIZE * bid * 1e18), dai + locked - GAS_KEEP)
-    good = [m for m in mine if m[3] - now > 600 and abs(m[1] - bid) / bid <= 0.0005 and m[1] <= net * (1 - MARGIN / 2) and m[2] >= budget * 98 // 100]  # 站长 2026-11-17：被吃掉一点就马上补回满额（原来少一半才补）；留 2% 是免得为几分钱零头来回撤挂
-    if len(mine) == 1 and good:
-        print(f"[实盘] 买单 #{mine[0][0]} 还合适：挂价 {mine[0][1]:.2f}（该挂 {bid:.2f}），剩 {mine[0][2] / 1e18:.2f} DAI · 总资产 {equity:.2f}")
-        st["live_bid"] = mine[0][1]
-        return
-    if mine:
-        cancel_all(mine)
-        if my_orders(now)[0]:
+    # 站长 2026-11-17「单子没挂上去」：原来每成交一次就把旧单撤掉重挂，盘口上那张单老在换号——网站盘口有十来秒缓存，客户经常看不到；
+    # 更糟的是客户点了旧单的「卖出」，旧单已被撤，他那笔交易会失败。现在改成：价格还对的旧单留着不动，卖回来的 DAI 另挂一张补上；
+    # 只有价格不对 / 快过期的才撤；同价的单攒到 4 张以上再合成一张
+    cap = int(SIZE * bid * 1e18)
+    ok = [m for m in mine if m[3] - now > 600 and abs(m[1] - bid) / bid <= 0.0005 and m[1] <= net * (1 - MARGIN / 2)]
+    bad = [m for m in mine if m not in ok]
+    if len(ok) > 4:
+        bad, ok = mine, []
+    if bad:
+        cancel_all(bad)
+        gone = lambda: not ({m[0] for m in my_orders(now)[0]} & {m[0] for m in bad})
+        if not gone():
             time.sleep(2)  # 节点可能慢半拍，等一下再读一次
-            if my_orders(now)[0]:
+            if not gone():
                 return halt("旧买单撤不掉", [])
         dai = bal(DAI, ME)
-        budget = min(int(SIZE * bid * 1e18), dai - GAS_KEEP)
-    if budget < MIN_ORDER:
-        print(f"[实盘] 钱包只有 {dai / 1e18:.2f} DAI，不够挂单（至少 {MIN_ORDER / 1e18 + GAS_KEEP / 1e18:.0f}）。往 {ME} 转 DAI 就会自动开始")
-        st["live_bid"] = 0
+    held = sum(m[2] for m in ok)
+    budget = min(cap - held, dai - GAS_KEEP)
+    st["live_bid"] = max([m[1] for m in ok], default=0)
+    if budget < max(MIN_ORDER, (held + max(budget, 0)) // 50):  # 能补的不到 20 DAI、或不到总量的 2%：不为零头多挂一张
+        if ok:
+            print(f"[实盘] 买单 {'、'.join('#' + str(m[0]) for m in ok)} 还合适：挂价 {ok[0][1]:.2f}（该挂 {bid:.2f}），共剩 {held / 1e18:.2f} DAI · 总资产 {equity:.2f}")
+        else:
+            print(f"[实盘] 钱包只有 {dai / 1e18:.2f} DAI，不够挂单（至少 {MIN_ORDER / 1e18 + GAS_KEEP / 1e18:.0f}）。往 {ME} 转 DAI 就会自动开始")
         return
     want = -(-budget * 100 // int(round(bid * 100)))  # 往上取：实际单价只会比 bid 低一丁点
     try:
         if int(call(DAI, "0xdd62ed3e" + pad(ME) + pad(OTC)), 16) < budget:
             tx(DAI, "0x095ea7b3" + pad(OTC) + f"{MAX_U:064x}", "授权 OTC 合约用 DAI 挂单（只这一次）")
-        tx(OTC, CREATE + f"{0:064x}{budget:064x}{want:064x}{DURATION:064x}", f"挂买单 {budget / 1e18:.2f} DAI @ {bid:.2f}")
+        tx(OTC, CREATE + f"{0:064x}{budget:064x}{want:064x}{DURATION:064x}", f"{'补挂' if ok else '挂'}买单 {budget / 1e18:.2f} DAI @ {bid:.2f}")
+        st["create_fail"] = 0
     except Exception as e:
-        return halt(f"挂单没成功（{str(e)[:160]}）", [])
+        st["create_fail"] = st.get("create_fail", 0) + 1
+        if st["create_fail"] >= 5:
+            return halt(f"挂单连续 5 次没成功（{str(e)[:160]}）", [])
+        print(f"[实盘] 挂单没成功（第 {st['create_fail']} 次，下一轮再试）：{str(e)[:160]}")
+        return
     st["live_bid"] = bid
     st["cost_px"] = max(st.get("cost_px") or 0, bid)
     print(f"[实盘] DEX 每枚到手 {net:.2f} · 买单挂 {bid:.2f} · 别人的买一 {others_bid:.2f} / 卖一 {others_ask:.2f} · 总资产 {equity:.2f} DAI"
