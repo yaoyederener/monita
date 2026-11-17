@@ -60,9 +60,18 @@ WIN3_PER_TICKET = 95 * 10**17
 POT3_PER_TICKET = 10**18
 CAP3 = 20
 def v3(rid): return bool(V3_ROUND) and int(rid) >= V3_ROUND
-def win2_of(rid): return WIN3_PER_TICKET if v3(rid) else WIN2_PER_TICKET
-def pot2_of(rid): return POT3_PER_TICKET if v3(rid) else POT_PER_TICKET
-def cap2_of(rid): return CAP3 if v3(rid) else CAP2
+# 🆕🆕🆕 老票按老赔率（站长 2026-11-18 凌晨选的方案 A；和网站 lib/fast.js 同一套，改一边必须改另一边）：
+#   9.5 开闸时客户手里还有 3,738 张按「猜中 1.9」买的票，全按 9.5 兑池子不够。站长本想作废，改成：老票不作废，按买的时候的 1.9 兑；只有新买的票按 9.5。
+#   NEW_BLOCK = 发票区块 ≥ 它的票是「新票」（bal3）：猜中每张 9.5、1 DAI 全进池、每钱包每期上限 20 张。
+#   V4_ROUND  = 从这一期起，NEW_BLOCK 之前的票（bal2）改回 1.9 / 0.9 进池 / 每期上限 100 张。两个数都是 None = 还没开闸，照旧。
+#   一笔下注先用最老的纯数字票（bal），再用新票（bal3），最后才用 1.9 的老票（bal2）。一期里的下注记成 [钱包, 数字, 最老的票, 交易, 1.9 的票, 9.5 的票]。
+NEW_BLOCK = None
+V4_ROUND = None
+WINN_PER_TICKET, POTN_PER_TICKET, CAPN = WIN3_PER_TICKET, POT3_PER_TICKET, CAP3
+def v4(rid): return bool(V4_ROUND) and int(rid) >= V4_ROUND
+def win2_of(rid): return WIN2_PER_TICKET if v4(rid) else WIN3_PER_TICKET if v3(rid) else WIN2_PER_TICKET
+def pot2_of(rid): return POT_PER_TICKET if v4(rid) else POT3_PER_TICKET if v3(rid) else POT_PER_TICKET
+def cap2_of(rid): return CAP2 if v4(rid) else CAP3 if v3(rid) else CAP2
 CAP2 = 100  # 单注上限（站长 2026-11-14 定）：每个钱包每期最多押 100 张新票（所有数字加起来）。超出的部分不算下注，票还留在钱包里。防有人重仓押中把极速池掏空：最坏一个钱包一期垫 100 DAI。老票不限（老规则是大家分奖池，不用池子垫钱）。网站 lib/fast.js 的 CAP2 要填同一个数
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"  # 收款钱包（谷歌社交账号钱包）
 # 🤖 代注册机器人钱包（网站 names-batch.js 里的 REG）：客户授权 DAI 给它，它替客户注册，域名直接归客户。链上看「付款的人」是它，不是客户。
@@ -214,7 +223,7 @@ def ticket_regs(ls):
         if V2_START and r[0] >= V2_START:
             at = g.get((r[0], r[1]))
             if at:
-                out.append((at[0], at[1], who(r), r[3], r[4], r[5], r[6], r[0], 2, at[2]))
+                out.append((at[0], at[1], who(r), r[3], r[4], r[5], r[6], r[0], 3 if NEW_BLOCK and at[0] >= NEW_BLOCK else 2, at[2]))
         elif re.fullmatch(r"[0-9]+", r[4]) and r[2] != REG_BOT:  # 老规则：机器人代点的不算票
             out.append((r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[0], 1, 1))
     return out
@@ -298,18 +307,22 @@ def apply_events(st, tickets, bets, ts_of):
     for key, kind, e in ev:
         blk = key[0]
         if kind == "T":
-            key = "bal2" if (e[5] if len(e) > 5 else 1) == 2 else "bal"
+            ver = e[5] if len(e) > 5 else 1
+            key = "bal3" if ver == 3 else "bal2" if ver == 2 else "bal"
             st.setdefault(key, {})
             st[key][e[2]] = st[key].get(e[2], 0) + e[4]; st["sold"] += e[4]; st["names"] += 1
-            if key == "bal2":
+            if key != "bal":
                 st["sold2"] = st.get("sold2", 0) + e[4]
             continue
         b2 = st.setdefault("bal2", {})
         rid = str(ts_of(blk) // ROUND)
         n1 = min(e[4], st["bal"].get(e[2], 0))
         used2 = sum((x[4] if len(x) > 4 else 0) for x in st["rounds"].get(rid, []) if x[0] == e[2])  # 这个钱包这一期已经押了多少新票
-        n2 = max(0, min(e[4] - n1, b2.get(e[2], 0), cap2_of(rid) - used2))
-        if n1 + n2 <= 0:
+        b3 = st.setdefault("bal3", {})
+        used3 = sum((x[5] if len(x) > 5 else 0) for x in st["rounds"].get(rid, []) if x[0] == e[2])  # 这个钱包这一期已经押了多少 9.5 的新票
+        n3 = max(0, min(e[4] - n1, b3.get(e[2], 0), CAPN - used3))
+        n2 = max(0, min(e[4] - n1 - n3, b2.get(e[2], 0), cap2_of(rid) - used2))
+        if n1 + n2 + n3 <= 0:
             void.append(e); st["void"] += 1; continue
         if n1:
             st["bal"][e[2]] -= n1
@@ -319,7 +332,11 @@ def apply_events(st, tickets, bets, ts_of):
             b2[e[2]] -= n2
             if not b2[e[2]]:
                 del b2[e[2]]
-        st["rounds"].setdefault(rid, []).append([e[2], e[3], n1, e[5]] + ([n2] if n2 else []))
+        if n3:
+            b3[e[2]] -= n3
+            if not b3[e[2]]:
+                del b3[e[2]]
+        st["rounds"].setdefault(rid, []).append([e[2], e[3], n1, e[5]] + ([n2, n3] if n3 else [n2] if n2 else []))
     return void
 
 
@@ -335,10 +352,12 @@ def settle_rounds(st, result_of):
         bets = st["rounds"].pop(str(rid))
         stake = sum(x[2] for x in bets) * POT_PER_TICKET
         pot = int(st["carry"]) + stake
-        win, win2, lose2, tk2 = {}, {}, 0, 0
+        win, win2, lose2, tk2, win3, tk3 = {}, {}, 0, 0, {}, 0
         for x in bets:
-            w, d, n, n2 = x[0], x[1], x[2], (x[4] if len(x) > 4 else 0)
-            tk2 += n2
+            w, d, n, n2, n3 = x[0], x[1], x[2], (x[4] if len(x) > 4 else 0), (x[5] if len(x) > 5 else 0)
+            tk2 += n2; tk3 += n3
+            if d == res[0] and n3:
+                win3[w] = win3.get(w, 0) + n3
             if d == res[0]:
                 if n:
                     win[w] = win.get(w, 0) + n
@@ -351,14 +370,17 @@ def settle_rounds(st, result_of):
         st["carry"] = str(pot - sum(pay.values()))  # 老奖池：没人中整池滚存；有人中只剩分不尽的零头
         for w, n2 in win2.items():
             pay[w] = pay.get(w, 0) + n2 * win2_of(rid)
-        ops = tk2 * pot2_of(rid) - sum(win2.values()) * win2_of(rid)  # 这一期新票的运营收入：收进来的 − 赔出去的（可能是负数）
+        for w, n3 in win3.items():
+            pay[w] = pay.get(w, 0) + n3 * WINN_PER_TICKET
+        ops = tk2 * pot2_of(rid) - sum(win2.values()) * win2_of(rid) + tk3 * POTN_PER_TICKET - sum(win3.values()) * WINN_PER_TICKET  # 这一期新票的运营收入：收进来的 − 赔出去的（可能是负数）
         if ops:
             st["ops"] = str(int(st.get("ops", "0")) + ops)
         for w, v in pay.items():
             if v > 0:
                 st["due"].append({"r": rid, "w": w, "dai": str(v)})
         detail.append({"round": rid, "digit": res[0], "block": res[1], "tickets": stake // POT_PER_TICKET, "pot": pot, "win_tickets": tot, "pay": pay, "carry": int(st["carry"]), "bets": bets,
-                       "tickets2": tk2, "win2": sum(win2.values()), "ret2": sum(win2.values()) * win2_of(rid), "ops": ops})
+                       "tickets2": tk2, "win2": sum(win2.values()), "ret2": sum(win2.values()) * win2_of(rid), "ops": ops,
+                       "tickets3": tk3, "win3": sum(win3.values()), "ret3": sum(win3.values()) * WINN_PER_TICKET})
         # 老票全用完了、老奖池里还剩滚存：已经没有人能再赢它，归运营收入（只在新规则生效后）
         if V2_START and int(st["carry"]) > 0 and not st["bal"] and not any(x[2] for b in st["rounds"].values() for x in b):
             st["ops"] = str(int(st.get("ops", "0")) + int(st["carry"])); detail[-1]["carry_to_ops"] = int(st["carry"]); st["carry"] = "0"
@@ -379,16 +401,18 @@ def settle(tickets, bets, ts_of, result_of):
 
 def liabilities(st):
     """按这份账，极速池现在应该备着多少 DAI（= 收进来还没花掉的钱）：没用的票（老票 + 新票）× 0.9 + 老奖池滚存 + 还没开奖的下注 × 0.9 + 中了还没发的 + 还没转回去的运营收入"""
-    open_tk = sum(x[2] + (x[4] if len(x) > 4 else 0) for b in st["rounds"].values() for x in b)
-    return (sum(st["bal"].values()) + sum(st.get("bal2", {}).values()) + open_tk) * POT_PER_TICKET + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"]) + ops_due(st)
+    open_tk = sum(x[2] + (x[4] if len(x) > 4 else 0) + (x[5] if len(x) > 5 else 0) for b in st["rounds"].values() for x in b)
+    return (sum(st["bal"].values()) + sum(st.get("bal2", {}).values()) + sum(st.get("bal3", {}).values()) + open_tk) * POT_PER_TICKET + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"]) + ops_due(st)
 
 
 def worst_case(st):
     """最坏情况要备多少：所有没用的新票、没开奖的新票下注全都猜中（每张 1.9）。运营收入只在留够这个数以后才往外转，免得有人重仓猜中时池里没钱发"""
     open1 = sum(x[2] for b in st["rounds"].values() for x in b)
     open2 = sum((x[4] if len(x) > 4 else 0) for b in st["rounds"].values() for x in b)
-    w2 = WIN3_PER_TICKET if V3_ROUND else WIN2_PER_TICKET  # 开了新赔率以后，没用的票都按 9.5 备
-    return (sum(st["bal"].values()) + open1) * POT_PER_TICKET + (sum(st.get("bal2", {}).values()) + open2) * w2 + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"])
+    w2 = WIN2_PER_TICKET if V4_ROUND else WIN3_PER_TICKET if V3_ROUND else WIN2_PER_TICKET  # 老票改回 1.9 以后按 1.9 备；之前开了 9.5 的那一段按 9.5 备
+    open2w = sum((x[4] if len(x) > 4 else 0) * max(w2, win2_of(r)) for r, b in st["rounds"].items() for x in b)
+    open3 = sum((x[5] if len(x) > 5 else 0) for b in st["rounds"].values() for x in b)
+    return (sum(st["bal"].values()) + open1) * POT_PER_TICKET + sum(st.get("bal2", {}).values()) * w2 + open2w + (sum(st.get("bal3", {}).values()) + open3) * WINN_PER_TICKET + int(st["carry"]) + sum(int(d["dai"]) for d in st["due"])
 
 
 def ops_due(st):
@@ -663,6 +687,7 @@ def main():
         return int(block(n)[1], 16) % 10, n
 
     if a.selftest:  # 假下注：最近 4 期，三个假钱包；开奖用真区块哈希
+        globals()["V4_ROUND"] = None; globals()["NEW_BLOCK"] = None
         globals()["V3_ROUND"] = None  # 下面的断言是按 V3 之前的赔率（每张 1.9、上限 100）写的；自检只验老规则的算账，9.5 的验算 2026-11-17 另外和网站对过。不影响正式运行
         r0 = now // ROUND - 5
         fake_blk = {1000 + i: (r0 + i) * ROUND + 30 for i in range(4)}
