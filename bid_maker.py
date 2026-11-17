@@ -174,6 +174,10 @@ MAX_LOSS = float(os.environ.get("BID_MAX_LOSS", "20"))
 # 每笔成交卖家付的 1% 手续费已经进了收入钱包，所以允许做市钱包这头最多让 SLACK（默认 0.3%）把币卖掉——两个钱包合起来仍然是赚的；
 # 再低就不卖：先撤单、拿着币每个块重试，STUCK_MAX 秒还卖不掉才停机叫人
 SLACK = float(os.environ.get("BID_SELL_SLACK", "0.003"))
+# 站长 2026-11-17「抬到线上」：网站规定 AiLGNS 买单必须高于「DEX 池子价 × 0.967」（otc.js 的 dexSell）。BID_LINE 设成这个系数时，
+# 机器人的买单就挂在这条线往上一分钱（和网页上的买单指导价同一个数），不再留余量。实测到手率约 0.9670～0.9671，所以这头大致打平、
+# 行情往下跳时会小亏（由上面的 SLACK 兜着），1% 手续费照常进收入钱包。不设 BID_LINE 就还是「到手价 × (1 − MARGIN)」
+LINE = float(os.environ.get("BID_LINE", "0") or 0)
 STUCK_MAX = int(os.environ.get("BID_STUCK_MAX", "600"))
 MAX_U = (1 << 256) - 1
 TX = "https://anubisscan.io/tx/"
@@ -328,6 +332,8 @@ def live(st):
     coins = max(0.01, min(SIZE, can / (r_dai / r_tok * (1 - SELL_TAX))))
     net = dex_net(coins, r_tok, r_dai) / coins
     bid = int(net * (1 - MARGIN) * 100) / 100
+    if LINE:
+        bid = (int(r_dai / r_tok * LINE * 100) + 1) / 100
     # 站长 2026-11-17：买单可以高过本站的卖单，只看 DEX 到手价（以前压在卖一下面一分钱）。别人想「买走卖单再卖给我们」两头各扣 1%，是亏的，钻不了空子
     if left_ail * 1e18 >= MIN_SELL:
         print(f"[实盘] 手里还有 {left_ail:.4f} 枚没卖掉，先不挂新单")
@@ -336,7 +342,10 @@ def live(st):
     # 更糟的是客户点了旧单的「卖出」，旧单已被撤，他那笔交易会失败。现在改成：价格还对的旧单留着不动，卖回来的 DAI 另挂一张补上；
     # 只有价格不对 / 快过期的才撤；同价的单攒到 4 张以上再合成一张
     cap = int(SIZE * bid * 1e18)
-    ok = [m for m in mine if m[3] - now > 600 and abs(m[1] - bid) / bid <= 0.0005 and m[1] <= net * (1 - MARGIN / 2)]
+    if LINE:  # 挂在线上：比该挂的价高出 5 分钱以上（行情跌了）或低了 0.15 以上（掉到线下面去了）就撤掉重挂
+        ok = [m for m in mine if m[3] - now > 600 and -0.15 <= m[1] - bid <= 0.05]
+    else:
+        ok = [m for m in mine if m[3] - now > 600 and abs(m[1] - bid) / bid <= 0.0005 and m[1] <= net * (1 - MARGIN / 2)]
     bad = [m for m in mine if m not in ok]
     if len(ok) > 4:
         bad, ok = mine, []
