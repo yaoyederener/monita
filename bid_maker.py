@@ -226,7 +226,7 @@ def live(st):
     reset = os.environ.get("BID_RESET", "")
     if st.get("halted") and reset and reset != st.get("reset"):
         print(f"[实盘] 收到 BID_RESET={reset}：解除停机，从现在的资产重新算起")
-        st.pop("halted", None); st.pop("peak", None)
+        st.pop("halted", None); st.pop("peak", None); st.pop("equity", None)
     st["reset"] = reset
 
     def tx(to, data, label):
@@ -296,9 +296,12 @@ def live(st):
     locked = sum(m[2] for m in mine)
     left_ail = bal(AIL, ME) / 1e18
     equity = (dai + locked) / 1e18 + (dex_net(left_ail, r_tok, r_dai) if left_ail > 0 else 0)
-    st["peak"] = max(st.get("peak") or 0, equity)
+    # 2026-11-17 误停机的教训：官方节点后面有好几台机器，偶尔有一台慢半拍。刚卖完币（DAI 已到账）那一下如果读到的还是「成交前」的挂单余额，
+    # 同一笔钱就被数了两遍，最高点虚高 166 DAI，下一轮就被当成「亏了 166」停机。所以最高点和停机都要连续两次读数一致才算数
+    prev = st.get("equity")
     st["equity"] = round(equity, 3)
-    if equity < st["peak"] - MAX_LOSS:
+    st["peak"] = max(st.get("peak") or 0, min(equity, prev) if prev else equity)
+    if equity < st["peak"] - MAX_LOSS and prev is not None and prev < st["peak"] - MAX_LOSS:
         return halt(f"总资产 {equity:.2f} DAI，比最高点 {st['peak']:.2f} 少了超过 {MAX_LOSS:g} DAI（如果是你自己把钱转走了，改 BID_RESET 就行）", mine)
 
     # ③ 挂单。站长 2026-11-17：钱包里的 DAI 全部拿去挂（留 2 DAI 付 Gas），最多 SIZE 枚；出价按「这张单真被一次吃完、一次卖进 DEX」的到手价算
@@ -316,8 +319,10 @@ def live(st):
         return
     if mine:
         cancel_all(mine)
-        if any(1 for m in my_orders(now)[0]):
-            return halt("旧买单撤不掉", [])
+        if my_orders(now)[0]:
+            time.sleep(2)  # 节点可能慢半拍，等一下再读一次
+            if my_orders(now)[0]:
+                return halt("旧买单撤不掉", [])
         dai = bal(DAI, ME)
         budget = min(int(SIZE * bid * 1e18), dai - GAS_KEEP)
     if budget < MIN_ORDER:
