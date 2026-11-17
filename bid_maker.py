@@ -307,7 +307,7 @@ def live(st):
     if others_ask and bid >= others_ask:
         bid = int(round((others_ask - 0.01) * 100)) / 100
     budget = min(int(SIZE * bid * 1e18), dai + locked - GAS_KEEP)
-    good = [m for m in mine if m[3] - now > 600 and abs(m[1] - bid) / bid <= 0.0005 and m[1] <= net * (1 - MARGIN / 2) and m[2] >= budget // 2]
+    good = [m for m in mine if m[3] - now > 600 and abs(m[1] - bid) / bid <= 0.0005 and m[1] <= net * (1 - MARGIN / 2) and m[2] >= budget * 98 // 100]  # 站长 2026-11-17：被吃掉一点就马上补回满额（原来少一半才补）；留 2% 是免得为几分钱零头来回撤挂
     if len(mine) == 1 and good:
         print(f"[实盘] 买单 #{mine[0][0]} 还合适：挂价 {mine[0][1]:.2f}（该挂 {bid:.2f}），剩 {mine[0][2] / 1e18:.2f} DAI · 总资产 {equity:.2f}")
         st["live_bid"] = mine[0][1]
