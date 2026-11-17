@@ -284,7 +284,7 @@ def live(st):
         st["cost_px"] = 0
         rate = back / (coins * r_dai / r_tok)
         st["sell_rate"] = round(rate, 4)
-        if rate < 0.962:
+        if rate < 0.962 and coins >= 0.05:  # 极小的单（0.002 枚这种）到手率会因取整低到 0.965 左右，不拿它判停机；卖出本身有「不低于成本」兜底
             return halt(f"DEX 实际到手率 {rate:.4f}，比预期的 0.967 低，先停下来查原因", mine)
         r_tok, r_dai = reserves()
         mine, others_bid, others_ask = my_orders(now)
