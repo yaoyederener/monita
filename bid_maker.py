@@ -179,6 +179,11 @@ SLACK = float(os.environ.get("BID_SELL_SLACK", "0.003"))
 # 行情往下跳时会小亏（由上面的 SLACK 兜着），1% 手续费照常进收入钱包。不设 BID_LINE 就还是「到手价 × (1 − MARGIN)」
 LINE = float(os.environ.get("BID_LINE", "0") or 0)
 STUCK_MAX = int(os.environ.get("BID_STUCK_MAX", "600"))
+# 2026-11-17 16:48（北京）起 Anubis 链变慢：平时约 1 秒一个块，那天变成约 20 秒一个块。撤单交易 1 分钟没确认 → 当时的规矩是直接停机，
+# 结果机器人停了一个多小时，站长来问才知道。现在：① 链慢（最近 20 个块平均超过 SLOW_BLOCK 秒，或最新的块已经是 1 分钟前的）就把单撤掉、先不挂，
+# 链恢复了自己接着干，不用人管；② 撤单没确认不再直接停机，下一轮再试，连着 CANCEL_MAX 次都不行才停
+SLOW_BLOCK = float(os.environ.get("BID_SLOW_BLOCK", "4"))
+CANCEL_MAX = 20
 MAX_U = (1 << 256) - 1
 TX = "https://anubisscan.io/tx/"
 
@@ -327,6 +332,27 @@ def live(st):
     if equity < st["peak"] - MAX_LOSS and prev is not None and prev < st["peak"] - MAX_LOSS:
         return halt(f"总资产 {equity:.2f} DAI，比最高点 {st['peak']:.2f} 少了超过 {MAX_LOSS:g} DAI（如果是你自己把钱转走了，改 BID_RESET 就行）", mine)
 
+    # 链慢不慢：慢的时候成交到卖出要等很久，价格早变了，这种时候不挂单
+    slow, per = False, 0.0
+    try:
+        hd = int(rpc("eth_blockNumber", []), 16)
+        t1 = int(rpc("eth_getBlockByNumber", [hex(hd), False])["timestamp"], 16)
+        t0b = int(rpc("eth_getBlockByNumber", [hex(hd - 20), False])["timestamp"], 16)
+        per = (t1 - t0b) / 20
+        slow = per > SLOW_BLOCK or now - t1 > 60
+    except Exception:
+        pass
+    if slow:
+        if now - (st.get("slow_at") or 0) >= 60:
+            st["slow_at"] = now
+            print(f"[实盘] 🐢 链变慢了（最近每个块约 {per:.0f} 秒，平时 1 秒）：先把买单撤掉、不挂新单，链恢复了自动继续 · 总资产 {equity:.2f}")
+        if mine:
+            cancel_all(mine)
+        st["live_bid"] = 0
+        return
+    if st.get("slow_at"):
+        print("[实盘] 🐇 链恢复正常了，继续挂单")
+        st["slow_at"] = 0
     # ③ 挂单。站长 2026-11-17：钱包里的 DAI 全部拿去挂（留 2 DAI 付 Gas），最多 SIZE 枚；出价按「这张单真被一次吃完、一次卖进 DEX」的到手价算
     can = max(0, dai + locked - GAS_KEEP) / 1e18
     coins = max(0.01, min(SIZE, can / (r_dai / r_tok * (1 - SELL_TAX))))
@@ -355,7 +381,12 @@ def live(st):
         if not gone():
             time.sleep(2)  # 节点可能慢半拍，等一下再读一次
             if not gone():
-                return halt("旧买单撤不掉", [])
+                st["cancel_fail"] = st.get("cancel_fail", 0) + 1
+                if st["cancel_fail"] >= CANCEL_MAX:
+                    return halt(f"旧买单连续 {CANCEL_MAX} 次都撤不掉", [])
+                print(f"[实盘] 旧买单还没撤掉（第 {st['cancel_fail']} 次，多半是链上确认慢），下一轮再试")
+                return
+        st["cancel_fail"] = 0
         dai = bal(DAI, ME)
     held = sum(m[2] for m in ok)
     budget = min(cap - held, dai - GAS_KEEP)
