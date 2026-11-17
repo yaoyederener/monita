@@ -8,6 +8,7 @@
 import argparse
 import json
 import os
+import time
 import urllib.request
 from eth_account import Account
 from eth_utils import keccak
@@ -80,11 +81,37 @@ def main():
     if gas < 0.01:
         print("⚠️ Gas 快没了，这轮不做")
         return
+    # 站长 2026-11-17「买票不设上限」：一张委托可以有上千个名字，而这个任务一轮只有几分钟（超时会被直接掐掉）。
+    # 所以：每做完 CHUNK 个就向网站报一次进度（票也跟着记上），一次运行最多干 BUDGET 秒；没做完的网站记着，下一轮接着做。
+    # 以前是整张委托做完才报一次：大单做到一半被掐，成功的名字没报上去，客户的票就记不上
+    t0, BUDGET, CHUNK = time.time(), 150, 5
     for o in orders[:20]:
-        a, done, fail = o["a"].lower(), [], []
-        print(f"委托 {o['id']} {a} {len(o['names'])} 个")
+        if time.time() - t0 > BUDGET:
+            break
+        a, done, fail, failn = o["a"].lower(), [], [], []
+        tot = [0, 0]
+        print(f"委托 {o['id']} {a} 还剩 {len(o['names'])} 个")
+
+        def flush(o=o, a=a, done=done, fail=fail, failn=failn, tot=tot):
+            if dry or not (done or fail):
+                return
+            try:
+                http(SITE, {"action": "progress", "key": key, "id": o["id"], "done": done, "fail": fail, "failn": failn})
+                if done:
+                    http(MARK, {"a": a, "names": done})
+            except Exception as e:
+                print(f"回报网站失败：{e}")
+            tot[0] += len(done); tot[1] += len(fail)
+            done.clear(); fail.clear(); failn.clear()
+
         for n in o["names"]:
+            if time.time() - t0 > BUDGET:
+                print("  这一轮时间到了，剩下的下一轮接着做")
+                break
+            if len(done) + len(fail) >= CHUNK:
+                flush()
             cost = year_price(n) * 10**18
+            failn.append(n)  # 先当它没成功；下面注册成了再拿掉
             try:
                 if num(NAMES, "0xaeb8ce9b" + u256(0x20) + abistr(n)) == 0:
                     fail.append(f"{n}（被人抢先了）"); continue
@@ -92,14 +119,14 @@ def main():
                 if allow < cost or have < cost:
                     fail.append(f"{n}（{'授权' if allow < cost else 'DAI'}不够）"); continue
                 if dry:
-                    print(f"  dry {n} {cost / 1e18} DAI"); done.append(n); continue
+                    print(f"  dry {n} {cost / 1e18} DAI"); done.append(n); failn.remove(n); continue
                 send_tx("anubis", acct, DAI, "0x23b872dd" + pad(a) + pad(me) + u256(cost), f"收 {n} 的款")
                 try:
                     if num(DAI, "0xdd62ed3e" + pad(me) + pad(NAMES)) < cost:
                         send_tx("anubis", acct, DAI, "0x095ea7b3" + pad(NAMES) + u256(MAX_U), "授权域名合约")
                     # register(label, owner, years, token, maxAmount)
                     h = send_tx("anubis", acct, NAMES, "0xd868a84f" + u256(0xa0) + pad(a) + u256(1) + pad(DAI) + u256(cost) + abistr(n), f"注册 {n}")
-                    print(f"  ✅ {n} → {a} {h}"); done.append(n)
+                    print(f"  ✅ {n} → {a} {h}"); done.append(n); failn.remove(n)
                 except Exception as e:
                     print(f"  ❌ {n} 注册失败，退款：{e}")
                     try:
@@ -111,13 +138,8 @@ def main():
                 print(f"  ❌ {n} 出错：{e}"); fail.append(f"{n}（出错，没扣钱）")
         if dry:
             continue
-        try:
-            http(SITE, {"action": "result", "key": key, "id": o["id"], "done": done, "fail": fail})
-            if done:
-                http(MARK, {"a": a, "names": done})
-        except Exception as e:
-            print(f"回报网站失败：{e}")
-        print(f"委托 {o['id']} 完成：成功 {len(done)} 失败 {len(fail)}")
+        flush()
+        print(f"委托 {o['id']} 这一轮：成功 {tot[0]} 失败 {tot[1]}")
 
 
 if __name__ == "__main__":
