@@ -184,6 +184,18 @@ STUCK_MAX = int(os.environ.get("BID_STUCK_MAX", "600"))
 # 链恢复了自己接着干，不用人管；② 撤单没确认不再直接停机，下一轮再试，连着 CANCEL_MAX 次都不行才停
 SLOW_BLOCK = float(os.environ.get("BID_SLOW_BLOCK", "4"))
 CANCEL_MAX = 20
+# 站长 2026-11-19「接上级要求」：去 DEX 卖币，单笔固定 0.1 枚（BID_SELL_CHUNK=0.1），不再一笔卖光；由此多出来的亏损（多付的 Gas、
+# 慢慢卖的这段时间里价格往下走）站长说他们承担。规矩：
+#   · 每笔正好卖 CHUNK 枚，一笔确认了再发下一笔；一轮最多连卖 CHUNK_ROUND 笔，然后回去照看买单，下一个块接着卖
+#   · 不够 CHUNK 的零头留在钱包里，攒够了再卖（算在总资产里）
+#   · 卖得慢了，手里有币是常态：有币时买单照常维护，但「挂着的买单 + 手里的币」合起来不超过 BID_SIZE 枚
+#   · 价格保护还在：每笔最低到手仍按 SLACK 算（服务器上把 BID_SELL_SLACK 放宽），总回撤超过 BID_MAX_LOSS 照样停机
+# BID_SELL_CHUNK 不设 / 设 0 = 老办法（一笔卖光）
+CHUNK = float(os.environ.get("BID_SELL_CHUNK", "0") or 0)
+CHUNK_WEI = int(round(CHUNK * 1e6)) * 10**12
+CHUNK_ROUND = int(os.environ.get("BID_CHUNK_ROUND", "10"))
+SELL_MIN = CHUNK_WEI or MIN_SELL   # 手里的币到这个数才去卖（常驻版也用它判断「有币要处理」）
+SELL_FAIL_MAX = 3                  # 分笔卖时交易多了十倍，节点偶尔抖一下很正常：连着 3 次不成才按「卖不掉」处理（撤单、等、停机）
 MAX_U = (1 << 256) - 1
 TX = "https://anubisscan.io/tx/"
 
@@ -282,42 +294,62 @@ def live(st):
         st["cost_px"] = max(st.get("cost_px") or 0, max(m[1] for m in mine))
 
     r_tok, r_dai = reserves()
-    # ① 卖币
-    ail = bal(AIL, ME)
-    if ail >= MIN_SELL:
-        coins = ail / 1e18
+    # ① 卖币（CHUNK > 0：每笔固定卖 CHUNK 枚，一轮最多 CHUNK_ROUND 笔；CHUNK = 0：一笔卖光）
+    sold_n = 0
+    while True:
+        ail = bal(AIL, ME)
+        if ail < SELL_MIN or (CHUNK_WEI and sold_n >= CHUNK_ROUND):
+            break
+        amt = CHUNK_WEI or ail
+        if sold_n:
+            r_tok, r_dai = reserves()
+        coins = amt / 1e18
         cost_px = st.get("cost_px") or st.get("live_bid") or 0
         expect = dex_net(coins, r_tok, r_dai)
         # cost_px = 0：钱包里本来就有的零头（不是买单接来的），按市价卖掉，顺便实测一次到手率
         floor = coins * cost_px * (1 - SLACK)
         if cost_px and expect < floor:
-            return stuck(f"手里 {coins:.4f} 枚，现在去 DEX 卖只得 {expect:.2f} DAI，低于底线 {floor:.2f}（买入每枚 {cost_px:.2f}，最多让 {SLACK * 100:.1f}%）", mine)
+            return stuck(f"手里 {ail / 1e18:.4f} 枚，现在去 DEX 卖 {coins:.4f} 枚只得 {expect:.2f} DAI，低于底线 {floor:.2f}（买入每枚 {cost_px:.2f}，最多让 {SLACK * 100:.1f}%）", mine)
         min_out = max(int(expect * 0.997 * 1e18), int(floor * 1e18) + 1)  # 最低到手：不低于底线
         try:
             if int(call(AIL, "0xdd62ed3e" + pad(ME) + pad(ROUTER)), 16) < ail:
                 tx(AIL, "0x095ea7b3" + pad(ROUTER) + f"{MAX_U:064x}", "授权官方路由卖 AiLGNS（只这一次）")
             d0 = bal(DAI, ME)
-            data = SWAP_FOT + f"{ail:064x}{min_out:064x}{160:064x}" + pad(ME) + f"{now + 600:064x}" + f"{2:064x}" + pad(AIL) + pad(DAI)
+            data = SWAP_FOT + f"{amt:064x}{min_out:064x}{160:064x}" + pad(ME) + f"{now + 600:064x}" + f"{2:064x}" + pad(AIL) + pad(DAI)
             tx(ROUTER, data, f"DEX 卖出 {coins:.4f} AiLGNS")
             back = (bal(DAI, ME) - d0) / 1e18
+            if back < min_out / 1e18:  # 交易成功就一定到手 ≥ min_out；读到的比这少 = 节点慢半拍还没看到这笔，等一下再读一次
+                time.sleep(1.5)
+                back = (bal(DAI, ME) - d0) / 1e18
         except Exception as e:
+            st["sell_fail"] = st.get("sell_fail", 0) + 1
+            if CHUNK_WEI and st["sell_fail"] < SELL_FAIL_MAX:
+                print(f"[实盘] DEX 卖出没成功（第 {st['sell_fail']} 次，下个块再试）：{str(e)[:120]}")
+                break
             return stuck(f"DEX 卖出没成功（{str(e)[:120]}）", mine)
         st.pop("stuck", None)
+        st["sell_fail"] = 0
+        sold_n += 1
         pnl = back - coins * cost_px
         st["real_coins"] = round(st.get("real_coins", 0) + coins, 6)
         st["real_pnl"] = round(st.get("real_pnl", 0) + pnl, 4)
         st["real_fee"] = round(st.get("real_fee", 0) + coins * cost_px * OTC_FEE, 4)
         st["trades"] = (st.get("trades", []) + [{"t": now, "coins": round(coins, 6), "cost": round(cost_px, 3), "back": round(back, 3), "pnl": round(pnl, 3)}])[-200:]
-        print(f"[实盘] 卖出 {coins:.4f} 枚：成本每枚 {cost_px:.2f}，到手 {back:.2f} DAI，这头 {pnl:+.2f} DAI（实际到手率 {back / (coins * r_dai / r_tok):.4f}）")
-        st["cost_px"] = 0
         rate = back / (coins * r_dai / r_tok)
+        left = (ail - amt) / 1e18
+        print(f"[实盘] 卖出 {coins:.4f} 枚：成本每枚 {cost_px:.2f}，到手 {back:.2f} DAI，这头 {pnl:+.2f} DAI（实际到手率 {rate:.4f}）" + (f" · 手里还剩 {left:.4f} 枚" if CHUNK_WEI else ""))
         st["sell_rate"] = round(rate, 4)
         if rate < 0.962 and coins >= 0.05:  # 极小的单（0.002 枚这种）到手率会因取整低到 0.965 左右，不拿它判停机；卖出本身有「不低于成本」兜底
             return halt(f"DEX 实际到手率 {rate:.4f}，比预期的 0.967 低，先停下来查原因", mine)
+        if ail - amt < SELL_MIN:  # 这一批卖完了（剩下的不够一笔）：成本价从现在挂着的单重新算
+            st["cost_px"] = 0
+        if not CHUNK_WEI:
+            break
+    if sold_n:
         r_tok, r_dai = reserves()
         mine, others_bid, others_ask = my_orders(now)
         if mine:
-            st["cost_px"] = max(m[1] for m in mine)
+            st["cost_px"] = max(st.get("cost_px") or 0, max(m[1] for m in mine))
 
     # ② 总资产 / 回撤
     dai = bal(DAI, ME)
@@ -361,7 +393,7 @@ def live(st):
     if LINE:
         bid = (int(r_dai / r_tok * LINE * 100) + 1) / 100
     # 站长 2026-11-17：买单可以高过本站的卖单，只看 DEX 到手价（以前压在卖一下面一分钱）。别人想「买走卖单再卖给我们」两头各扣 1%，是亏的，钻不了空子
-    if left_ail * 1e18 >= MIN_SELL:
+    if left_ail * 1e18 >= MIN_SELL and not CHUNK_WEI:
         print(f"[实盘] 手里还有 {left_ail:.4f} 枚没卖掉，先不挂新单")
         return
     # 站长 2026-11-17「单子没挂上去」：原来每成交一次就把旧单撤掉重挂，盘口上那张单老在换号——网站盘口有十来秒缓存，客户经常看不到；
@@ -389,9 +421,12 @@ def live(st):
         st["cancel_fail"] = 0
         dai = bal(DAI, ME)
     held = sum(m[2] for m in ok)
-    budget = min(cap - held, dai - GAS_KEEP)
+    inv = int(left_ail * bid * 1e18) if CHUNK_WEI else 0  # 分笔卖时手里常有币：挂着的买单 + 手里的币，合起来不超过 SIZE 枚
+    budget = min(cap - held - inv, dai - GAS_KEEP)
     st["live_bid"] = max([m[1] for m in ok], default=0)
-    if budget < max(MIN_ORDER, (held + max(budget, 0)) // 50):  # 能补的不到 20 DAI、或不到总量的 2%：不为零头多挂一张
+    # 分笔卖的时候 DAI 是一小笔一小笔回来的：还没卖完时，盘口上已经有合适的单就先不补（攒到总量的 1/4 再补），免得每轮多挂一张、单子老换号；一张都没有就马上挂
+    part = 4 if (CHUNK_WEI and ok and left_ail * 1e18 >= SELL_MIN) else 50
+    if budget < max(MIN_ORDER, (held + max(budget, 0)) // part):  # 能补的不到 20 DAI、或不到总量的 2%：不为零头多挂一张
         if ok:
             print(f"[实盘] 买单 {'、'.join('#' + str(m[0]) for m in ok)} 还合适：挂价 {ok[0][1]:.2f}（该挂 {bid:.2f}），共剩 {held / 1e18:.2f} DAI · 总资产 {equity:.2f}")
         else:
