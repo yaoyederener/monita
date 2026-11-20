@@ -55,6 +55,14 @@ REFUND_MIN = 10 * 10**18  # 回购合约里攒到 10 DAI 才退一次，省 Gas
 LGNS_REFUND_MIN = 100 * 10**9  # LGNS 攒到 100 个才退一次
 BUY_MIN = 100 * 10**18  # 奖池 DAI 满 100 就去 OTC 买 AiLGNS
 TAKE_FROM_SOURCE = False  # 站长 2026-11-15：「不要再自动扣我的钱了」。False = 机器人不再从谷歌社交账号钱包转任何钱去每日奖池 / 极速资金池，奖池由站长自己手动转。想恢复改回 True 前要先把 fast_owed / to_pool_* 的旧账清零，不然会一口气把欠的全拿走
+# 💧 站长 2026-11-20：「极速预言的奖池只减少，不增加吗？能不能把 5% 给我，其它的自动累计到奖池，这样就不用我频繁的手动转账了」→「恢复自动转」。
+#   只恢复极速奖池这一条：FLOW2_START 这个区块起买的极速票，票款的 95% 自动从谷歌社交账号钱包转进极速奖池，5% 留在钱包
+#   （猜中一张发 9.5、十个数字中一个 → 平均每收 1 块票款发出去 0.95，所以 95% 进池奖池长期能自己转起来）。
+#   只算这个区块之后的票款和这之后转进奖池的钱（站长自己手动转的也算「已转」）；之前留在钱包里的票款、老账本上的 fast_owed 一概不追。
+#   每日预言家奖池不变：TAKE_FROM_SOURCE 仍是 False，站长手动转。想停这一条：把 TAKE_FAST 改成 False。
+TAKE_FAST = True
+FLOW2_START = 19590901  # 2026-11-20 约 12:56 北京时间（站长点「恢复自动转」之后）
+FAST_BPS2 = 9500
 GAS_KEEP = 2 * 10**18  # 站长 2026-11-13：从谷歌社交账号钱包转 DAI 时给它留 2 DAI 当 Gas（DAI 就是 Anubis 的 Gas 币）。之前欠款没补齐时会把它拿到 0，站长自己发不出交易
 BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
 # 🪧 站长 2026-11-07 定：奖池换币不再吃卖单，改成在 OTC 挂买单（挂在买一上面一点点），等人来卖：不付 1% 手续费、不吃别人的价，盘口还多一层真实买方深度。
@@ -123,6 +131,7 @@ def main():
     fast_cost = 0  # 极速预言家的票款（上线后新注册的纯数字 .ailgns 域名），单独算
     flow_cost = 0  # 其中 FLOW_START 区块之后的票款：这部分每一笔都要转 90% 进极速奖池（站长 2026-11-14「让奖池跟着涨」）
     flow_moved_new = 0  # FLOW_START 之后「收款钱包 → 极速奖池」的转账（链上）
+    flow2_cost = 0  # FLOW2_START（2026-11-20 恢复自动转）之后的票款：95% 进极速奖池
     lgns_cost = 0  # 用 LGNS 付的域名费（按 DAI 标价）：只统计，不留奖金
     # 极速新规则（V2_START 生效后）：一个注册算不算票，要看同一个钱包后面 600 个区块里有没有再注册一个。
     # 所以域名收入的账晚 600 个区块（约 10 分钟）再记，等能看清了再分「进极速池」还是「进每日奖池」。
@@ -154,6 +163,8 @@ def main():
                     fast_cost += cost  # 极速预言家的票：不管用什么币付都要兑付，照旧 90% 进极速池
                     if int(l["blockNumber"], 16) >= FLOW_START:
                         flow_cost += cost
+                    if int(l["blockNumber"], 16) >= FLOW2_START:
+                        flow2_cost += cost
                 elif "0x" + l["topics"][2][26:] == LGNS:
                     lgns_cost += cost  # 站长 2026-11-14：客户用 LGNS 付的域名费不算进每日奖池（LGNS 整笔退回收款钱包，站长手动往奖池里加）
                 else:
@@ -166,6 +177,7 @@ def main():
     st["income"] = str(int(st["income"]) + new_cost)
     st["fast_income"] = str(int(st.get("fast_income", "0")) + fast_cost)
     st["flow_income"] = str(int(st.get("flow_income", "0")) + flow_cost)
+    st["flow2_income"] = str(int(st.get("flow2_income", "0")) + flow2_cost)
     # 「已转多少」每一轮都数到最新区块，不跟着上面晚 600 块的扫描走。
     # （2026-11-14 上线当天的错：它原来跟着晚 600 块，机器人刚转的那笔接下来 10 分钟里数不到，下一轮又照「应转 − 已转」重转了一遍。）
     if latest >= FLOW_START:
@@ -176,6 +188,19 @@ def main():
             flow_moved_new = fast_moved_in(mv_from, latest)
             st["flow_moved"] = str(int(st.get("flow_moved", "0")) + flow_moved_new)
             st["flow_moved_to"] = latest
+    # 💧 2026-11-20 恢复自动转（只极速奖池，95%）：应转 = FLOW2_START 之后的票款 × 95%；已转 = 这之后链上「收款钱包 → 极速奖池」的 DAI（数到最新区块）；
+    #    该转 = 应转 − 已转。票款的账晚 600 个区块才记（要等看清是不是一批），所以扫描还没过 FLOW2_START 之前一分钱都不转。
+    fast2_owe = 0
+    if latest >= FLOW2_START:
+        mv2_from = max(FLOW2_START, int(st.get("flow2_moved_to", FLOW2_START - 1)) + 1)
+        if mv2_from <= latest:
+            st["flow2_moved"] = str(int(st.get("flow2_moved", "0")) + fast_moved_in(mv2_from, latest))
+            st["flow2_moved_to"] = latest
+        if st["scanned_to"] >= FLOW2_START:
+            fast2_owe = max(0, int(st.get("flow2_income", "0")) * FAST_BPS2 // 10000 - int(st.get("flow2_moved", "0")))
+        if flow2_cost or fast2_owe:
+            print(f"极速奖池（恢复自动转 95%）：恢复后票款累计 {int(st.get('flow2_income', '0')) / 1e18:.2f} DAI，应转 {int(st.get('flow2_income', '0')) * FAST_BPS2 / 10000 / 1e18:.2f}，已转 {int(st.get('flow2_moved', '0')) / 1e18:.2f}，这一轮该转 {fast2_owe / 1e18:.2f}")
+    st["fast2_owed"] = str(fast2_owe)
     if st.get("fast_chain") and st["scanned_to"] >= FLOW_START:
         # 💰 FLOW_START 之后：每一笔票款都转 90%，只看这之后的票款和这之后已转的；之前多转进奖池的钱不再抵账，留在池里当储备
         st["fast_moved"] = str(int(st.get("fast_moved", "0")) + fast_moved_new)
@@ -255,6 +280,24 @@ def main():
             print(f"极速资金池：{n / 1e18:.2f} DAI 已转入 {FAST_POOL} {TX}{h}")
         else:
             print(f"⚠️ 欠极速资金池 {fast_owe / 1e18:.2f} DAI 没转成（授权 {allow / 1e18:.2f}，留 Gas 后能转 {have / 1e18:.2f}），下轮再转")
+    # 💧 极速票款的 95%（2026-11-20 恢复的那一条，和上面按老账本算的互不相干）
+    if fast2_owe > 0 and not TAKE_FAST:
+        print(f"极速奖池：该转 {fast2_owe / 1e18:.2f} DAI，TAKE_FAST 关着，没转")
+    elif fast2_owe > 0 and keeper and not dry:
+        # 上一轮刚转过、链上还没数到那一笔（节点慢）：这一轮先不转，免得同一笔票款转两次（2026-11-14 重复转过 153 DAI 的教训）
+        last = st.get("flow2_last") or {}
+        if last and int(st.get("flow2_moved", "0")) < int(last.get("base", "0")) + int(last.get("n", "0")) and now_ts - int(last.get("t", 0)) < 1800:
+            print(f"极速奖池：上一轮转的 {int(last.get('n', '0')) / 1e18:.2f} DAI 链上还没数到，这一轮先不转")
+        else:
+            allow = num(DAI, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address)); have = max(0, bal(DAI, SOURCE) - GAS_KEEP)  # 留 2 DAI 当 Gas
+            n = min(fast2_owe, allow, have)
+            if n > 10**17:
+                st["flow2_last"] = {"n": str(n), "base": st.get("flow2_moved", "0"), "t": now_ts}
+                save()  # 先记下「要转这一笔」，再发交易：发出去以后程序就算马上断了，下一轮也知道
+                h = send_tx("anubis", keeper, DAI, "0x23b872dd" + pad(SOURCE) + pad(FAST_POOL) + f"{n:064x}", "极速预言家票款 95% 转入极速奖池")
+                print(f"极速奖池：{n / 1e18:.2f} DAI 已转入 {FAST_POOL}（票款的 95%）{TX}{h}")
+            else:
+                print(f"⚠️ 极速奖池该转 {fast2_owe / 1e18:.2f} DAI 没转成（授权 {allow / 1e18:.2f}，留 Gas 后钱包能转 {have / 1e18:.2f}），等钱包里有 DAI 下轮再转")
     for tok, key in ((DAI, "to_pool_dai"), (AIL, "to_pool_ail")):
         owe_pool = int(st.get(key, "0"))
         if owe_pool > 0 and TAKE_FROM_SOURCE:
