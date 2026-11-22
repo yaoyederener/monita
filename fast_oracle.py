@@ -110,6 +110,7 @@ STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fast_o
 SITE = "https://ailgns.dev/api/oracle"
 TX = "https://anubisscan.io/tx/"
 GAS_KEEP = 2 * 10**18  # 钱包里留 2 DAI 付 Gas（这条链的 Gas 就是 DAI）
+SURGE_DAI = 1000  # 余额暴涨提醒：极速池 DAI 比上一轮一下多了这么多才发邮件（站长 2026-11-23：「等余额耗尽或者余额暴涨再通知我」）
 BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
 BUY_SLACK = 1.02  # 买币预算最多比应发的 DAI 多 2%（再加 1 DAI 起步额）
 MAX_U = (1 << 256) - 1
@@ -556,7 +557,7 @@ def pay_out(st, pool, dry, fresh_paid, note):
         note(f"⚠️ 极速池的钱不够发这一轮的奖：要发 {total / 1e18:.2f} DAI，钱包只有 {dai_bal / 1e18:.2f} DAI + {ail_bal / 1e18:.4f} AiLGNS。本轮不发，钱够了自动补发；急的话往极速池钱包转 DAI。", True)
         return 0
     if V2_START and have < liab:
-        note(f"⚠️ 极速池的钱比账上该备的少：应备 {liab / 1e18:.2f} DAI，钱包 {dai_bal / 1e18:.2f} DAI + {ail_bal / 1e18:.4f} AiLGNS（有人猜中拿走的比他交的多）。奖照发，留意余额。", True)
+        note(f"⚠️ 极速池的钱比账上该备的少：应备 {liab / 1e18:.2f} DAI，钱包 {dai_bal / 1e18:.2f} DAI + {ail_bal / 1e18:.4f} AiLGNS（有人猜中拿走的比他交的多）。奖照发，留意余额。")  # 站长 2026-11-23：这条不再发邮件，只留日志（只在余额耗尽或暴涨时通知）
     sells = open_sells(dex * BUY_CAP)
     q = quote(sells, total)
     use = max(px, q or 0)  # 卖单比预言机价贵 → 按实际买入价折，保证发出去的币都是奖池的钱买得起的
@@ -700,9 +701,14 @@ def run(dry, days):
     dai_bal, liab = bal_of(DAI, FAST_POOL), liabilities(st)
     print(f"区块 {st['from']} → {st['to']}：卖出 {st['names']} 个域名 = {st['sold']} 票（其中新票 {st.get('sold2', 0)}），没用的老票 {sum(st['bal'].values())} 张、新票 {sum(st.get('bal2', {}).values())} 张；运营收入累计 {int(st.get('ops', '0')) / 1e18:.2f}、还没转回 {ops_due(st) / 1e18:.2f}；滚存 {int(st['carry']) / 1e18:.4f} DAI；待发 {len(st['due'])} 笔")
     print(f"极速池钱包 {dai_bal / 1e18:.2f} DAI + {bal_of(AIL, FAST_POOL) / 1e18:.6f} AiLGNS；按账应备 {liab / 1e18:.2f} DAI")
+    prev = st.get("bal_last")  # 上一轮结束时极速池的 DAI
+    surge = prev is not None and dai_bal - int(prev) >= SURGE_DAI * 10**18
+    if surge:
+        note(f"📈 极速池余额暴涨：上一轮 {int(prev) / 1e18:.2f} DAI，现在 {dai_bal / 1e18:.2f} DAI（多了 {(dai_bal - int(prev)) / 1e18:.2f} DAI）。", True)
     if dry:
         return
-    if alerts and time.time() - st.get("alert_t", 0) > 6 * 3600:  # 报警邮件最多 6 小时一封
+    st["bal_last"] = str(dai_bal)
+    if alerts and (surge or time.time() - st.get("alert_t", 0) > 6 * 3600):  # 报警邮件最多 6 小时一封；余额暴涨那封不受这个限制（本来就少）
         try:
             from notify_mail import send as send_mail
             ops = [e.strip() for e in (os.environ.get("OPS_EMAILS") or "").split(",") if e.strip()]
