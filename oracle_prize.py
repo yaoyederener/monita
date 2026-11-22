@@ -24,7 +24,7 @@ from eth_utils import keccak
 from chains import rpc, send_tx
 from otc_buyback import orders as read_orders
 from notify_mail import send as send_mail
-from fast_oracle import FAST_START, V2_START, PAIR_BLOCKS, FLOW_START, ticket_regs, fast_paid_in
+from fast_oracle import FAST_START, V2_START, PAIR_BLOCKS, FLOW_START, JP_GATE, ticket_regs, fast_paid_in, claim_paid_in
 
 BUYBACK = "0x99f47ca8e7ed873e01a337aefc5b75f5328d2da3"
 SOURCE = "0xedb9c6900a11d2dd37da6b59f3604c35a39db1e6"
@@ -63,6 +63,13 @@ TAKE_FROM_SOURCE = False  # 站长 2026-11-15：「不要再自动扣我的钱�
 TAKE_FAST = True
 FLOW2_START = 19590901  # 2026-11-20 约 12:56 北京时间（站长点「恢复自动转」之后）
 FAST_BPS2 = 9500
+# 🏆 站长 2026-11-22 晚：「神算子批量销毁的域名奖池进入每日大奖，不进入极速预言」。
+#   中了神算子大奖的钱包在领奖期里注册的名字（fast_oracle.claim_skip 认的那些，JP_GATE 开闸后才有）不算极速票，
+#   注册费的 95%（原来进极速奖池的那一份）改成自动转进每日大奖奖池钱包，5% 照旧留在收款钱包。用 LGNS 付的照旧不算（站长手动加）。
+#   应转 = 开闸后这类注册费 × 95%；已转 = 开闸后链上「收款钱包 → 每日奖池」并且不是站长自己发的那些转账（站长手动往奖池里加的钱不算进来，不会顶掉这一份）。
+#   这是单独的一条：TAKE_FROM_SOURCE 仍是 False（普通域名费的 70% 还是不自动转）。想停这一条：把 TAKE_JP 改成 False。
+TAKE_JP = True
+JP_BPS = 9500
 GAS_KEEP = 2 * 10**18  # 站长 2026-11-13：从谷歌社交账号钱包转 DAI 时给它留 2 DAI 当 Gas（DAI 就是 Anubis 的 Gas 币）。之前欠款没补齐时会把它拿到 0，站长自己发不出交易
 BUY_CAP = 1.5  # 买入限价：单价不高于 DEX 现价 × 1.5（和网站预言机封顶一致）
 # 🪧 站长 2026-11-07 定：奖池换币不再吃卖单，改成在 OTC 挂买单（挂在买一上面一点点），等人来卖：不付 1% 手续费、不吃别人的价，盘口还多一层真实买方深度。
@@ -132,6 +139,7 @@ def main():
     flow_cost = 0  # 其中 FLOW_START 区块之后的票款：这部分每一笔都要转 90% 进极速奖池（站长 2026-11-14「让奖池跟着涨」）
     flow_moved_new = 0  # FLOW_START 之后「收款钱包 → 极速奖池」的转账（链上）
     flow2_cost = 0  # FLOW2_START（2026-11-20 恢复自动转）之后的票款：95% 进极速奖池
+    jp_cost = 0  # 神算子领奖用的注册费（JP_GATE 之后）：95% 进每日大奖奖池
     lgns_cost = 0  # 用 LGNS 付的域名费（按 DAI 标价）：只统计，不留奖金
     # 极速新规则（V2_START 生效后）：一个注册算不算票，要看同一个钱包后面 600 个区块里有没有再注册一个。
     # 所以域名收入的账晚 600 个区块（约 10 分钟）再记，等能看清了再分「进极速池」还是「进每日奖池」。
@@ -147,8 +155,10 @@ def main():
             if fast_on and V2_START and end >= V2_START:  # 前面多看 1200 块、后面多看 600 块，才分得清哪些是一批
                 wide = rpc("anubis", "eth_getLogs", [{"address": c, "fromBlock": hex(max(FAST_START, b - 2 * PAIR_BLOCKS)), "toBlock": hex(min(latest, end + PAIR_BLOCKS)), "topics": [[PAID, REG]]}])
                 fast_paid = fast_paid_in(wide, b, end)
+                jp_paid = claim_paid_in(wide, b, end) if JP_GATE and end >= JP_GATE else set()  # 神算子领奖用的注册
             else:
                 fast_paid = fast_paid_in(ls, b, end) if fast_on else set()  # (交易, Paid 日志序号)
+                jp_paid = set()
             for l in ls:
                 if l["topics"][0] != PAID:
                     continue
@@ -167,6 +177,8 @@ def main():
                         flow2_cost += cost
                 elif "0x" + l["topics"][2][26:] == LGNS:
                     lgns_cost += cost  # 站长 2026-11-14：客户用 LGNS 付的域名费不算进每日奖池（LGNS 整笔退回收款钱包，站长手动往奖池里加）
+                elif (l["transactionHash"], int(l["logIndex"], 16)) in jp_paid:
+                    jp_cost += cost  # 神算子领奖用的注册费：95% 进每日大奖奖池（不再算进下面「应留 70%」那本账）
                 else:
                     new_cost += cost
         if FAST_START and st.get("fast_chain") and end >= FAST_START:
@@ -201,6 +213,27 @@ def main():
         if flow2_cost or fast2_owe:
             print(f"极速奖池（恢复自动转 95%）：恢复后票款累计 {int(st.get('flow2_income', '0')) / 1e18:.2f} DAI，应转 {int(st.get('flow2_income', '0')) * FAST_BPS2 / 10000 / 1e18:.2f}，已转 {int(st.get('flow2_moved', '0')) / 1e18:.2f}，这一轮该转 {fast2_owe / 1e18:.2f}")
     st["fast2_owed"] = str(fast2_owe)
+    # 🏆 神算子领奖注册费的 95% → 每日大奖奖池。数法和上面极速那条一样：「已转」每一轮数到最新区块，免得刚转的那笔下一轮又转一遍。
+    st["jp_income"] = str(int(st.get("jp_income", "0")) + jp_cost)
+    jp_owe = 0
+    if JP_GATE and latest >= JP_GATE:
+        mj_from = max(JP_GATE, int(st.get("jp_moved_to", JP_GATE - 1)) + 1)
+        if mj_from <= latest:
+            got = 0
+            for x in range(mj_from, latest + 1, 5000):
+                for l in rpc("anubis", "eth_getLogs", [{"address": DAI, "fromBlock": hex(x), "toBlock": hex(min(latest, x + 4999)), "topics": [TRANSFER, "0x" + pad(SOURCE), "0x" + pad(POOL_ADDR)]}]):
+                    tx = rpc("anubis", "eth_getTransactionByHash", [l["transactionHash"]])
+                    if not tx:
+                        raise RuntimeError("读不到转账交易，这一轮先不动钱")  # 少数一笔「已转」就会多转一笔，宁可停
+                    if tx["from"].lower() != SOURCE:  # 站长自己从钱包发的（手动加奖池）不算
+                        got += int(l["data"], 16)
+            st["jp_moved"] = str(int(st.get("jp_moved", "0")) + got)
+            st["jp_moved_to"] = latest
+        if st["scanned_to"] >= JP_GATE:
+            jp_owe = max(0, int(st["jp_income"]) * JP_BPS // 10000 - int(st.get("jp_moved", "0")))
+        if jp_cost or jp_owe:
+            print(f"每日大奖奖池（神算子领奖注册费 95%）：累计 {int(st['jp_income']) / 1e18:.2f} DAI，应转 {int(st['jp_income']) * JP_BPS / 10000 / 1e18:.2f}，已转 {int(st.get('jp_moved', '0')) / 1e18:.2f}，这一轮该转 {jp_owe / 1e18:.2f}")
+    st["jp_owed"] = str(jp_owe)
     if st.get("fast_chain") and st["scanned_to"] >= FLOW_START:
         # 💰 FLOW_START 之后：每一笔票款都转 90%，只看这之后的票款和这之后已转的；之前多转进奖池的钱不再抵账，留在池里当储备
         st["fast_moved"] = str(int(st.get("fast_moved", "0")) + fast_moved_new)
@@ -298,6 +331,23 @@ def main():
                 print(f"极速奖池：{n / 1e18:.2f} DAI 已转入 {FAST_POOL}（票款的 95%）{TX}{h}")
             else:
                 print(f"⚠️ 极速奖池该转 {fast2_owe / 1e18:.2f} DAI 没转成（授权 {allow / 1e18:.2f}，留 Gas 后钱包能转 {have / 1e18:.2f}），等钱包里有 DAI 下轮再转")
+    # 🏆 神算子领奖注册费的 95% → 每日大奖奖池钱包（和上面极速那条同一套防重复的办法）
+    if jp_owe > 0 and not TAKE_JP:
+        print(f"每日大奖奖池：该转 {jp_owe / 1e18:.2f} DAI，TAKE_JP 关着，没转")
+    elif jp_owe > 0 and keeper and not dry:
+        last = st.get("jp_last") or {}
+        if last and int(st.get("jp_moved", "0")) < int(last.get("base", "0")) + int(last.get("n", "0")) and now_ts - int(last.get("t", 0)) < 1800:
+            print(f"每日大奖奖池：上一轮转的 {int(last.get('n', '0')) / 1e18:.2f} DAI 链上还没数到，这一轮先不转")
+        else:
+            allow = num(DAI, "0xdd62ed3e" + pad(SOURCE) + pad(keeper.address)); have = max(0, bal(DAI, SOURCE) - GAS_KEEP)  # 留 2 DAI 当 Gas
+            n = min(jp_owe, allow, have)
+            if n > 10**17:
+                st["jp_last"] = {"n": str(n), "base": st.get("jp_moved", "0"), "t": now_ts}
+                save()  # 先记下「要转这一笔」，再发交易
+                h = send_tx("anubis", keeper, DAI, "0x23b872dd" + pad(SOURCE) + pad(POOL_ADDR) + f"{n:064x}", "神算子领奖注册费 95% 转入每日大奖奖池")
+                print(f"每日大奖奖池：{n / 1e18:.2f} DAI 已转入 {POOL_ADDR}（神算子领奖注册费的 95%）{TX}{h}")
+            else:
+                print(f"⚠️ 每日大奖奖池该转 {jp_owe / 1e18:.2f} DAI 没转成（授权 {allow / 1e18:.2f}，留 Gas 后钱包能转 {have / 1e18:.2f}），等钱包里有 DAI 下轮再转")
     for tok, key in ((DAI, "to_pool_dai"), (AIL, "to_pool_ail")):
         owe_pool = int(st.get(key, "0"))
         if owe_pool > 0 and TAKE_FROM_SOURCE:

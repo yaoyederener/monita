@@ -24,6 +24,7 @@ import json
 import os
 import re
 import time
+import urllib.request
 
 from chains import rpc
 
@@ -168,6 +169,45 @@ def first_block_at(ts, latest):
     return lo
 
 
+# 🏆 神算子领奖用的名字不算极速票（站长 2026-11-22 晚：「神算子批量销毁的域名奖池进入每日大奖，不进入极速预言」；和网站 lib/fast.js 同一套，改一边必须改另一边）
+#   中了神算子大奖的钱包，领奖期里（中奖 2 分钟后 → 领奖截止，一共 3 天）注册的 .ailgns 名字都不算极速票（机器人代注册的按域名主人认），也不和别的注册「凑一对」；
+#   这些注册费的 95% 由 oracle_prize.py 转进每日大奖奖池，不进极速奖池。
+#   名单从网站读（/api/fast?jpc=1，网站自己记票用的就是这一份）。读不到、或者网站的开闸区块和这里不一样：直接报错停下，这一轮不记票，下一轮再来——宁可晚记，不能两边记得不一样。
+#   JP_GATE = 开闸区块：这个区块之前的注册一律照旧；None = 还没开闸，一切照旧。
+JP_GATE = None
+JP_SITE = "https://ailgns.dev/api/fast?jpc=1"
+CLAIMS = None  # [(钱包, 起, 止)]，起止是毫秒；None = 这一轮还没读
+
+
+def load_claims():
+    global CLAIMS
+    r = json.load(urllib.request.urlopen(urllib.request.Request(JP_SITE, headers={"user-agent": "ailgns-keeper"}), timeout=30))
+    if not isinstance(r, dict) or not isinstance(r.get("jpc"), list) or r.get("gate") != JP_GATE:
+        raise RuntimeError(f"网站没给神算子领奖名单，或者开闸区块对不上（网站 {r.get('gate') if isinstance(r, dict) else r}，这里 {JP_GATE}）：这一轮不记票")
+    CLAIMS = [(str(c["a"]).lower(), int(c["f"]), int(c["t"])) for c in r["jpc"]]
+
+
+def claim_skip(regs):
+    """regs = all_regs 的结果 → {(区块, 注册日志序号)}：神算子领奖期里注册的，不算票"""
+    if not JP_GATE:
+        return set()
+    cand = [r for r in regs if r[0] >= JP_GATE]
+    if not cand:
+        return set()
+    if CLAIMS is None:
+        load_claims()
+    out = set()
+    for r in cand:
+        w = r[7] if r[2] == REG_BOT else r[2]
+        wins = [(f, t) for a, f, t in CLAIMS if a == w]
+        if not wins:
+            continue
+        ts = block(r[0])[0] * 1000
+        if any(f <= ts <= t for f, t in wins):
+            out.add((r[0], r[1]))
+    return out
+
+
 def all_regs(ls):
     """从域名合约的一批日志里挑出【新注册】：[(区块, 注册日志序号, 付款钱包, costDai, 域名, 交易, Paid 日志序号, 域名主人)]
     同一笔交易里 Paid 后面跟着 NameRegistered 才算（续费只有 Paid，不算）。站长自己付的不算。"""
@@ -216,6 +256,9 @@ def ticket_regs(ls):
     """哪些新注册算票：[(发票区块, 发票序号, 钱包, costDai, 域名, 交易, Paid 序号, 注册区块, 版本 1/2, 先后)]
     新规则那部分要看前后 600 个区块，所以传进来的日志要比自己要的范围往前多带 1200 个区块；调用的人只取发票区块（或注册区块）落在自己范围里的。"""
     regs, out = all_regs(ls), []
+    skip = claim_skip(regs)  # 神算子领奖用的注册：先拿掉再数票
+    if skip:
+        regs = [r for r in regs if (r[0], r[1]) not in skip]
     who = lambda r: r[7] if r[2] == REG_BOT else r[2]  # 票记给谁：机器人代点的记给域名主人，自己点的记给付款钱包
     new = [(r[0], r[1], who(r)) for r in regs if V2_START and r[0] >= V2_START]
     g = pair_grants(new)
@@ -233,6 +276,13 @@ def fast_paid_in(ls, a, b):
     """分钱用（oracle_prize.py）：注册区块落在 [a, b] 的票款 → {(交易, Paid 日志序号)}。
     新规则下要等后面 600 个区块出完才知道一个注册是不是落单，所以调用的人传的日志要到 b + 600、从 a − 1200 起。"""
     return {(r[5], r[6]) for r in ticket_regs(ls) if a <= r[7] <= b and r[7] >= (FAST_START or 0)}
+
+
+def claim_paid_in(ls, a, b):
+    """分钱用（oracle_prize.py）：注册区块落在 [a, b] 的「神算子领奖用的注册」→ {(交易, Paid 日志序号)}。这部分的钱进每日大奖奖池。"""
+    regs = all_regs(ls)
+    skip = claim_skip(regs)
+    return {(r[5], r[6]) for r in regs if (r[0], r[1]) in skip and a <= r[0] <= b}
 
 
 def read_tickets(a, b):
