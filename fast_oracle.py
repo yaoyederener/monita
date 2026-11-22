@@ -174,7 +174,7 @@ def first_block_at(ts, latest):
 #   这些注册费的 95% 由 oracle_prize.py 转进每日大奖奖池，不进极速奖池。
 #   名单从网站读（/api/fast?jpc=1，网站自己记票用的就是这一份）。读不到、或者网站的开闸区块和这里不一样：直接报错停下，这一轮不记票，下一轮再来——宁可晚记，不能两边记得不一样。
 #   JP_GATE = 开闸区块：这个区块之前的注册一律照旧；None = 还没开闸，一切照旧。
-JP_GATE = None
+JP_GATE = 19802043  # 2026-11-22 深夜开闸（站长「上线」），和网站 lib/fast.js 同一个数
 JP_SITE = "https://ailgns.dev/api/fast?jpc=1"
 CLAIMS = None  # [(钱包, 起, 止)]，起止是毫秒；None = 这一轮还没读
 
