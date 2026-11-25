@@ -192,7 +192,7 @@ def load_claims():
 #   带记号的注册：不算极速预言家的票，注册费 95% 进每日预言家奖池——和「神算子领奖期的注册」走同一条路（claim_skip 里一起拿掉，claim_paid_in 一起算进每日奖池那本账）。
 #   只认：直接发给域名合约的 register 交易、数据以记号结尾、区块 ≥ DAILY_TAG_GATE。0 = 还没开闸，一切照旧。和网站 lib/fast.js 的同名常量必须一样。
 DAILY_TAG = "41494c4441494c59"
-DAILY_TAG_GATE = 0
+DAILY_TAG_GATE = 20021679  # 2026-11-25 开闸（站长「上线」），和网站 lib/fast.js 同一个数
 _TAGGED = {}  # 交易哈希 → 带不带记号（这一轮里问过就不再问）
 
 
