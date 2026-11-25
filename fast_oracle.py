@@ -188,7 +188,37 @@ def load_claims():
     CLAIMS = [(str(c["a"]).lower(), int(c["f"]), int(c["t"])) for c in r["jpc"]]
 
 
+# 🏷 每日预言家入口的注册（站长 2026-11-25）：从每日预言家页进来注册的，注册交易的数据最后带 8 个字节的记号 AILDAILY（网站 names.js 加的，合约不看）。
+#   带记号的注册：不算极速预言家的票，注册费 95% 进每日预言家奖池——和「神算子领奖期的注册」走同一条路（claim_skip 里一起拿掉，claim_paid_in 一起算进每日奖池那本账）。
+#   只认：直接发给域名合约的 register 交易、数据以记号结尾、区块 ≥ DAILY_TAG_GATE。0 = 还没开闸，一切照旧。和网站 lib/fast.js 的同名常量必须一样。
+DAILY_TAG = "41494c4441494c59"
+DAILY_TAG_GATE = 0
+_TAGGED = {}  # 交易哈希 → 带不带记号（这一轮里问过就不再问）
+
+
+def tx_tagged(h):
+    if h not in _TAGGED:
+        tx = rpc("anubis", "eth_getTransactionByHash", [h])
+        if not tx:
+            raise RuntimeError("读不到交易 " + h + "（宁可这一轮不算，不能记错）")
+        inp = (tx.get("input") or "").lower()
+        _TAGGED[h] = inp[:10] == "0xd868a84f" and inp.endswith(DAILY_TAG) and (tx.get("to") or "").lower() == NAMES_AIL.lower()
+    return _TAGGED[h]
+
+
+def tag_skip(regs):
+    """regs = all_regs 的结果 → {(区块, 注册日志序号)}：带「每日预言家入口」记号的注册"""
+    if not DAILY_TAG_GATE:
+        return set()
+    return {(r[0], r[1]) for r in regs if r[0] >= DAILY_TAG_GATE and tx_tagged(r[5])}
+
+
 def claim_skip(regs):
+    """regs = all_regs 的结果 → {(区块, 注册日志序号)}：不算票、注册费进每日大奖奖池的注册（神算子领奖期里注册的 + 带每日预言家入口记号的）"""
+    return jp_skip(regs) | tag_skip(regs)
+
+
+def jp_skip(regs):
     """regs = all_regs 的结果 → {(区块, 注册日志序号)}：神算子领奖期里注册的，不算票"""
     if not JP_GATE:
         return set()
