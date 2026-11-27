@@ -1,0 +1,248 @@
+name: Anubis rescue alert
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - test/github-notify
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: anubis-rescue-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check chain and notify
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TEST_MODE: "${{ github.event_name == 'push' }}"
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import smtplib
+          import ssl
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from email.message import EmailMessage
+
+          RPCS = [
+              "https://rpc.ailgns.dev",
+              "https://rpc.anubispace.org",
+          ]
+          SPONSOR = "0xeBDDb5Cf06313E54E1745fD6d9E2C87a5c63f32A"
+          MAIN = "0xf3d6d612e465f091919992c92f3abf7a7a60a7e0"
+          MIN_GAS = 0.25
+          LABEL = "anubis-alert"
+
+          TOKENS = {
+              "LGNS": ("0x4d1d808a081fdac440703b3765fc61f8028c06b8", 9),
+              "gLGNS": ("0xf140a92c156e76f5a1d3d6f96284b250330f8f4c", 18),
+              "DAI": ("0x83fd06F0846d9D90B3016bF670Efe2E0B11cDe14", 18),
+              "Sweets": ("0x2654d71e897D769daB854d9dc00B3165716f3fa7", 18),
+          }
+
+
+          def rpc(method, params):
+              payload = json.dumps(
+                  {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+              ).encode()
+              last = None
+              for url in RPCS:
+                  try:
+                      req = urllib.request.Request(
+                          url,
+                          data=payload,
+                          headers={"Content-Type": "application/json"},
+                          method="POST",
+                      )
+                      with urllib.request.urlopen(req, timeout=25) as resp:
+                          body = json.loads(resp.read())
+                      if "error" in body:
+                          raise RuntimeError(str(body["error"])[:200])
+                      return body["result"]
+                  except Exception as exc:
+                      last = exc
+              raise RuntimeError(f"all RPC endpoints failed: {last}")
+
+
+          def token_balance(token, owner):
+              data = "0x70a08231" + "0" * 24 + owner[2:].lower()
+              raw = rpc("eth_call", [{"to": token, "data": data}, "latest"])
+              return int(raw, 16) if raw and raw != "0x" else 0
+
+
+          def fmt(value, decimals):
+              return f"{value / (10 ** decimals):.6f}"
+
+
+          def github(method, path, payload=None):
+              token = os.environ.get("GITHUB_TOKEN", "")
+              repo = os.environ.get("GITHUB_REPOSITORY", "")
+              if not token or not repo:
+                  raise RuntimeError("GITHUB_TOKEN / GITHUB_REPOSITORY missing")
+              data = json.dumps(payload).encode() if payload is not None else None
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}{path}",
+                  data=data,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "Content-Type": "application/json",
+                  },
+                  method=method,
+              )
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  body = resp.read()
+              return json.loads(body) if body else None
+
+
+          def ensure_label():
+              try:
+                  github("GET", f"/labels/{urllib.parse.quote(LABEL)}")
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+                  github(
+                      "POST",
+                      "/labels",
+                      {
+                          "name": LABEL,
+                          "color": "d73a4a",
+                          "description": "Anubis rescue alert",
+                      },
+                  )
+
+
+          def open_issue():
+              issues = github("GET", f"/issues?state=open&labels={LABEL}&per_page=5")
+              return issues[0] if issues else None
+
+
+          def close_open_issues():
+              issues = github("GET", f"/issues?state=open&labels={LABEL}&per_page=20")
+              for issue in issues or []:
+                  github(
+                      "PATCH",
+                      f"/issues/{issue['number']}",
+                      {"state": "closed", "state_reason": "completed"},
+                  )
+
+
+          def send_email(subject, body):
+              user = os.environ.get("SMTP_USER", "").strip()
+              password = os.environ.get("SMTP_PASS", "")
+              if not user or not password:
+                  raise RuntimeError("SMTP_USER / SMTP_PASS secrets are missing")
+              host = (os.environ.get("SMTP_HOST") or "smtp.qq.com").strip()
+              port = int(os.environ.get("SMTP_PORT") or "587")
+              to_addr = (os.environ.get("NOTIFY_EMAIL") or user).strip()
+
+              msg = EmailMessage()
+              msg["Subject"] = subject
+              msg["From"] = user
+              msg["To"] = to_addr
+              msg.set_content(body)
+
+              if port == 465:
+                  with smtplib.SMTP_SSL(
+                      host, port, timeout=30, context=ssl.create_default_context()
+                  ) as smtp:
+                      smtp.login(user, password)
+                      smtp.send_message(msg)
+              else:
+                  with smtplib.SMTP(host, port, timeout=30) as smtp:
+                      smtp.ehlo()
+                      smtp.starttls(context=ssl.create_default_context())
+                      smtp.ehlo()
+                      smtp.login(user, password)
+                      smtp.send_message(msg)
+              return to_addr
+
+
+          def main():
+              test_mode = os.environ.get("TEST_MODE", "").lower() == "true"
+              if test_mode:
+                  to_addr = send_email(
+                      "[Anubis] GitHub Actions 邮件测试",
+                      "Anubis 救援通知：GitHub Actions 已能通过现有 SMTP Secret 发邮件。",
+                  )
+                  print(f"test email sent to {to_addr}")
+                  return 0
+
+              gas = int(rpc("eth_getBalance", [SPONSOR, "latest"]), 16) / 1e18
+              native = int(rpc("eth_getBalance", [MAIN, "latest"]), 16) / 1e18
+              balances = {
+                  name: token_balance(token, MAIN) for name, (token, _) in TOKENS.items()
+              }
+
+              gas_low = gas < MIN_GAS
+              funds = native > 0 or any(v > 0 for v in balances.values())
+
+              if not gas_low and not funds:
+                  close_open_issues()
+                  print(f"all clear: sponsor={gas:.4f} DAI, main empty")
+                  return 0
+
+              issue = open_issue()
+              if issue:
+                  print(f"alert already open: #{issue['number']}; not sending duplicate")
+                  return 0
+
+              lines = [f"时间 (UTC): {time.strftime('%Y-%m-%d %H:%M:%S')}"]
+              if gas_low:
+                  lines += [
+                      "",
+                      "⚠️ 代付 gas 不足",
+                      f"代付地址: {SPONSOR}",
+                      f"当前余额: {gas:.4f} DAI",
+                      f"阈值: {MIN_GAS:.2f} DAI",
+                  ]
+              if funds:
+                  lines += ["", "⚠️ 被盗钱包有资金停留"]
+                  if native > 0:
+                      lines.append(f"native: {native:.8f}")
+                  for name, value in balances.items():
+                      if value > 0:
+                          lines.append(f"{name}: {fmt(value, TOKENS[name][1])}")
+
+              subject = "[Anubis] " + ("gas low" if gas_low else "funds present")
+              if gas_low and funds:
+                  subject = "[Anubis] gas low + funds present"
+              body = "\n".join(lines)
+
+              send_email(subject, body)
+              ensure_label()
+              github(
+                  "POST",
+                  "/issues",
+                  {
+                      "title": subject,
+                      "body": body + "\n\n邮件已发送。",
+                      "labels": [LABEL],
+                  },
+              )
+              print("alert email sent and GitHub issue opened")
+              return 0
+
+
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PY
