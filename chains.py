@@ -56,7 +56,7 @@ def send_tx(chain, acct, to, data, label, nonce=None):
     # 编号按顺序用：链上已发数 > 这笔的编号 = 这个编号已经上链；连着 30 秒都查不到这笔的收据，才说明上链的不是它
     # 只在「正在用本机节点」的时候才提前判（复查 2026-11-28）：本机节点连不上、临时改走公共节点的那一段，照旧等满 3 分钟
     failfast = os.environ.get("TX_FAILFAST") == "1"
-    on_local = lambda: chain == "anubis" and bool(LOCAL_RPCS) and time.time() >= _LOCAL_DOWN[0]
+    on_local = lambda: chain == "anubis" and bool(LOCAL_RPCS) and not _LOCAL_DOWN[0]
     every, gone = max(1, int(10 / poll)), None  # gone：第一次看到「编号已用掉、却没有这笔收据」的时间
     for i in range(int(180 / poll)):
         r = rpc(chain, "eth_getTransactionReceipt", [h])

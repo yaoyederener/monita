@@ -26,7 +26,7 @@ import re
 import time
 import urllib.request
 
-from ailgns_lp_monitor import RPCS
+from ailgns_lp_monitor import RPCS, LOCAL_RPCS, _LOCAL_DOWN
 from chains import rpc
 
 FAST_POOL = "0x8610bf581b1c10cb7d372f93b8cdcde382a7c1d1"
@@ -175,7 +175,9 @@ _blk = {}
 def block(n):
     if n not in _blk:
         b = rpc("anubis", "eth_getBlockByNumber", [hex(n), False])
-        _blk[n] = (int(b["timestamp"], 16), b["hash"]) if b else None
+        if not b:  # 节点没追上（复查 2026-11-28：以前把「读不到」也存下来，之后每轮都出错）
+            raise RuntimeError(f"读不到区块 {n}（节点没追上？这一轮先不算）")
+        _blk[n] = (int(b["timestamp"], 16), b["hash"])
     return _blk[n]
 
 
@@ -364,15 +366,29 @@ def memo_of(tx, prefix):
     return txt[len(prefix):] if txt.startswith(prefix) else None
 
 
+def tx_of(l):
+    """日志所在的那笔交易。先按哈希查；查不到再按「区块 + 第几笔」查（节点一般只给最近一段时间的交易建哈希索引，
+    以后从头重算账本时，老交易按哈希会查不到）。都查不到 = 回答的节点还没追上：报错，这一轮不记、下一轮整段重读（复查 2026-11-28：以前悄悄跳过，
+    已经发过的奖会被漏记、之后再发一遍）"""
+    tx = rpc("anubis", "eth_getTransactionByHash", [l["transactionHash"]])
+    if not tx and l.get("blockNumber") and l.get("transactionIndex"):
+        tx = rpc("anubis", "eth_getTransactionByBlockNumberAndIndex", [l["blockNumber"], l["transactionIndex"]])
+        if tx and (tx.get("hash") or "").lower() != l["transactionHash"].lower():
+            tx = None
+    if not tx:
+        raise RuntimeError("读不到交易 " + l["transactionHash"] + "（节点没追上？这一轮先不记）")
+    return tx
+
+
 def read_bets(a, b):
     """[(区块, 序号, 钱包, 数字, 票数, 交易, 这笔里的第几个数字)]：给极速池转 0 DAI，且交易是钱包自己直接发给 DAI 合约的"""
     out = []
     for l in logs(DAI, a, b, [TRANSFER, None, pad(FAST_POOL)]):
         if int(l["data"], 16) != 0:
             continue
-        tx = rpc("anubis", "eth_getTransactionByHash", [l["transactionHash"]])
+        tx = tx_of(l)
         frm = "0x" + l["topics"][1][26:].lower()
-        if not tx or (tx.get("to") or "").lower() != DAI or tx["from"].lower() != frm:
+        if (tx.get("to") or "").lower() != DAI or tx["from"].lower() != frm:
             continue
         blk = int(l["blockNumber"], 16)
         for k, (d, n) in enumerate(decode_bet(memo_of(tx, PREFIX), blk)):
@@ -384,8 +400,8 @@ def read_ops(a, b):
     """极速池已经转回收款钱包的运营收入（没猜中的新票钱）：只认极速池钱包自己直接发、并且带「ailgns-fast-ops」的 DAI 转账。返回合计（wei）"""
     tot = 0
     for l in logs(DAI, a, b, [TRANSFER, pad(FAST_POOL), pad(SOURCE)]):
-        tx = rpc("anubis", "eth_getTransactionByHash", [l["transactionHash"]])
-        if not tx or (tx.get("to") or "").lower() != DAI or tx["from"].lower() != FAST_POOL:
+        tx = tx_of(l)
+        if (tx.get("to") or "").lower() != DAI or tx["from"].lower() != FAST_POOL:
             continue
         if memo_of(tx, OPS_PREFIX) is not None:
             tot += int(l["data"], 16)
@@ -396,8 +412,8 @@ def read_paid(a, b):
     """已经发出去的奖：{"期号:钱包": [AiLGNS 数量, 交易]}。只认极速池钱包自己直接发、并且带「ailgns-fast-pay:期号」的 AiLGNS 转账"""
     out = {}
     for l in logs(AIL, a, b, [TRANSFER, pad(FAST_POOL)]):
-        tx = rpc("anubis", "eth_getTransactionByHash", [l["transactionHash"]])
-        if not tx or (tx.get("to") or "").lower() != AIL or tx["from"].lower() != FAST_POOL:
+        tx = tx_of(l)
+        if (tx.get("to") or "").lower() != AIL or tx["from"].lower() != FAST_POOL:
             continue
         rid = memo_of(tx, PAY_PREFIX)
         if rid and rid.isdigit():
@@ -604,6 +620,9 @@ def node_lag():
 def lag_guard():
     """常驻程序发交易之前问一下：节点追上了返回 None；没追上（或读不到）返回 True 并说一声（最多 10 秒说一次）"""
     lag = node_lag()
+    if lag is not None and lag > LAG_MAX and LOCAL_RPCS and not _LOCAL_DOWN[0]:  # 本机节点落后（刚重启、还在追）：这一阵改用公共节点，追上了再换回来（见 ailgns_lp_monitor.rpc）
+        _LOCAL_DOWN[0] = time.time() + 30
+        lag = node_lag()
     if lag is not None and lag <= LAG_MAX:
         return None
     if time.time() - _lag_said[0] >= 10:
@@ -733,6 +752,8 @@ def safe_block(latest):
     """开奖要等的确认：这条链 1 个块就最终确认（节点的 finalized 只比最新落后 1 块，2026-11-28 核过），以前写死等 20 块（约 21 秒）。
     节点给 finalized 就用它；都读不到（节点不支持）退回老办法 latest - CONFIRM。每个节点只问一次、不重试，免得卡住"""
     for url in RPCS:
+        if url in LOCAL_RPCS and _LOCAL_DOWN[0]:  # 本机节点正被绕开（连不上 / 落后）：不问它
+            continue
         try:
             req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_getBlockByNumber", "params": ["finalized", False]}).encode(),
                                          {"Content-Type": "application/json", "User-Agent": "ailgns-keeper"})
@@ -913,6 +934,8 @@ def loop(dry):
                     print(f"报到成功：{WARMUP} 秒后开始秒发", flush=True)
                 hb_ok = now
         quick = dry or (streak is not None and now - streak >= WARMUP and now - hb_ok <= 60)
+        if len(_blk) > 20000:  # 区块时间的缓存：常驻程序一直开着，只增不减会越占越多内存，攒多了清一次（放在这里：出错的那几轮也照样会清）
+            _blk.clear()
         try:
             run(dry, 0, grace=0 if quick else BACKUP_GRACE, loop=True)
         except SystemExit:
@@ -921,8 +944,6 @@ def loop(dry):
             print(f"⚠️ 这一轮出错（{str(e)[:200]}），5 秒后再试", flush=True)
             time.sleep(5)
             continue
-        if len(_blk) > 20000:  # 区块时间的缓存：常驻程序一直开着，只增不减会越占越多内存，攒多了清一次
-            _blk.clear()
         since = time.time() % ROUND
         time.sleep(1.5 if since < 120 or ROUND - since < 25 else min(30.0, ROUND - since - 25))
 

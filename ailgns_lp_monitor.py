@@ -17,7 +17,8 @@ from datetime import datetime, timedelta, timezone
 
 # ANUBIS_RPC（可选，逗号分隔）排在最前面：站长服务器上的常驻发奖程序设成本机节点 http://127.0.0.1:8545（2026-11-28）；GitHub 上不设，照旧用公共节点
 LOCAL_RPCS = [u.strip() for u in os.environ.get("ANUBIS_RPC", "").split(",") if u.strip()]
-_LOCAL_DOWN = [0.0]  # 本机节点连不上以后，到这个时间之前先绕开它
+_LOCAL_DOWN = [0.0]  # 本机节点连不上（或落后）时先绕开它，到这个时间再看；0 = 正在用本机
+_HWM = [0]  # 这个程序读到过的最高区块号（复查 2026-11-28）：本机节点要追到这个数才换回来，读到的区块高度不会往回跳
 RPCS = LOCAL_RPCS + [
     "https://rpc.anubispace.org",
     "https://rpc2.anubispace.org",
@@ -36,10 +37,39 @@ BJT = timezone(timedelta(hours=8))
 WEI = 10**18
 
 
+def _local_head():
+    """直接问本机节点最新区块号；问不到返回 -1"""
+    try:
+        req = urllib.request.Request(LOCAL_RPCS[0], json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": []}).encode(),
+                                     {"Content-Type": "application/json", "User-Agent": "ailgns-monitor"})
+        return int(json.load(urllib.request.urlopen(req, timeout=5))["result"], 16)
+    except Exception:
+        return -1
+
+
+def _height(method, params, res):
+    """这次回答说明节点至少到了第几块；第二个值：是不是在问「最新块」（拿来判断本机落没落后）"""
+    try:
+        if method == "eth_blockNumber":
+            return int(res, 16), True
+        if method == "eth_getBlockByNumber" and res:
+            return int(res["number"], 16), params[0] == "latest"
+        if method == "eth_getTransactionReceipt" and res:
+            return int(res["blockNumber"], 16), False
+    except Exception:
+        pass
+    return None, False
+
+
 def rpc(method, params):
     last_err = None
-    # 本机节点（只有设了 ANUBIS_RPC 才有）刚连不上过：30 秒内先绕开它，直接用公共节点（2026-11-28：节点重启那一分钟，常驻发奖每次都先等 2 秒，太慢）
-    urls = [u for u in RPCS if u not in LOCAL_RPCS or time.time() >= _LOCAL_DOWN[0]]
+    # 本机节点（只有设了 ANUBIS_RPC 才有）刚连不上过：先绕开它，直接用公共节点（2026-11-28：节点重启那一分钟，常驻发奖每次都先等 2 秒，太慢）。
+    # 绕开的时间到了，先问一下本机到了第几块：追上这个程序读到过的最高块才换回来，没追上再绕开一会儿（复查 2026-11-28：刚重启的本机还落后，
+    # 一会儿读公共节点、一会儿读本机，同一轮里读到的高度会往回跳，最坏会把已经发过的奖再发一遍）
+    if LOCAL_RPCS and _LOCAL_DOWN[0] and time.time() >= _LOCAL_DOWN[0]:
+        h = _local_head()
+        _LOCAL_DOWN[0] = 0.0 if h >= _HWM[0] else time.time() + (3 if h >= 0 and _HWM[0] - h <= 5 else 30)
+    urls = [u for u in RPCS if u not in LOCAL_RPCS or not _LOCAL_DOWN[0]]
     for attempt in range(6):
         url = urls[attempt % len(urls)]
         try:
@@ -51,11 +81,19 @@ def rpc(method, params):
             r = json.load(urllib.request.urlopen(req, timeout=10 if url in LOCAL_RPCS else 60))
             if "error" in r:
                 raise RuntimeError(r["error"])
+            n, head = _height(method, params, r["result"])
+            if n is not None:
+                if head and url in LOCAL_RPCS and n < _HWM[0]:  # 本机比读到过的还旧（刚重启、还在追）：这次不用它的回答，先绕开几秒
+                    _LOCAL_DOWN[0] = time.time() + 3
+                    urls = [u for u in urls if u not in LOCAL_RPCS] or urls
+                    continue
+                _HWM[0] = max(_HWM[0], n)
             return r["result"]
         except Exception as e:  # 换一个节点重试
             last_err = e
             if url in LOCAL_RPCS and not isinstance(e, RuntimeError):  # 本机节点连不上 / 超时：记下来，马上换下一个，不等
                 _LOCAL_DOWN[0] = time.time() + 30
+                urls = [u for u in urls if u not in LOCAL_RPCS] or urls
                 continue
             time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"RPC {method} 失败: {last_err}")
