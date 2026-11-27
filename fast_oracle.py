@@ -110,7 +110,11 @@ CONFIRM = 20  # 节点读不到 finalized 时的退路：只认 20 个块之前�
 #   常驻程序报到刚开始（或断过又恢复）的前 WARMUP 秒、或报到连续失败超过 60 秒：自己也按后备处理。两边任何时候只有一个在「快发」
 HB_PREFIX = "ailgns-fast-hb:"
 FAST_API = "https://ailgns.dev/api/fast"
-HB_FRESH, BACKUP_GRACE, WARMUP = 150, 180, 150  # WARMUP：报到刚开始 / 断过又恢复后先当多久后备（网站的报到记录传到各地最多约 1 分钟，再留够 GitHub 发完手上那一轮的时间）
+HB_FRESH, BACKUP_GRACE, WARMUP = 150, 180, 150
+# 常驻程序发每一笔交易之前先看节点追上没有：读链用的节点（先用本机节点）最新区块落后超过 LAG_MAX 秒就先不发（2026-11-28：节点重启刚起来时
+# 还落后几十秒，从它那里读到的交易编号是旧的，06:20 那期的奖金转账作废、白等了 3 分钟才重发）。GitHub 上不检查（只用公共节点）
+LAG_MAX = 20
+_lag_said = [0.0]  # WARMUP：报到刚开始 / 断过又恢复后先当多久后备（网站的报到记录传到各地最多约 1 分钟，再留够 GitHub 发完手上那一轮的时间）
 BET_RE = re.compile(r"^([0-9]{1,10}):([1-9][0-9]{0,8})$")
 MULTI_START = 19103400  # 一笔下注押多个数字，从这个区块起才认（约 2026-11-14 14:44 北京时间；网站 lib/fast.js 的 MULTI_START 填同一个数）
 
@@ -586,10 +590,33 @@ def quote(sells, dai):
     return spent / got
 
 
-def pay_out(st, pool, dry, fresh_paid, note, grace=0):
-    """把「待发」的奖发出去。返回本轮发了几笔。grace：只发结束超过这么多秒的期（做后备时用，见 BACKUP_GRACE）"""
+def node_lag():
+    """读链用的节点最新区块离现在几秒；读不到返回 None"""
+    try:
+        b = rpc("anubis", "eth_getBlockByNumber", ["latest", False])
+        return time.time() - int(b["timestamp"], 16)
+    except Exception:
+        return None
+
+
+def lag_guard():
+    """常驻程序发交易之前问一下：节点追上了返回 None；没追上（或读不到）返回 True 并说一声（最多 10 秒说一次）"""
+    lag = node_lag()
+    if lag is not None and lag <= LAG_MAX:
+        return None
+    if time.time() - _lag_said[0] >= 10:
+        _lag_said[0] = time.time()
+        print("节点还没追上最新区块（" + ("读不到最新区块" if lag is None else f"最新块是 {int(lag)} 秒前的") + "），先不发，追上了再发", flush=True)
+    return True
+
+
+def pay_out(st, pool, dry, fresh_paid, note, grace=0, guard=None):
+    """把「待发」的奖发出去。返回本轮发了几笔。grace：只发结束超过这么多秒的期（做后备时用，见 BACKUP_GRACE）；
+    guard：常驻程序传 lag_guard，每发一笔交易之前问一下节点追上没有，没追上就停（下一轮再发）"""
     todo = [d for d in st["due"] if f"{d['r']}:{d['w']}" not in fresh_paid and (d["r"] + 1) * ROUND + grace <= time.time()]
     if not todo:
+        return 0
+    if guard and not dry and pool and guard():
         return 0
     w = rpc("anubis", "eth_call", [{"to": AIL_PAIR, "data": "0x0902f1ac"}, "latest"])[2:]
     dex = int(w[64:128], 16) / int(w[:64], 16)
@@ -627,6 +654,8 @@ def pay_out(st, pool, dry, fresh_paid, note, grace=0):
         if not plan:
             note(f"⚠️ 极速奖金 {total / 1e18:.2f} DAI 这轮没发：OTC 没有 ≤ {dex * BUY_CAP:.3f} DAI/枚 的卖单可买，下轮再试。", True)
         for oid, amount, pay in plan:
+            if not dry and pool and guard and guard():
+                break  # 节点没追上：剩下的单这轮不吃了（下一轮按钱包里实际的币重新算还差多少）
             if dry or not pool:
                 print(f"（dry-run）会吃卖单 #{oid}：花 {pay / 1e18:.4f} DAI 买 {amount * 99 / 100 / 1e18:.6f} AiLGNS")
                 continue
@@ -646,6 +675,8 @@ def pay_out(st, pool, dry, fresh_paid, note, grace=0):
         if dry or not pool:
             print(f"（dry-run）会发：第 {d['r']} 期 {d['w']} {n / 1e18:.6f} AiLGNS（≈ {int(d['dai']) / 1e18:.4f} DAI）")
             continue
+        if guard and guard():
+            break  # 节点没追上：这一笔和后面的下一轮再发（发没发过只认链上记录，不会重发）
         if bal_of(AIL, FAST_POOL) < n:
             print(f"第 {d['r']} 期 {d['w'][:10]}… 的 {n / 1e18:.6f} AiLGNS 这轮币不够，下轮再发")
             continue
@@ -779,7 +810,7 @@ def run(dry, days, grace=0, loop=False):
         note("极速池钱包有交易还没确认，这轮先不发奖。")
     elif st["due"]:
         try:
-            busy += pay_out(st, pool, dry, fresh_paid, note, grace) or 0
+            busy += pay_out(st, pool, dry, fresh_paid, note, grace, lag_guard if loop else None) or 0
         except Exception as e:
             note(f"⚠️ 极速发奖出错（下轮再试）：{str(e)[:200]}", True)
 
@@ -860,6 +891,8 @@ def loop(dry):
             print(f"⚠️ 这一轮出错（{str(e)[:200]}），5 秒后再试", flush=True)
             time.sleep(5)
             continue
+        if len(_blk) > 20000:  # 区块时间的缓存：常驻程序一直开着，只增不减会越占越多内存，攒多了清一次
+            _blk.clear()
         since = time.time() % ROUND
         time.sleep(1.5 if since < 120 or ROUND - since < 25 else min(30.0, ROUND - since - 25))
 

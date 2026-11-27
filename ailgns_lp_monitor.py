@@ -16,7 +16,9 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 # ANUBIS_RPC（可选，逗号分隔）排在最前面：站长服务器上的常驻发奖程序设成本机节点 http://127.0.0.1:8545（2026-11-28）；GitHub 上不设，照旧用公共节点
-RPCS = [u.strip() for u in os.environ.get("ANUBIS_RPC", "").split(",") if u.strip()] + [
+LOCAL_RPCS = [u.strip() for u in os.environ.get("ANUBIS_RPC", "").split(",") if u.strip()]
+_LOCAL_DOWN = [0.0]  # 本机节点连不上以后，到这个时间之前先绕开它
+RPCS = LOCAL_RPCS + [
     "https://rpc.anubispace.org",
     "https://rpc2.anubispace.org",
     "https://rpc3.anubispace.org",
@@ -36,20 +38,25 @@ WEI = 10**18
 
 def rpc(method, params):
     last_err = None
+    # 本机节点（只有设了 ANUBIS_RPC 才有）刚连不上过：30 秒内先绕开它，直接用公共节点（2026-11-28：节点重启那一分钟，常驻发奖每次都先等 2 秒，太慢）
+    urls = [u for u in RPCS if u not in LOCAL_RPCS or time.time() >= _LOCAL_DOWN[0]]
     for attempt in range(6):
-        url = RPCS[attempt % len(RPCS)]
+        url = urls[attempt % len(urls)]
         try:
             req = urllib.request.Request(
                 url,
                 json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
                 {"Content-Type": "application/json", "User-Agent": "ailgns-monitor"},
             )
-            r = json.load(urllib.request.urlopen(req, timeout=60))
+            r = json.load(urllib.request.urlopen(req, timeout=10 if url in LOCAL_RPCS else 60))
             if "error" in r:
                 raise RuntimeError(r["error"])
             return r["result"]
         except Exception as e:  # 换一个节点重试
             last_err = e
+            if url in LOCAL_RPCS and not isinstance(e, RuntimeError):  # 本机节点连不上 / 超时：记下来，马上换下一个，不等
+                _LOCAL_DOWN[0] = time.time() + 30
+                continue
             time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"RPC {method} 失败: {last_err}")
 

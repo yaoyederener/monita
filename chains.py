@@ -41,18 +41,31 @@ def send_tx(chain, acct, to, data, label):
     price = int(rpc(chain, "eth_gasPrice", []), 16)
     if chain == "polygon":
         price = int(price * 1.2)  # Polygon 拥堵时稍微多给一点，避免卡住
-    body = {"data": data, "value": 0, "chainId": CHAIN_IDS[chain], "gas": gas, "gasPrice": price,
-            "nonce": int(rpc(chain, "eth_getTransactionCount", [acct.address, "pending"]), 16)}
+    nonce = int(rpc(chain, "eth_getTransactionCount", [acct.address, "pending"]), 16)
+    body = {"data": data, "value": 0, "chainId": CHAIN_IDS[chain], "gas": gas, "gasPrice": price, "nonce": nonce}
     if to:
         body["to"] = to_checksum_address(to)
     raw = acct.sign_transaction(body).raw_transaction.hex()
     h = rpc(chain, "eth_sendRawTransaction", [raw if raw.startswith("0x") else "0x" + raw])
     poll = float(os.environ.get("TX_POLL") or 2)  # 等确认时多久查一次：常驻发奖程序设 0.5（这条链约 1 秒一个块，2026-11-28）；其余照旧 2 秒
-    for _ in range(int(180 / poll)):
+    # 「编号已被别的交易用掉」就提前判作废（2026-11-28：节点刚重启、读到的编号是旧的，白等了 3 分钟）。只有设了 TX_FAILFAST=1 才开：
+    # 站长服务器上的常驻发奖程序开（install.sh 写进 .env，它只连本机节点）；GitHub 上的机器人不开，照旧等满 3 分钟——公共节点可能几台轮流应答，
+    # 一台看到上链、另一台还没看到时会像「编号用掉了却没有收据」，误判作废的话有的机器人会重发、发两遍。
+    # 编号按顺序用：链上已发数 > 这笔的编号 = 这个编号已经上链；连着 30 秒都查不到这笔的收据，才说明上链的不是它
+    failfast = os.environ.get("TX_FAILFAST") == "1"
+    every, gone = max(1, int(10 / poll)), None  # gone：第一次看到「编号已用掉、却没有这笔收据」的时间
+    for i in range(int(180 / poll)):
         r = rpc(chain, "eth_getTransactionReceipt", [h])
         if r:
             if r["status"] != "0x1":
                 raise RuntimeError(f"{label}失败: {h}")
             return (h, r["contractAddress"], int(r["blockNumber"], 16)) if not to else h
+        if failfast and i and i % every == 0:
+            if int(rpc(chain, "eth_getTransactionCount", [acct.address, "latest"]), 16) > nonce:
+                gone = gone or time.time()
+                if time.time() - gone >= 30:
+                    raise RuntimeError(f"{label}作废：交易编号 {nonce} 已被别的交易用掉（多半是节点刚重启、编号读旧了）: {h}")
+            else:
+                gone = None
         time.sleep(poll)
     raise RuntimeError(f"{label} 3 分钟未确认: {h}")
