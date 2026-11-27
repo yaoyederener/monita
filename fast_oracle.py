@@ -206,6 +206,7 @@ def first_block_at(ts, latest):
 JP_GATE = 19802043  # 2026-11-22 深夜开闸（站长「上线」），和网站 lib/fast.js 同一个数
 JP_SITE = "https://ailgns.dev/api/fast?jpc=1"
 CLAIMS = None  # [(钱包, 起, 止)]，起止是毫秒；None = 这一轮还没读
+_claims_t = [0.0]  # 上次读名单的时间。常驻程序一直开着：名单用超过 60 秒就重读（复查 2026-11-28：以前只读一次，后来才中奖的人领奖期里注册的会被常驻程序算成极速票）
 
 
 def load_claims():
@@ -214,6 +215,7 @@ def load_claims():
     if not isinstance(r, dict) or not isinstance(r.get("jpc"), list) or r.get("gate") != JP_GATE:
         raise RuntimeError(f"网站没给神算子领奖名单，或者开闸区块对不上（网站 {r.get('gate') if isinstance(r, dict) else r}，这里 {JP_GATE}）：这一轮不记票")
     CLAIMS = [(str(c["a"]).lower(), int(c["f"]), int(c["t"])) for c in r["jpc"]]
+    _claims_t[0] = time.time()
 
 
 # 🏷 每日预言家入口的注册（站长 2026-11-25）：从每日预言家页进来注册的，注册交易的数据最后带 8 个字节的记号 AILDAILY（网站 names.js 加的，合约不看）。
@@ -253,7 +255,7 @@ def jp_skip(regs):
     cand = [r for r in regs if r[0] >= JP_GATE]
     if not cand:
         return set()
-    if CLAIMS is None:
+    if CLAIMS is None or time.time() - _claims_t[0] > 60:
         load_claims()
     out = set()
     for r in cand:
@@ -610,12 +612,33 @@ def lag_guard():
     return True
 
 
-def pay_out(st, pool, dry, fresh_paid, note, grace=0, guard=None):
+def pay_out(st, pool, dry, fresh_paid, note, grace=0, guard=None, snap=None):
     """把「待发」的奖发出去。返回本轮发了几笔。grace：只发结束超过这么多秒的期（做后备时用，见 BACKUP_GRACE）；
-    guard：常驻程序传 lag_guard，每发一笔交易之前问一下节点追上没有，没追上就停（下一轮再发）"""
+    guard：常驻程序传 lag_guard，每发一笔交易之前问一下节点追上没有，没追上就停（下一轮再发）；
+    snap：fresh_paid 读到了哪个区块（发每一笔之前从这里往后再查一遍链上，见 clear）"""
     todo = [d for d in st["due"] if f"{d['r']}:{d['w']}" not in fresh_paid and (d["r"] + 1) * ROUND + grace <= time.time()]
     if not todo:
         return 0
+    seen = [snap]
+
+    def clear(d):
+        """🔒 发这一笔之前现查（复查 2026-11-28）：常驻程序和 GitHub 后备有时会同时发同一期（一边卡住超过 BACKUP_GRACE 秒的时候）。
+        先取链上已确认的交易数 n0，再从上次查到的区块往后查一遍「已经发出去的奖」，没人发过才用编号 n0 发。
+        两边用的是同一个钱包、同一个编号只能上链一笔：另一边要是抢在中间发了，这一笔就上不了链，不会给同一个人发两遍。
+        返回要用的编号；钱包还有交易在路上、或者这一笔链上已经有人发了 → 返回 None（这轮停下，下一轮按链上重新算）"""
+        n0 = int(rpc("anubis", "eth_getTransactionCount", [FAST_POOL, "latest"]), 16)
+        if int(rpc("anubis", "eth_getTransactionCount", [FAST_POOL, "pending"]), 16) != n0:
+            print("极速池钱包有交易还没确认（可能另一边正在发），剩下的下一轮再发")
+            return None
+        if seen[0] is not None:
+            b = int(rpc("anubis", "eth_blockNumber", []), 16)
+            if b > seen[0]:
+                fresh_paid.update(read_paid(seen[0] + 1, b))
+                seen[0] = b
+        if f"{d['r']}:{d['w']}" in fresh_paid:
+            print(f"第 {d['r']} 期 {d['w'][:10]}… 链上已经发过了（另一边刚发的），剩下的下一轮再说")
+            return None
+        return n0
     if guard and not dry and pool and guard():
         return 0
     w = rpc("anubis", "eth_call", [{"to": AIL_PAIR, "data": "0x0902f1ac"}, "latest"])[2:]
@@ -667,6 +690,10 @@ def pay_out(st, pool, dry, fresh_paid, note, grace=0, guard=None):
                 print(f"吃卖单 #{oid}：花 {pay / 1e18:.4f} DAI 买约 {amount * 99 / 100 / 1e18:.6f} AiLGNS {TX}{h}")
             except Exception as e:  # 被人抢先吃了等情况：跳过这张，下轮再补
                 print(f"吃单 #{oid} 失败，跳过：{str(e)[:120]}")
+                if "作废" in str(e):  # 交易编号被别的交易用掉：多半是另一边正在用这个钱包发奖。这轮不发了，下一轮按链上重新算（复查 2026-11-28）
+                    for x in todo:
+                        x.pop("n", None)
+                    return 0
     done = 0
     for d in sorted(todo, key=lambda d: (d["r"], d["w"])):
         n = d.pop("n")
@@ -680,8 +707,11 @@ def pay_out(st, pool, dry, fresh_paid, note, grace=0, guard=None):
         if bal_of(AIL, FAST_POOL) < n:
             print(f"第 {d['r']} 期 {d['w'][:10]}… 的 {n / 1e18:.6f} AiLGNS 这轮币不够，下轮再发")
             continue
+        n0 = clear(d)
+        if n0 is None:
+            break
         from chains import send_tx
-        h = send_tx("anubis", pool, AIL, "0xa9059cbb" + pad(d["w"])[2:] + f"{n:064x}" + (PAY_PREFIX + str(d["r"])).encode().hex(), "发极速预言家奖金")
+        h = send_tx("anubis", pool, AIL, "0xa9059cbb" + pad(d["w"])[2:] + f"{n:064x}" + (PAY_PREFIX + str(d["r"])).encode().hex(), "发极速预言家奖金", nonce=n0)
         st["due"].remove(d)
         st["sent"].append({"r": d["r"], "w": d["w"], "dai": d["dai"], "ail": str(n), "tx": h})
         save(st)  # 发一笔存一笔
@@ -810,7 +840,7 @@ def run(dry, days, grace=0, loop=False):
         note("极速池钱包有交易还没确认，这轮先不发奖。")
     elif st["due"]:
         try:
-            busy += pay_out(st, pool, dry, fresh_paid, note, grace, lag_guard if loop else None) or 0
+            busy += pay_out(st, pool, dry, fresh_paid, note, grace, lag_guard if loop else None, latest) or 0
         except Exception as e:
             note(f"⚠️ 极速发奖出错（下轮再试）：{str(e)[:200]}", True)
 
