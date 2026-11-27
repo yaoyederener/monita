@@ -15,7 +15,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-RPCS = [
+# ANUBIS_RPC（可选，逗号分隔）排在最前面：站长服务器上的常驻发奖程序设成本机节点 http://127.0.0.1:8545（2026-11-28）；GitHub 上不设，照旧用公共节点
+RPCS = [u.strip() for u in os.environ.get("ANUBIS_RPC", "").split(",") if u.strip()] + [
     "https://rpc.anubispace.org",
     "https://rpc2.anubispace.org",
     "https://rpc3.anubispace.org",

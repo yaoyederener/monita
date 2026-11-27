@@ -28,9 +28,12 @@ concurrency:
 
 jobs:
   # ⚡ 极速预言家：结算 + 发奖，单独一个任务，和下面的 refund 并行（站长 2026-11-14「做成秒发」）。
-  #   每期在整 10 分钟结束，开奖数字要等 20 个区块确认（约 21 秒）。定时器每 5 分钟（约第 51 秒）触发一次：
-  #   · 离本期结束不到 5 分半 → 先等着，卡在「结束后第 23 秒」结算发奖，再补两次（防节点慢）。中奖的人大约开奖后半分钟到一分钟收到。
+  #   每期在整 10 分钟结束。开奖区块等链上最终确认（这条链约 1 秒，2026-11-28 从等 20 个区块改过来，见 fast_oracle.py 的 safe_block）。
+  #   定时器每 5 分钟（约第 51 秒）触发一次：
+  #   · 离本期结束不到 5 分半 → 先等着，卡在「结束后第 4 秒」结算发奖，再每 4 秒补两次（防节点慢）。
+  #   · 本期刚结束不到 4 秒（排队排到这时才开始）→ 等到第 4 秒再跑（2026-11-28 #528：以前这时马上扫一遍、开奖还没确认，空跑退出，晚了 5 分钟）。
   #   · 离本期结束还早（上一期刚结束）→ 马上补扫一遍，兜底。
+  #   站长服务器上的常驻发奖程序（fast_oracle.py --loop）在线时，这里自动只做后备：只补发结束超过 3 分钟还没发的（看它在网站的报到，见 HB_PREFIX）。
   #   发没发过只认链上的发奖记录，重复跑不会重复发；同一时间只允许一个极速任务在跑（concurrency）。
   fast:
     runs-on: ubuntu-latest
@@ -61,14 +64,15 @@ jobs:
           OPS_EMAILS: ${{ secrets.OPS_EMAILS }}
           PYTHONUNBUFFERED: "1"
         run: |
-          now=$(date +%s); to_end=$(( 600 - now % 600 )); wait=$(( to_end + 23 ))
+          now=$(date +%s); since=$(( now % 600 )); to_end=$(( 600 - since ))
+          if [ "$since" -lt 4 ]; then wait=$(( 4 - since )); else wait=$(( to_end + 4 )); fi
           if [ "$wait" -le 330 ]; then
-            echo "离本期结束还有 ${to_end} 秒：等到开奖后第 23 秒再结算发奖"
+            echo "离开奖后第 4 秒还有 ${wait} 秒：等到那时再结算发奖"
             sleep "$wait"
             for i in 1 2 3; do
               echo "== 第 $i 次，$(date -u +%H:%M:%S) UTC"
               python -u fast_oracle.py --run || true
-              if [ "$i" -lt 3 ]; then sleep 8; fi
+              if [ "$i" -lt 3 ]; then sleep 4; fi
             done
           else
             echo "离本期结束还有 ${to_end} 秒：现在补扫一遍"

@@ -1,5 +1,6 @@
 """Anubis 和 Polygon 两条链的节点调用（分账、部署共用）"""
 import json
+import os
 import time
 import urllib.request
 
@@ -46,11 +47,12 @@ def send_tx(chain, acct, to, data, label):
         body["to"] = to_checksum_address(to)
     raw = acct.sign_transaction(body).raw_transaction.hex()
     h = rpc(chain, "eth_sendRawTransaction", [raw if raw.startswith("0x") else "0x" + raw])
-    for _ in range(90):
+    poll = float(os.environ.get("TX_POLL") or 2)  # 等确认时多久查一次：常驻发奖程序设 0.5（这条链约 1 秒一个块，2026-11-28）；其余照旧 2 秒
+    for _ in range(int(180 / poll)):
         r = rpc(chain, "eth_getTransactionReceipt", [h])
         if r:
             if r["status"] != "0x1":
                 raise RuntimeError(f"{label}失败: {h}")
             return (h, r["contractAddress"], int(r["blockNumber"], 16)) if not to else h
-        time.sleep(2)
+        time.sleep(poll)
     raise RuntimeError(f"{label} 3 分钟未确认: {h}")

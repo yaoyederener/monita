@@ -26,6 +26,7 @@ import re
 import time
 import urllib.request
 
+from ailgns_lp_monitor import RPCS
 from chains import rpc
 
 FAST_POOL = "0x8610bf581b1c10cb7d372f93b8cdcde382a7c1d1"
@@ -102,7 +103,14 @@ TICKET_WEI = 10**18
 POT_PER_TICKET = 9 * 10**17  # 每张票 0.9 DAI 进奖池
 PREFIX = "ailgns-fast:"
 PAY_PREFIX = "ailgns-fast-pay:"
-CONFIRM = 20  # 只认 20 个块之前的数据，防链重组
+CONFIRM = 20  # 节点读不到 finalized 时的退路：只认 20 个块之前的数据，防链重组（平时用 safe_block 的 finalized，见下）
+# ⚡ 秒到账（站长 2026-11-28「#528 中奖没到账，能不能秒到账」）：常驻发奖程序（--loop，装在站长服务器上）和 GitHub 定时任务分工：
+#   常驻程序每 30 秒用极速资金池钱包签名向网站报到（POST /api/fast action=hb）；GitHub 发奖前先看报到，150 秒内报过到，
+#   GitHub 就只做后备：只发结束超过 BACKUP_GRACE 秒还没发的期。读不到报到也按「在线」处理（宁可慢，不抢着发，免得一个人发两遍）。
+#   常驻程序报到刚开始（或断过又恢复）的前 WARMUP 秒、或报到连续失败超过 60 秒：自己也按后备处理。两边任何时候只有一个在「快发」
+HB_PREFIX = "ailgns-fast-hb:"
+FAST_API = "https://ailgns.dev/api/fast"
+HB_FRESH, BACKUP_GRACE, WARMUP = 150, 180, 150  # WARMUP：报到刚开始 / 断过又恢复后先当多久后备（网站的报到记录传到各地最多约 1 分钟，再留够 GitHub 发完手上那一轮的时间）
 BET_RE = re.compile(r"^([0-9]{1,10}):([1-9][0-9]{0,8})$")
 MULTI_START = 19103400  # 一笔下注押多个数字，从这个区块起才认（约 2026-11-14 14:44 北京时间；网站 lib/fast.js 的 MULTI_START 填同一个数）
 
@@ -578,9 +586,9 @@ def quote(sells, dai):
     return spent / got
 
 
-def pay_out(st, pool, dry, fresh_paid, note):
-    """把「待发」的奖发出去。返回本轮发了几笔"""
-    todo = [d for d in st["due"] if f"{d['r']}:{d['w']}" not in fresh_paid]
+def pay_out(st, pool, dry, fresh_paid, note, grace=0):
+    """把「待发」的奖发出去。返回本轮发了几笔。grace：只发结束超过这么多秒的期（做后备时用，见 BACKUP_GRACE）"""
+    todo = [d for d in st["due"] if f"{d['r']}:{d['w']}" not in fresh_paid and (d["r"] + 1) * ROUND + grace <= time.time()]
     if not todo:
         return 0
     w = rpc("anubis", "eth_call", [{"to": AIL_PAIR, "data": "0x0902f1ac"}, "latest"])[2:]
@@ -660,7 +668,46 @@ def save(st):
     os.replace(STATE + ".tmp", STATE)
 
 
-def run(dry, days):
+def safe_block(latest):
+    """开奖要等的确认：这条链 1 个块就最终确认（节点的 finalized 只比最新落后 1 块，2026-11-28 核过），以前写死等 20 块（约 21 秒）。
+    节点给 finalized 就用它；都读不到（节点不支持）退回老办法 latest - CONFIRM。每个节点只问一次、不重试，免得卡住"""
+    for url in RPCS:
+        try:
+            req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_getBlockByNumber", "params": ["finalized", False]}).encode(),
+                                         {"Content-Type": "application/json", "User-Agent": "ailgns-keeper"})
+            r = json.load(urllib.request.urlopen(req, timeout=10))
+            if (r.get("result") or {}).get("number"):
+                return min(latest, int(r["result"]["number"], 16))
+        except Exception:
+            continue
+    return latest - CONFIRM
+
+
+def hb_age():
+    """常驻发奖程序上次报到离现在几秒；读不到返回 None"""
+    try:
+        r = json.load(urllib.request.urlopen(urllib.request.Request(FAST_API + "?hb=1", headers={"user-agent": "ailgns-keeper"}), timeout=15))
+        return max(0.0, time.time() - int(r.get("hb") or 0) / 1000)
+    except Exception:
+        return None
+
+
+def hb_send(pool):
+    """常驻发奖程序报到：极速资金池钱包签名「ailgns-fast-hb:毫秒时间」交给网站（网站验签，只认极速资金池钱包）。成功返回 True"""
+    from eth_account.messages import encode_defunct
+    t = int(time.time() * 1000)
+    sig = pool.sign_message(encode_defunct(text=HB_PREFIX + str(t))).signature.hex()
+    body = json.dumps({"action": "hb", "t": t, "sig": sig if sig.startswith("0x") else "0x" + sig}).encode()
+    try:
+        r = json.load(urllib.request.urlopen(urllib.request.Request(FAST_API, data=body, headers={"content-type": "application/json", "user-agent": "ailgns-keeper"}), timeout=15))
+        return bool(r.get("ok"))
+    except Exception as e:
+        print(f"报到没成功：{str(e)[:120]}", flush=True)
+        return False
+
+
+def run(dry, days, grace=0, loop=False):
+    """记账、结算、发奖一遍。grace：只发结束超过这么多秒的期；loop：常驻程序在调用（不转运营收入、平时不打印汇总）"""
     start = FAST_START
     if days:  # 试算：假设 N 天前上线，强制只读
         dry = True
@@ -669,7 +716,7 @@ def run(dry, days):
         print("极速预言家还没上线（FAST_START 没填），什么都不做。")
         return
     latest = int(rpc("anubis", "eth_blockNumber", []), 16)
-    safe = latest - CONFIRM
+    safe = safe_block(latest)
     if safe < start:
         print(f"还没到上线区块 {start}（现在 {latest}）。")
         return
@@ -706,11 +753,13 @@ def run(dry, days):
     if void_old(st, block(safe)[0] // ROUND):  # 🗑 到点了、这期还没人下注：也把老票清掉
         note(f"老票作废（第 {OLD_VOID_ROUND} 期起）：清掉最老的票 {st['old_void']['n1']} 张、1.9 的票 {st['old_void']['n2']} 张")
 
-    # ② 结算：开奖区块已经过了 20 个确认的期
+    # ② 结算：开奖区块已经最终确认的期（见 safe_block）
     def result_of(rid):
         n = first_block_at((rid + 1) * ROUND, safe)
         return (int(block(n)[1], 16) % 10, n) if n else None
+    busy = 0
     for x in settle_rounds(st, result_of):
+        busy += 1
         if x["pay"]:
             print(f"{hhmm(x['round'])} 期：开 {x['digit']}，{x['tickets']} 票，奖池 {x['pot'] / 1e18:.2f} DAI，中 {x['win_tickets']} 票 → " + "，".join(f"{w[:8]}… {v / 1e18:.4f}" for w, v in x["pay"].items()))
         else:
@@ -719,19 +768,24 @@ def run(dry, days):
     reconcile(st)
 
     # ③ 发奖。上一笔交易还卡在路上就先不发，免得重发
+    if not loop and not days and st["due"]:  # GitHub 定时任务：常驻发奖程序在线（或读不到它的报到）就只做后备
+        age = hb_age()
+        if age is None or age < HB_FRESH:
+            grace = max(grace, BACKUP_GRACE)
+            print("常驻发奖程序" + ("报到读不到，按在线处理" if age is None else f"在线（{int(age)} 秒前报到）") + f"：这里只补发结束超过 {BACKUP_GRACE} 秒还没发的")
     fresh_paid = read_paid(safe + 1, latest) if latest > safe else {}
     cnt = lambda tag: int(rpc("anubis", "eth_getTransactionCount", [FAST_POOL, tag]), 16)
     if st["due"] and cnt("pending") != cnt("latest"):
         note("极速池钱包有交易还没确认，这轮先不发奖。")
     elif st["due"]:
         try:
-            pay_out(st, pool, dry, fresh_paid, note)
+            busy += pay_out(st, pool, dry, fresh_paid, note, grace) or 0
         except Exception as e:
             note(f"⚠️ 极速发奖出错（下轮再试）：{str(e)[:200]}", True)
 
     # ④ 运营收入转回收款钱包：没猜中的新票钱攒够 OPS_MIN 才转；奖没发完、有交易在路上、池里的钱不够兜底都不转
     od = ops_due(st)
-    if od >= OPS_MIN and not st["due"]:
+    if od >= OPS_MIN and not st["due"] and not loop:  # 常驻程序不转运营收入，只由 GitHub 那边转（免得两边一起转）
         dai_bal, liab = bal_of(DAI, FAST_POOL), liabilities(st)
         if cnt("pending") != cnt("latest") or (latest > safe and read_ops(safe + 1, latest)):
             note("极速池钱包有交易还没确认，运营收入这轮先不转。")
@@ -749,6 +803,11 @@ def run(dry, days):
                 note(f"⚠️ 运营收入没转成（下轮再试）：{str(e)[:160]}", True)
 
     dai_bal, liab = bal_of(DAI, FAST_POOL), liabilities(st)
+    if loop and not busy:  # 常驻程序一两秒跑一遍：没结算、没发奖就不打印汇总（只悄悄存档）
+        if not dry:
+            st["bal_last"] = str(dai_bal)
+            save(st)
+        return
     print(f"区块 {st['from']} → {st['to']}：卖出 {st['names']} 个域名 = {st['sold']} 票（其中新票 {st.get('sold2', 0)}），没用的老票 {sum(st['bal'].values())} 张、新票 {sum(st.get('bal2', {}).values())} 张；运营收入累计 {int(st.get('ops', '0')) / 1e18:.2f}、还没转回 {ops_due(st) / 1e18:.2f}；滚存 {int(st['carry']) / 1e18:.4f} DAI；待发 {len(st['due'])} 笔")
     print(f"极速池钱包 {dai_bal / 1e18:.2f} DAI + {bal_of(AIL, FAST_POOL) / 1e18:.6f} AiLGNS；按账应备 {liab / 1e18:.2f} DAI")
     prev = st.get("bal_last")  # 上一轮结束时极速池的 DAI
@@ -769,6 +828,42 @@ def run(dry, days):
     save(st)
 
 
+def loop(dry):
+    """⚡ 常驻模式（站长 2026-11-28「能不能秒到账」）：装在站长服务器上（本机有同步好的 Anubis 节点，ANUBIS_RPC=http://127.0.0.1:8545），
+    开奖区块一最终确认（结束后一两秒）就结算、发奖。和 GitHub 定时任务怎么分工见 HB_PREFIX 那段说明。
+      · 每期结束前 25 秒到结束后 2 分钟：每 1.5 秒跑一遍（结束前先把这期的票和下注读好，结束后只剩开奖这一下）；其余时间每 30 秒跑一遍兜底。
+      · 每 30 秒报到一次。报到刚开始（或断过又恢复）的前 WARMUP 秒、或报到连续失败超过 60 秒：只发结束超过 BACKUP_GRACE 秒的期（这时 GitHub 可能在快发，不抢）。
+      · 运营收入转回收款钱包、报警邮件只由 GitHub 那边做。--dry-run：不报到、不发交易，只算"""
+    pool = None
+    if not dry:
+        from eth_account import Account
+        pool = Account.from_key(os.environ["FAST_POOL_KEY"])
+        if pool.address.lower() != FAST_POOL:
+            raise SystemExit("FAST_POOL_KEY 不是极速资金池钱包的私钥，停")
+    hb_t, hb_ok, streak = 0.0, 0.0, None  # streak：这一段连续报到成功是从什么时候开始的
+    print(f"⚡ 常驻发奖启动：节点 {RPCS[0]}，{'只算不发（dry-run）' if dry else '正式'}；报到成功后先做 {WARMUP} 秒后备", flush=True)
+    while True:
+        now = time.time()
+        if pool and now - hb_t >= 30:
+            hb_t = now
+            if hb_send(pool):
+                if streak is None or now - hb_ok > 60:  # 第一次报到成功，或断过又恢复：从现在起重新算后备时间
+                    streak = now
+                    print(f"报到成功：{WARMUP} 秒后开始秒发", flush=True)
+                hb_ok = now
+        quick = dry or (streak is not None and now - streak >= WARMUP and now - hb_ok <= 60)
+        try:
+            run(dry, 0, grace=0 if quick else BACKUP_GRACE, loop=True)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"⚠️ 这一轮出错（{str(e)[:200]}），5 秒后再试", flush=True)
+            time.sleep(5)
+            continue
+        since = time.time() % ROUND
+        time.sleep(1.5 if since < 120 or ROUND - since < 25 else min(30.0, ROUND - since - 25))
+
+
 def hhmm(rid):
     return time.strftime("%m-%d %H:%M", time.gmtime(rid * ROUND + 8 * 3600))  # 北京时间
 
@@ -780,9 +875,13 @@ def main():
     ap.add_argument("--days", type=float, default=0, help="假设多少天前上线（只用于试算，只读）")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--grace", type=int, default=0, help="只发结束超过这么多秒的期")
+    ap.add_argument("--loop", action="store_true", help="常驻模式：开奖一确认马上结算发奖（站长服务器上跑）")
     a = ap.parse_args()
+    if a.loop:
+        return loop(a.dry_run)
     if a.run:
-        return run(a.dry_run, a.days)
+        return run(a.dry_run, a.days, a.grace)
     latest = int(rpc("anubis", "eth_blockNumber", []), 16)
     now = block(latest)[0]
 
