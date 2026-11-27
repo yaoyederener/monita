@@ -48,7 +48,7 @@ jobs:
           ]
           SPONSOR = "0xeBDDb5Cf06313E54E1745fD6d9E2C87a5c63f32A"
           MAIN = "0xf3d6d612e465f091919992c92f3abf7a7a60a7e0"
-          MIN_GAS = 0.25
+          MIN_GAS = 5.0
           LABEL = "anubis-alert"
 
           TOKENS = {
