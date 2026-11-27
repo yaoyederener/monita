@@ -70,6 +70,22 @@ NEW_BLOCK = 19375289  # 2026-11-18 凌晨开闸，和网站 lib/fast.js 同一�
 V4_ROUND = 2991558  # 同上
 WINN_PER_TICKET, POTN_PER_TICKET, CAPN = WIN3_PER_TICKET, POT3_PER_TICKET, CAP3
 def v4(rid): return bool(V4_ROUND) and int(rid) >= V4_ROUND
+# 🗑 老票作废（站长 2026-11-27：「规则一律按新的来，老票不要了，简化规则，让人一目了然」；和网站 lib/fast.js 同一套，改一边必须改另一边）：
+#   从第 OLD_VOID_ROUND 期起，下注只用新票（bal3：猜中每张 9.5、每钱包每期最多 20 张）；最老的纯数字票（bal）和 1.9 的票（bal2）清零作废，记在 st["old_void"]。
+#   作废之前已经押进去、还没开奖的老票照旧开奖、照旧发。None = 还没开闸，一切照旧。
+#   定的时候全站没用的老票：最老的 120 张 + 1.9 的 1,828 张（新票 1,300 张不受影响）。
+OLD_VOID_ROUND = 2992950  # 2026-11-27 17:00（北京）这一期起，和网站 lib/fast.js 同一个数
+def old_void(rid): return bool(OLD_VOID_ROUND) and int(rid) >= OLD_VOID_ROUND
+
+
+def void_old(st, rid):
+    """到了作废那一期：老票清零（只做一次）。返回 True = 这次清了"""
+    if not old_void(rid) or st.get("old_void"):
+        return False
+    st["old_void"] = {"r": OLD_VOID_ROUND, "n1": sum(st["bal"].values()), "n2": sum(st.get("bal2", {}).values())}
+    st["bal"] = {}
+    st["bal2"] = {}
+    return True
 def win2_of(rid): return WIN2_PER_TICKET if v4(rid) else WIN3_PER_TICKET if v3(rid) else WIN2_PER_TICKET
 def pot2_of(rid): return POT_PER_TICKET if v4(rid) else POT3_PER_TICKET if v3(rid) else POT_PER_TICKET
 def cap2_of(rid): return CAP2 if v4(rid) else CAP3 if v3(rid) else CAP2
@@ -395,6 +411,7 @@ def apply_events(st, tickets, bets, ts_of):
             if key != "bal":
                 st["sold2"] = st.get("sold2", 0) + e[4]
             continue
+        void_old(st, ts_of(blk) // ROUND)  # 🗑 作废那一期起的下注：先把老票清零（要在下面取 bal2 之前），下面就只会用到新票
         b2 = st.setdefault("bal2", {})
         rid = str(ts_of(blk) // ROUND)
         n1 = min(e[4], st["bal"].get(e[2], 0))
@@ -686,6 +703,9 @@ def run(dry, days):
         for v in void:
             print(f"作废下注：{v[2]} 猜 {v[3]} 压 {v[4]} 票（没票了） {v[5]}")
 
+    if void_old(st, block(safe)[0] // ROUND):  # 🗑 到点了、这期还没人下注：也把老票清掉
+        note(f"老票作废（第 {OLD_VOID_ROUND} 期起）：清掉最老的票 {st['old_void']['n1']} 张、1.9 的票 {st['old_void']['n2']} 张")
+
     # ② 结算：开奖区块已经过了 20 个确认的期
     def result_of(rid):
         n = first_block_at((rid + 1) * ROUND, safe)
@@ -773,7 +793,7 @@ def main():
         return int(block(n)[1], 16) % 10, n
 
     if a.selftest:  # 假下注：最近 4 期，三个假钱包；开奖用真区块哈希
-        globals()["V4_ROUND"] = None; globals()["NEW_BLOCK"] = None
+        globals()["V4_ROUND"] = None; globals()["NEW_BLOCK"] = None; globals()["OLD_VOID_ROUND"] = None  # 自检验的是老规则的算账，老票作废的验算另外和网站逐期对过
         globals()["V3_ROUND"] = None  # 下面的断言是按 V3 之前的赔率（每张 1.9、上限 100）写的；自检只验老规则的算账，9.5 的验算 2026-11-17 另外和网站对过。不影响正式运行
         r0 = now // ROUND - 5
         fake_blk = {1000 + i: (r0 + i) * ROUND + 30 for i in range(4)}
