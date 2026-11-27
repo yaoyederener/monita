@@ -227,7 +227,7 @@ jobs:
           BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
         run: curl -s -m 20 "https://ailgns.dev/api/med?nag=1&key=$BACKUP_KEY" | sed 's/"key"[^,}]*//' || true
 
-      - name: Oracle anchor - write today's prediction fingerprint on-chain after 21:00 BJT
+      - name: Oracle anchor - write today's prediction fingerprint on-chain after the 15:00 BJT cutoff (from 15:16)
         if: always()
         continue-on-error: true
         env:
