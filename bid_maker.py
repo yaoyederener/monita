@@ -198,11 +198,13 @@ SELL_MIN = CHUNK_WEI or MIN_SELL   # 手里的币到这个数才去卖（常驻�
 SELL_FAIL_MAX = 3                  # 分笔卖时交易多了十倍，节点偶尔抖一下很正常：连着 3 次不成才按「卖不掉」处理（撤单、等、停机）
 # 站长 2026-11-28「做市商机器人，订单拆下，保证最少有5笔以上的单子在线」→ BID_SPLIT = N：买单拆成 N 张一样价、差不多大的单挂着。
 #   · 价不对 / 快过期要换单时一张一张换（撤一张、马上挂一张新价的），不再一下全撤：N = 6 时换单途中盘口上也一直有 5 张以上
-#   · 有单被吃光：钱一回来就先补够 N 张（不等攒够）；单子越补越多、超过 2N 张：把最小的几张撤掉合成一张
+#   · 有单被吃光：钱一回来就先补够 N 张（不等攒够）；单子比 N 张多（补挂、被吃掉一部分以后会越来越碎）：从最小的开始撤，
+#     凑够平均一份就合成一张，一轮合一次，几轮以后回到正好 N 张、每张差不多大
 #   · 某张比平均一份大 2 倍以上（比如以前那种一整张大单）：撤掉拆成几份
 #   · 总共挂多少钱、什么价、什么时候撤，规矩和以前一样（SIZE / LINE / MARGIN / 回撤停机 / 链慢撤单），只是拆成几张
 #   · 每张至少 MIN_ORDER（20 DAI）：钱少得拆不出 N 张时，能拆几张拆几张
-#   站长定 5 张（服务器 /etc/bidbot.env 里 BID_SPLIT=5）：平时盘口上 5 张；换价那十几秒里有一张正在换，最少 4 张。想换价时也不少于 5 张就设 6。
+#   站长先定 5 张；2026-11-28 下午看盘口上挂了 9 张嫌多（「这个有点多，做市机器人拆成2单吧？」）→ 改成 2 张（服务器 /etc/bidbot.env 里 BID_SPLIT=2），
+#   合并也改成上面那样一直合到正好 N 张（以前要超过 2N 张才合，5 张时会停在 9 张）。平时盘口上 2 张；换价、合并那几秒里最少 1 张。
 #   不设或设 1 = 老办法（一张单）。换一次价要撤 N 张、挂 N 张，Gas 是以前的 N 倍（一笔约 0.002 DAI，一天约多花几 DAI）
 SPLIT = max(1, int(os.environ.get("BID_SPLIT", "1") or 1))
 MAX_U = (1 << 256) - 1
@@ -481,11 +483,11 @@ def keep_split(st, mine, bid, net, cap, dai, left_ail, equity, others_bid, other
     ok = [m for m in ok if m not in big]
     stale = sorted(stale + big, key=lambda m: -m[2])
     extra = []
-    dust = sorted((m for m in ok if m[2] < piece // 5), key=lambda m: m[2])  # 零头单：不到平均一份的五分之一
-    if len(ok) > 2 * SPLIT:                                  # 太多：最小的几张合成一张
-        extra = sorted(ok, key=lambda m: m[2])[:len(ok) - SPLIT]
-    elif len(ok) > SPLIT and len(dust) >= 2:                 # 多出来的是几张零头：合成一张（合完仍不少于 N 张）
-        extra = dust[:len(ok) - SPLIT + 1]
+    if len(ok) > SPLIT:  # 多了：从最小的开始撤，凑够平均一份就合成一张（至少撤 2 张，合完不少于 N 张）；还多就下一轮接着合，直到正好 N 张
+        for m in sorted(ok, key=lambda m: m[2])[:len(ok) - SPLIT + 1]:
+            extra.append(m)
+            if len(extra) >= 2 and sum(x[2] for x in extra) >= piece:
+                break
     ok = [m for m in ok if m not in extra]
     on = lambda m: m[3] > now                                # 没过期的才在网站盘口上显示
     live_n = [sum(1 for m in mine if on(m))]                 # 现在盘口上有几张（换单过程中看着它，日志里写最少剩几张）
