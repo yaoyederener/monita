@@ -84,6 +84,7 @@ def main():
     # 站长 2026-11-17「买票不设上限」：一张委托可以有上千个名字，而这个任务一轮只有几分钟（超时会被直接掐掉）。
     # 所以：每做完 CHUNK 个就向网站报一次进度（票也跟着记上），一次运行最多干 BUDGET 秒；没做完的网站记着，下一轮接着做。
     # 以前是整张委托做完才报一次：大单做到一半被掐，成功的名字没报上去，客户的票就记不上
+    os.environ.setdefault("TX_POLL", "0.5")  # 站长 2026-11-28「这个过程有点慢」：等确认每 0.5 秒查一次（链约 1 秒一个块，原来 2 秒查一次）
     t0, BUDGET, CHUNK = time.time(), 150, 5
     for o in orders[:20]:
         if time.time() - t0 > BUDGET:
@@ -104,26 +105,52 @@ def main():
             tot[0] += len(done); tot[1] += len(fail)
             done.clear(); fail.clear(); failn.clear()
 
-        for n in o["names"]:
-            if time.time() - t0 > BUDGET:
+        names = list(o["names"])
+        for k in range(0, len(names), CHUNK):
+            if time.time() - t0 > BUDGET:  # 只在两批之间看时间：一批收了款就一定把这批做完，不会收了钱没注册就被停下
                 print("  这一轮时间到了，剩下的下一轮接着做")
                 break
-            if len(done) + len(fail) >= CHUNK:
-                flush()
-            cost = year_price(n) * 10**18
-            failn.append(n)  # 先当它没成功；下面注册成了再拿掉
-            try:
-                if num(NAMES, "0xaeb8ce9b" + u256(0x20) + abistr(n)) == 0:
-                    fail.append(f"{n}（被人抢先了）"); continue
-                allow = num(DAI, "0xdd62ed3e" + pad(a) + pad(me)); have = num(DAI, "0x70a08231" + pad(a))
-                if allow < cost or have < cost:
-                    fail.append(f"{n}（{'授权' if allow < cost else 'DAI'}不够）"); continue
-                if dry:
-                    print(f"  dry {n} {cost / 1e18} DAI"); done.append(n); failn.remove(n); continue
-                send_tx("anubis", acct, DAI, "0x23b872dd" + pad(a) + pad(me) + u256(cost), f"收 {n} 的款")
+            go = []  # 这一批里还能注册的：(名字, 价钱)
+            for n in names[k:k + CHUNK]:
+                failn.append(n)  # 先当它没成功；下面注册成了再拿掉
                 try:
-                    if num(DAI, "0xdd62ed3e" + pad(me) + pad(NAMES)) < cost:
-                        send_tx("anubis", acct, DAI, "0x095ea7b3" + pad(NAMES) + u256(MAX_U), "授权域名合约")
+                    if num(NAMES, "0xaeb8ce9b" + u256(0x20) + abistr(n)) == 0:
+                        fail.append(f"{n}（被人抢先了）"); continue
+                except Exception as e:
+                    print(f"  ❌ {n} 出错：{e}"); fail.append(f"{n}（出错，没扣钱）"); continue
+                go.append((n, year_price(n) * 10**18))
+            if not go:
+                continue
+            try:
+                allow = num(DAI, "0xdd62ed3e" + pad(a) + pad(me)); have = num(DAI, "0x70a08231" + pad(a))
+            except Exception as e:
+                print(f"  ❌ 读客户授权 / 余额出错：{e}")
+                fail.extend(f"{n}（出错，没扣钱）" for n, _ in go); continue
+            room, take = min(allow, have), []
+            for n, cost in go:  # 授权 / 余额只够前几个：够的照做，不够的记失败（和以前一个一个扣到不够为止一样）
+                if cost <= room:
+                    take.append((n, cost)); room -= cost
+                else:
+                    fail.append(f"{n}（{'授权' if allow <= have else 'DAI'}不够）")
+            if not take:
+                continue
+            if dry:
+                for n, cost in take:
+                    print(f"  dry {n} {cost / 1e18} DAI"); done.append(n); failn.remove(n)
+                continue
+            total = sum(c for _, c in take)
+            try:  # 站长 2026-11-28「这个过程有点慢」：这一批的钱一笔收齐（以前每个名字单收一笔，交易数是现在的两倍）
+                send_tx("anubis", acct, DAI, "0x23b872dd" + pad(a) + pad(me) + u256(total), f"收 {len(take)} 个名字的款 {total / 1e18:g} DAI")
+            except Exception as e:
+                print(f"  ❌ 收款没成功：{e}")
+                fail.extend(f"{n}（出错，没扣钱）" for n, _ in take); continue
+            try:
+                if num(DAI, "0xdd62ed3e" + pad(me) + pad(NAMES)) < total:
+                    send_tx("anubis", acct, DAI, "0x095ea7b3" + pad(NAMES) + u256(MAX_U), "授权域名合约")
+            except Exception as e:
+                print(f"  ⚠️ 授权域名合约出错（照样往下注册，注册不成会逐个退款）：{e}")
+            for n, cost in take:
+                try:
                     # register(label, owner, years, token, maxAmount)
                     h = send_tx("anubis", acct, NAMES, "0xd868a84f" + u256(0xa0) + pad(a) + u256(1) + pad(DAI) + u256(cost) + abistr(n), f"注册 {n}")
                     print(f"  ✅ {n} → {a} {h}"); done.append(n); failn.remove(n)
@@ -134,8 +161,7 @@ def main():
                         fail.append(f"{n}（注册失败，已退款）")
                     except Exception as e2:
                         print(f"  ⚠️ 退款也失败：{e2}"); fail.append(f"{n}（注册失败，退款待人工）")
-            except Exception as e:
-                print(f"  ❌ {n} 出错：{e}"); fail.append(f"{n}（出错，没扣钱）")
+            flush()  # 每一批做完马上报给网站（票跟着记上），页面上的进度一批一批往前走
         if dry:
             continue
         flush()

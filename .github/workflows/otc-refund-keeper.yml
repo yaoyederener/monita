@@ -96,7 +96,7 @@ jobs:
           done
 
   # 🤖 代注册机器人（批量注册「交给机器人代点」）+ 代烧机器人：单独一个任务，和 refund 并行（站长 2026-11-14：代点要快）。
-  #   原来排在 5 分钟任务里，客户下单后最长要等 5 分钟才开始注册。现在这个任务一起来先跑一遍代烧，然后 4 分钟里每 10 秒看一次有没有新的代注册委托。
+  #   原来排在 5 分钟任务里，客户下单后最长要等 5 分钟才开始注册。现在这个任务一起来先跑一遍代烧，然后 4 分钟里每 5 秒看一次有没有新的代注册委托（2026-11-28 从 10 秒改成 5 秒）。
   #   两个机器人共用同一个钱包（REG_KEY），所以放在同一个任务里一前一后跑，绝不并行；同一时间只允许一个 reg 任务（concurrency）。
   reg:
     runs-on: ubuntu-latest
@@ -125,7 +125,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -u burn_bot.py
 
-      - name: Reg bot - register names for customers who delegated, checking every 10 seconds
+      - name: Reg bot - register names for customers who delegated, checking every 5 seconds
         if: always()
         continue-on-error: true
         timeout-minutes: 7
@@ -141,7 +141,7 @@ jobs:
             n=$(( n + 1 ))
             python -u reg_bot.py > /tmp/reg.log 2>&1 || true
             if ! grep -q "没有待办" /tmp/reg.log; then echo "== 第 $n 次，$(date -u +%H:%M:%S) UTC"; cat /tmp/reg.log; fi
-            sleep 10
+            sleep 5  # 站长 2026-11-28「这个过程有点慢」：10 秒 → 5 秒，客户下单后更快开始
           done
           echo "这一轮看了 $n 次"
 
