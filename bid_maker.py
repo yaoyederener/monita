@@ -481,9 +481,12 @@ def keep_split(st, mine, bid, net, cap, dai, left_ail, equity, others_bid, other
     ok = [m for m in ok if m not in big]
     stale = sorted(stale + big, key=lambda m: -m[2])
     extra = []
+    dust = sorted((m for m in ok if m[2] < piece // 5), key=lambda m: m[2])  # 零头单：不到平均一份的五分之一
     if len(ok) > 2 * SPLIT:                                  # 太多：最小的几张合成一张
         extra = sorted(ok, key=lambda m: m[2])[:len(ok) - SPLIT]
-        ok = [m for m in ok if m not in extra]
+    elif len(ok) > SPLIT and len(dust) >= 2:                 # 多出来的是几张零头：合成一张（合完仍不少于 N 张）
+        extra = dust[:len(ok) - SPLIT + 1]
+    ok = [m for m in ok if m not in extra]
     on = lambda m: m[3] > now                                # 没过期的才在网站盘口上显示
     live_n = [sum(1 for m in mine if on(m))]                 # 现在盘口上有几张（换单过程中看着它，日志里写最少剩几张）
     low = [live_n[0]]
