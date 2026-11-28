@@ -58,7 +58,7 @@ def save(st):
 def main():
     if not os.environ.get("ARB_KEY", "").strip():
         raise SystemExit("没有 ARB_KEY（/etc/bidbot.env），不跑")
-    print(f"[常驻] 启动：每轮最多 {b.SIZE:g} 枚 · 余量 {b.MARGIN * 100:.3f}% · 回撤 {b.MAX_LOSS:g} DAI 停机 · 每 {CHECK_EVERY}s 核一次挂单价" + (f" · 卖出每笔固定 {b.CHUNK:g} 枚（一轮最多 {b.CHUNK_ROUND} 笔，最多让 {b.SLACK * 100:g}%）" if b.CHUNK_WEI else ""), flush=True)
+    print(f"[常驻] 启动：每轮最多 {b.SIZE:g} 枚 · 余量 {b.MARGIN * 100:.3f}% · 回撤 {b.MAX_LOSS:g} DAI 停机 · 每 {CHECK_EVERY}s 核一次挂单价" + (f" · 买单拆成 {b.SPLIT} 张" if b.SPLIT > 1 else "") + (f" · 卖出每笔固定 {b.CHUNK:g} 枚（一轮最多 {b.CHUNK_ROUND} 笔，最多让 {b.SLACK * 100:g}%）" if b.CHUNK_WEI else ""), flush=True)
     st = b.load()
     last_blk, last_full, errs = 0, 0.0, 0
     while True:

@@ -196,6 +196,15 @@ CHUNK_WEI = int(round(CHUNK * 1e6)) * 10**12
 CHUNK_ROUND = int(os.environ.get("BID_CHUNK_ROUND", "10"))
 SELL_MIN = CHUNK_WEI or MIN_SELL   # 手里的币到这个数才去卖（常驻版也用它判断「有币要处理」）
 SELL_FAIL_MAX = 3                  # 分笔卖时交易多了十倍，节点偶尔抖一下很正常：连着 3 次不成才按「卖不掉」处理（撤单、等、停机）
+# 站长 2026-11-28「做市商机器人，订单拆下，保证最少有5笔以上的单子在线」→ BID_SPLIT = N：买单拆成 N 张一样价、差不多大的单挂着。
+#   · 价不对 / 快过期要换单时一张一张换（撤一张、马上挂一张新价的），不再一下全撤：N = 6 时换单途中盘口上也一直有 5 张以上
+#   · 有单被吃光：钱一回来就先补够 N 张（不等攒够）；单子越补越多、超过 2N 张：把最小的几张撤掉合成一张
+#   · 某张比平均一份大 2 倍以上（比如以前那种一整张大单）：撤掉拆成几份
+#   · 总共挂多少钱、什么价、什么时候撤，规矩和以前一样（SIZE / LINE / MARGIN / 回撤停机 / 链慢撤单），只是拆成几张
+#   · 每张至少 MIN_ORDER（20 DAI）：钱少得拆不出 N 张时，能拆几张拆几张
+#   站长定 5 张（服务器 /etc/bidbot.env 里 BID_SPLIT=5）：平时盘口上 5 张；换价那十几秒里有一张正在换，最少 4 张。想换价时也不少于 5 张就设 6。
+#   不设或设 1 = 老办法（一张单）。换一次价要撤 N 张、挂 N 张，Gas 是以前的 N 倍（一笔约 0.002 DAI，一天约多花几 DAI）
+SPLIT = max(1, int(os.environ.get("BID_SPLIT", "1") or 1))
 MAX_U = (1 << 256) - 1
 TX = "https://anubisscan.io/tx/"
 
@@ -400,6 +409,8 @@ def live(st):
     # 更糟的是客户点了旧单的「卖出」，旧单已被撤，他那笔交易会失败。现在改成：价格还对的旧单留着不动，卖回来的 DAI 另挂一张补上；
     # 只有价格不对 / 快过期的才撤；同价的单攒到 4 张以上再合成一张
     cap = int(SIZE * bid * 1e18)
+    if SPLIT > 1:
+        return keep_split(st, mine, bid, net, cap, dai, left_ail, equity, others_bid, others_ask, now, tx, cancel_all, halt)
     if LINE:  # 挂在线上：比该挂的价高出 5 分钱以上（行情跌了）或低了 0.15 以上（掉到线下面去了）就撤掉重挂
         ok = [m for m in mine if m[3] - now > 600 and -0.15 <= m[1] - bid <= 0.05]
     else:
@@ -448,6 +459,125 @@ def live(st):
     st["cost_px"] = max(st.get("cost_px") or 0, bid)
     print(f"[实盘] DEX 每枚到手 {net:.2f} · 买单挂 {bid:.2f} · 别人的买一 {others_bid:.2f} / 卖一 {others_ask:.2f} · 总资产 {equity:.2f} DAI"
           f" · 累计实盘 {st.get('real_coins', 0):.4f} 枚 这头 {st.get('real_pnl', 0):+.2f} DAI")
+
+
+def is_ok(m, bid, net, now):
+    """这张买单还能留着吗：没快过期、价还对（和老办法同一条标准）"""
+    if m[3] - now <= 600:
+        return False
+    if LINE:
+        return -0.15 <= m[1] - bid <= 0.05
+    return abs(m[1] - bid) / bid <= 0.0005 and m[1] <= net * (1 - MARGIN / 2)
+
+
+def keep_split(st, mine, bid, net, cap, dai, left_ail, equity, others_bid, others_ask, now, tx, cancel_all, halt):
+    """BID_SPLIT = N 时的挂单：盘口上保持 N 张同价的买单，换价时一张一张换（规矩见文件上面 SPLIT 那段）"""
+    inv = int(left_ail * bid * 1e18) if CHUNK_WEI else 0   # 分笔卖时手里的币也算进 SIZE
+    total = max(0, min(cap - inv, sum(m[2] for m in mine) + max(0, dai - GAS_KEEP)))
+    piece = total // SPLIT                                   # 平均一份多大
+    ok = [m for m in mine if is_ok(m, bid, net, now)]
+    stale = [m for m in mine if m not in ok]                 # 价不对 / 快过期：要换
+    big = [m for m in ok if piece >= MIN_ORDER and m[2] > 2 * piece]  # 太大：拆开
+    ok = [m for m in ok if m not in big]
+    stale = sorted(stale + big, key=lambda m: -m[2])
+    extra = []
+    if len(ok) > 2 * SPLIT:                                  # 太多：最小的几张合成一张
+        extra = sorted(ok, key=lambda m: m[2])[:len(ok) - SPLIT]
+        ok = [m for m in ok if m not in extra]
+    on = lambda m: m[3] > now                                # 没过期的才在网站盘口上显示
+    live_n = [sum(1 for m in mine if on(m))]                 # 现在盘口上有几张（换单过程中看着它，日志里写最少剩几张）
+    low = [live_n[0]]
+
+    def settle(gone):
+        ids = {m[0] for m in gone}
+        is_gone = lambda: not ({m[0] for m in my_orders(now)[0]} & ids)
+        if not is_gone():
+            time.sleep(2)  # 节点可能慢半拍，等一下再读一次
+            if not is_gone():
+                st["cancel_fail"] = st.get("cancel_fail", 0) + 1
+                if st["cancel_fail"] >= CANCEL_MAX:
+                    halt(f"旧买单连续 {CANCEL_MAX} 次都撤不掉", [])
+                    return False
+                print(f"[实盘] 旧买单还没撤掉（第 {st['cancel_fail']} 次，多半是链上确认慢），下一轮再试")
+                return False
+        st["cancel_fail"] = 0
+        return True
+
+    def place(amt, what):
+        want = -(-amt * 100 // int(round(bid * 100)))  # 往上取：实际单价只会比 bid 低一丁点
+        try:
+            if int(call(DAI, "0xdd62ed3e" + pad(ME) + pad(OTC)), 16) < amt:
+                tx(DAI, "0x095ea7b3" + pad(OTC) + f"{MAX_U:064x}", "授权 OTC 合约用 DAI 挂单（只这一次）")
+            tx(OTC, CREATE + f"{0:064x}{amt:064x}{want:064x}{DURATION:064x}", f"{what}买单 {amt / 1e18:.2f} DAI @ {bid:.2f}")
+        except Exception as e:
+            st["create_fail"] = st.get("create_fail", 0) + 1
+            if st["create_fail"] >= 5:
+                halt(f"挂单连续 5 次没成功（{str(e)[:160]}）", [])
+            else:
+                print(f"[实盘] 挂单没成功（第 {st['create_fail']} 次，下一轮再试）：{str(e)[:160]}")
+            return False
+        st["create_fail"] = 0
+        st["live_bid"] = bid
+        st["cost_px"] = max(st.get("cost_px") or 0, bid)
+        ok.append((None, bid, amt, now + DURATION))
+        live_n[0] += 1
+        return True
+
+    # 手里能挂的 DAI：撤单退回来的按单子上剩的钱自己加，再和链上读到的余额取小的那个——节点慢半拍读到旧余额时，宁可这一轮少挂，不多挂
+    free = dai - GAS_KEEP
+    if extra:  # 其余的单都在线，一起撤掉，下面补单时合成一张
+        cancel_all(extra)
+        if not settle(extra):
+            return
+        live_n[0] -= sum(1 for m in extra if on(m))
+        low[0] = min(low[0], live_n[0])
+        free = min(free + sum(m[2] for m in extra), bal(DAI, ME) - GAS_KEEP)
+    short = SPLIT - live_n[0]
+    if short > 0 and stale:  # 盘口上本来就不够 N 张（刚有单被吃光）又要换价：先用手里的钱补上，再一张一张换，换单途中才不会掉到 N - 1 张以下
+        room = cap - inv - sum(x[2] for x in ok) - sum(x[2] for x in stale)
+        amt = min(free, room)
+        n = min(short, max(0, amt) // MIN_ORDER)
+        for _ in range(n):
+            if not place(amt // n, "补挂"):
+                return
+            free -= amt // n
+    for i, m in enumerate(stale):  # 一张一张换：撤一张 → 马上挂上新价的
+        cancel_all([m])
+        if not settle([m]):
+            return
+        live_n[0] -= 1 if on(m) else 0
+        low[0] = min(low[0], live_n[0])
+        free = min(free + m[2], bal(DAI, ME) - GAS_KEEP)
+        rest = stale[i + 1:]
+        room = cap - inv - sum(x[2] for x in ok) - sum(x[2] for x in rest)
+        amt = min(free, room)
+        if amt < MIN_ORDER:
+            continue
+        n = max(1, SPLIT - len(ok) - len(rest), round(amt / piece) if piece else 1)
+        n = max(1, min(n, amt // MIN_ORDER))
+        for _ in range(n):
+            if not place(amt // n, "换"):
+                return
+            free -= amt // n
+    held = sum(m[2] for m in ok)
+    budget = min(cap - held - inv, free)
+    st["live_bid"] = max([m[1] for m in ok], default=0)
+    if len(ok) < SPLIT:  # 不够 N 张：有 20 DAI 就先补上，能拆几张拆几张
+        n = min(SPLIT - len(ok), max(0, budget) // MIN_ORDER)
+        for _ in range(n):
+            if not place(budget // n, "补挂"):
+                return
+    else:  # 已经够 N 张：零钱攒够了再挂一张（和老办法同一个门槛，免得单子越挂越碎）
+        part = 4 if (CHUNK_WEI and left_ail * 1e18 >= SELL_MIN) else 50
+        if budget >= (MIN_ORDER if extra else max(MIN_ORDER, (held + max(budget, 0)) // part)):  # 刚合并撤下来的钱：直接挂成一张
+            if not place(budget, "补挂"):
+                return
+    held = sum(m[2] for m in ok)
+    if not ok:
+        print(f"[实盘] 钱包只有 {dai / 1e18:.2f} DAI，不够挂单（至少 {MIN_ORDER / 1e18 + GAS_KEEP / 1e18:.0f}）。往 {ME} 转 DAI 就会自动开始")
+        return
+    print(f"[实盘] 买单 {len(ok)} 张在线（要 {SPLIT} 张" + (f"，这一轮换单时最少还剩 {low[0]} 张" if stale or extra else "") + f"）· 挂价 {bid:.2f}"
+          f"（DEX 每枚到手 {net:.2f}）· 共 {held / 1e18:.2f} DAI · 别人的买一 {others_bid:.2f} / 卖一 {others_ask:.2f} · 总资产 {equity:.2f} DAI")
 
 
 def run_live():
