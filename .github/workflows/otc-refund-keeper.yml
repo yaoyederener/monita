@@ -22,9 +22,9 @@ permissions:
   contents: write
   actions: write
 
-concurrency:
-  group: otc-refund-keeper
-  cancel-in-progress: false
+# 站长 2026-11-28「太慢了吧？」：以前整个流程只许一份在跑（流程级 concurrency），refund 一跑 6～9 分钟，下一轮代注册就得排队等它，
+# 中间好几分钟没人接代点的单。现在不在流程级排队，改成每个任务各排各的（fast / reg / refund 各有自己的 concurrency 组），
+# 同一种任务照样绝不两份同时跑，代注册不再被 refund 拖住。
 
 jobs:
   # ⚡ 极速预言家：结算 + 发奖，单独一个任务，和下面的 refund 并行（站长 2026-11-14「做成秒发」）。
@@ -100,7 +100,7 @@ jobs:
   #   两个机器人共用同一个钱包（REG_KEY），所以放在同一个任务里一前一后跑，绝不并行；同一时间只允许一个 reg 任务（concurrency）。
   reg:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 15
     concurrency:
       group: reg-bot
       cancel-in-progress: false
@@ -128,14 +128,14 @@ jobs:
       - name: Reg bot - register names for customers who delegated, checking every 5 seconds
         if: always()
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 10
         shell: bash
         env:
           REG_KEY: ${{ secrets.REG_KEY }}
           BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
           PYTHONUNBUFFERED: "1"
         run: |
-          end=$(( $(date +%s) + 240 ))
+          end=$(( $(date +%s) + 285 ))  # 2026-11-28：240 → 285 秒，和下一轮（5 分钟后触发、排在这一轮后面）接上，中间不留空
           n=0
           while [ "$(date +%s)" -lt "$end" ]; do
             n=$(( n + 1 ))
@@ -148,6 +148,9 @@ jobs:
   refund:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: otc-refund
+      cancel-in-progress: false
 
     steps:
       - name: Checkout repository
