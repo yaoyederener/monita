@@ -642,18 +642,19 @@ def pay_out(st, pool, dry, fresh_paid, note, grace=0, guard=None, snap=None):
 
     def clear(d):
         """🔒 发这一笔之前现查（复查 2026-11-28）：常驻程序和 GitHub 后备有时会同时发同一期（一边卡住超过 BACKUP_GRACE 秒的时候）。
-        先取链上已确认的交易数 n0，再从上次查到的区块往后查一遍「已经发出去的奖」，没人发过才用编号 n0 发。
-        两边用的是同一个钱包、同一个编号只能上链一笔：另一边要是抢在中间发了，这一笔就上不了链，不会给同一个人发两遍。
+        三样东西钉在同一个区块 b 上（复查 2026-11-28：分开问的话，几个节点各答一样会对不上）：
+          ① b = 节点现在的最新块；② n0 = 截至第 b 块，这个钱包上链了几笔交易；③ 从上次查到的地方查到第 b 块，「已经发出去的奖」里有没有这一笔。
+        另一边那笔要是在 b 之前上链：n0 算了它，③ 也查得到它，就不发；要是在 b 之后上链：它用掉的正是 n0 这个编号，我们这一笔上不了链。
+        所以不管哪个节点回答、回答得新还是旧，都不会给同一个人发两遍。
         返回要用的编号；钱包还有交易在路上、或者这一笔链上已经有人发了 → 返回 None（这轮停下，下一轮按链上重新算）"""
-        n0 = int(rpc("anubis", "eth_getTransactionCount", [FAST_POOL, "latest"]), 16)
+        b = int(rpc("anubis", "eth_blockNumber", []), 16)
+        n0 = int(rpc("anubis", "eth_getTransactionCount", [FAST_POOL, hex(b)]), 16)
         if int(rpc("anubis", "eth_getTransactionCount", [FAST_POOL, "pending"]), 16) != n0:
             print("极速池钱包有交易还没确认（可能另一边正在发），剩下的下一轮再发")
             return None
-        if seen[0] is not None:
-            b = int(rpc("anubis", "eth_blockNumber", []), 16)
-            if b > seen[0]:
-                fresh_paid.update(read_paid(seen[0] + 1, b))
-                seen[0] = b
+        if seen[0] is not None and b > seen[0]:
+            fresh_paid.update(read_paid(seen[0] + 1, b))
+            seen[0] = b
         if f"{d['r']}:{d['w']}" in fresh_paid:
             print(f"第 {d['r']} 期 {d['w'][:10]}… 链上已经发过了（另一边刚发的），剩下的下一轮再说")
             return None
